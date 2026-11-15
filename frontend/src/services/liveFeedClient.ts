@@ -200,13 +200,16 @@ export class LiveFeedClient {
       // The graph that lost access is no longer the one watched.
       this.revokedGraph = null
       this.pendingReport = null
-      // The graph list alone is watched: live, once the server has let the socket in.
-      if (!graphId && this.socket && this.authenticated) this.setStatus(this.listLost ? 'error' : 'live')
+      // The graph list alone is watched: live once the server has let the socket
+      // in, unless the list itself still waits on a retry.
+      if (!graphId && this.socket && this.authenticated) this.setStatus(this.refused.size > 0 ? 'reconnecting' : 'live')
     }
     if (!this.running) return
     if (this.socket && this.socket.readyState === OPEN) {
       if (previous) this.unsubscribe(previous)
       if (graphId) this.subscribe(graphId)
+      // A socket that had lost the graph list, and now its graph, watches nothing.
+      else this.stopIfNothingWatched(this.socket, 'This key may not watch the graph list, and no graph is open, so nothing arrives')
     } else if (!this.socket && !this.connecting) {
       // Nothing was connectable until there was a graph, or the last try was refused.
       this.attempt = 0

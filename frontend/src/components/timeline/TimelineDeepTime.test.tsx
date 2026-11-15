@@ -83,9 +83,9 @@ describe('a timeline of a million years', () => {
     expect(labels.length).toBeGreaterThan(2)
     expect(new Set(labels).size).toBe(labels.length)
     // As the locale writes a year and its era (en-US here), as the event labels do.
-    expect(labels.some((label) => /^\d+ BC$/.test(label))).toBe(true)
+    expect(labels.some((label) => /^\d+ BCE$/.test(label))).toBe(true)
     expect(labels.some((label) => /^\d+$/.test(label))).toBe(true)
-    expect(labels.some((label) => /BCE|CE$/.test(label))).toBe(false)
+    expect(labels.every((label) => /^\d+( BCE)?$/.test(label))).toBe(true)
   })
 
   it('keeps a real history\'s axis in the d3 style it always had', () => {
@@ -112,7 +112,7 @@ describe('a history a Date can hold, near its lower bound', () => {
       const labels = axisLabels()
       expect(labels.length).toBeGreaterThan(2)
       expect(new Set(labels).size).toBe(labels.length)
-      expect(labels.some((label) => /\d BC$/.test(label))).toBe(true)
+      expect(labels.some((label) => /\d BCE$/.test(label))).toBe(true)
       // 200,001 BCE is year -200000: never "-200000s" or a bare negative year.
       expect(labels.some((label) => /^-|s$/.test(label))).toBe(false)
     })
@@ -121,7 +121,7 @@ describe('a history a Date can hold, near its lower bound', () => {
       render(<ActorTimeline events={actorEvents([from, to])} arcs={[]} actor="Actor" layoutMode="chronological" width={900} height={400} />)
       const labels = axisLabels()
       expect(labels.length).toBeGreaterThan(2)
-      expect(labels.some((label) => /\d BC$/.test(label))).toBe(true)
+      expect(labels.some((label) => /\d BCE$/.test(label))).toBe(true)
       expect(labels.some((label) => /^-|s$/.test(label))).toBe(false)
     })
   }

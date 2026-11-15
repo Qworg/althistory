@@ -46,8 +46,8 @@ export function eventNodeLabel(event: Pick<Event, 'description' | 'actor' | 'tar
 }
 
 /**
- * The year an event falls in, as every year label writes it: in UTC, with its
- * era before 1 CE ("44 BC" in en-US); in the world's own years when the graph
+ * The year an event falls in, as every year label writes it: in UTC, with
+ * BCE before 1 CE ("44 BCE"), as a person types it; in the world's own years when the graph
  * has a calendar ("312 AR").
  */
 export function eventYear(timestamp: string | Date, calendar?: GraphCalendar | null): string {

@@ -199,9 +199,9 @@ describe('eventYear and the canvas label', () => {
   })
 
   it('writes years before 1 CE with their era, as every other year label does', () => {
-    expect(eventYear('-000043-03-15T00:00:00Z', null)).toBe('44 BC')
-    expect(eventYear('0000-06-01T00:00:00Z', null)).toBe('1 BC')
-    expect(eventYear('-251999-06-01T00:00:00Z', null)).toBe('252000 BC')
+    expect(eventYear('-000043-03-15T00:00:00Z', null)).toBe('44 BCE')
+    expect(eventYear('0000-06-01T00:00:00Z', null)).toBe('1 BCE')
+    expect(eventYear('-251999-06-01T00:00:00Z', null)).toBe('252000 BCE')
   })
 })
 

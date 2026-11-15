@@ -83,7 +83,8 @@ describe('CounterfactualTimelineCanvas before 1 CE', () => {
       />
     )
     const labels = axisText(container)
-    expect(labels).toMatch(/\d+ BC\b/)
+    expect(labels).toMatch(/\d+(-\d{2}){0,2} BCE\b/)
     expect(labels).not.toMatch(/(^|\| )-\d/)
+    expect(labels).not.toMatch(/\d BC\b/)
   })
 })

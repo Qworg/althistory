@@ -18,8 +18,7 @@ import {
   calendarIn,
   compileCalendar,
   dateAt,
-  formatHistoricalDate,
-  formatHistoricalDateAt,
+  formatBoundAt,
   formatInWorld,
   formatWorldFields,
   gregorianDefinition,
@@ -29,6 +28,8 @@ import {
   legacyCalendarSet,
   parseWorldDate,
   positionOf,
+  readDateBound,
+  readHistoricalText,
   readWorldTimestamp,
   worldTicks,
 } from '../index'
@@ -226,6 +227,16 @@ describe('a timeline beyond a Date (Req 12)', () => {
           if (index > 0) expect(tick.position).toBeGreaterThan(ticks[index - 1]!.position)
         }
         expect(new Set(ticks.map((tick) => tick.label)).size).toBe(ticks.length)
+        // Each date tick is written as a person types it, and reads back as the moment it marks.
+        for (const tick of ticks) {
+          if (/^\d{2}:\d{2}$/.test(tick.label)) continue
+          expect(tick.label, tick.label).toMatch(/^\d+(-\d{2}(-\d{2})?)?( BCE)?( \d{2}:\d{2})?$/)
+          // The axis's first day starts before its bound, so a time in it cannot be read as that day's.
+          if (tick.position - (tick.position % 86_400_000n + 86_400_000n) % 86_400_000n < MIN_AXIS_MS) continue
+          // A date reads in a filter field; a date and time, wherever text is typed.
+          const read = / \d{2}:\d{2}$/.test(tick.label) ? readHistoricalText(tick.label, 'start') : readDateBound(tick.label, 'start', null)
+          expect(read.ok && read.time, tick.label).toBe(tick.position)
+        }
         // A domain of a few years or more always has a tick.
         if (hi - lo >= 10n * 366n * 86_400_000n) expect(ticks.length).toBeGreaterThanOrEqual(1)
       }),
@@ -233,26 +244,29 @@ describe('a timeline beyond a Date (Req 12)', () => {
     )
   })
 
-  it('labels a span of a million years in years, as the locale writes a year and its era', () => {
-    const ticks = gregorianTicks([-500_000n * 31_556_952_000n, 300_000n * 31_556_952_000n], 8, 'en-US')
+  it('labels a span of a million years in years, as a person types them: ASCII digits, BCE before 1 CE', () => {
+    const ticks = gregorianTicks([-500_000n * 31_556_952_000n, 300_000n * 31_556_952_000n], 8)
     expect(ticks.length).toBeGreaterThan(2)
     const labels = ticks.map((tick) => tick.label)
-    expect(labels.some((label) => /^\d+ BC$/.test(label))).toBe(true)
+    expect(labels.some((label) => /^\d+ BCE$/.test(label))).toBe(true)
     expect(labels.some((label) => /^\d+$/.test(label))).toBe(true)
-    // The same text the date formatters write for those years, in any locale's digits and era.
-    for (const locale of ['en-US', 'de', 'ar-EG']) {
-      for (const tick of gregorianTicks([-500_000n * 31_556_952_000n, 300_000n * 31_556_952_000n], 8, locale)) {
-        expect(tick.label).toBe(formatHistoricalDateAt(instantOfAxisTime(tick.position)!, 'year', locale, null))
-      }
+    for (const tick of ticks) {
+      expect(tick.label).toBe(formatBoundAt(instantOfAxisTime(tick.position)!, 'year'))
+      const read = readDateBound(tick.label, 'start', null)
+      expect(read.ok && read.time, tick.label).toBe(tick.position)
     }
   })
 
-  it('labels finer Gregorian ticks as the date formatters do, BCE included', () => {
+  it('labels finer Gregorian ticks in the bound syntax, BCE included', () => {
     const day = 86_400_000n
     const start = axisTimeOfCivil(-43, 3, 1)
-    const ticks = gregorianTicks([start, start + 20n * day], 6, 'en-US')
+    const ticks = gregorianTicks([start, start + 20n * day], 6)
     expect(ticks.length).toBeGreaterThan(1)
-    for (const tick of ticks) expect(tick.label).toBe(formatHistoricalDate(instantOfAxisTime(tick.position)!, 'en-US', null))
-    expect(ticks[0]!.label).toMatch(/44 BC$/)
+    for (const tick of ticks) {
+      expect(tick.label).toBe(formatBoundAt(instantOfAxisTime(tick.position)!, 'day'))
+      const read = readDateBound(tick.label, 'start', null)
+      expect(read.ok && read.time, tick.label).toBe(tick.position)
+    }
+    expect(ticks[0]!.label).toBe('44-03-01 BCE')
   })
 })

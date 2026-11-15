@@ -101,11 +101,20 @@ era.
 milliseconds from the domain's start (`axisToNumber`). Its ticks come from the
 calendar: `worldTicks` in a world, `gregorianTicks` without one beyond what
 d3's ticks reach. In range a Gregorian axis keeps d3's ticks, so a real
-history's axis is drawn where it always was. A Gregorian tick is labelled as
-the date formatters write the same moment (Req 11), in the locale's digits
-and with its era: "250000000 BC" and "Mar 1, 44 BC" in en-US, as the event
-labels beside it read. A d3 tick in a year before 1 CE, which d3 would label
-astronomically ("-0043"), is labelled the same way.
+history's axis is drawn where it always was.
+
+Year labels and ticks are written in the syntax a person types, so they read
+back where they are typed (`readDateBound`) in any locale: ASCII digits, `BCE`
+after a year before 1 CE, nothing after a year from 1 CE on, and at a month or
+day the bound syntax (`250000000 BCE`, `300000`, `44-03 BCE`, `1843-11-20`); a
+time of day after a day's first moment is its UTC `HH:MM`. Every
+`gregorianTicks` tick is written so. A d3 tick set (a real history's) keeps
+d3's labels unless any of its ticks falls before 1 CE: then the whole set is
+written in the typed syntax at the format's precision ("81 BCE … 1 BCE 20 40"),
+never d3's "-0043", "0001" or "20s" beside an era. Full dates in prose (event
+labels, the inspector, arc spans, tooltips) are the locale's (Req 11), "Mar 15,
+44 BC" in en-US: nobody types those back. The en-US "BC" of a full date beside
+the "BCE" of a year label is deliberate.
 
 ## Storage and exchange
 
@@ -147,15 +156,16 @@ Some behaviours were changed on purpose, and stay:
   does), because a span of hundreds of thousands of years is thousands of
   decades.
 - A timeline that starts before year -9999 (or comes within its own span of a
-  `Date`'s bounds) takes the calendar package's year ticks ("200000 BC" in
-  en-US) rather than d3's, which tick nothing there, or label years
-  astronomically ("-200000s" for 200,001 BCE). A history inside years -9999 to
-  9999 keeps d3's tick positions; a tick before 1 CE is labelled with its era
-  ("44 BC"), not d3's "-0043".
+  `Date`'s bounds) takes the calendar package's year ticks ("200000 BCE")
+  rather than d3's, which tick nothing there, or label years astronomically
+  ("-200000s" for 200,001 BCE). A history inside years -9999 to 9999 keeps
+  d3's tick positions; a tick set with any tick before 1 CE is labelled whole
+  in the typed syntax of Req 12 ("44 BCE", "20"), not d3's "-0043" or "20s".
 - A year without a world's calendar (graph cards, the graph selector, the
-  actor view, the causal graph's node labels and ingestion span labels) is
-  written as the locale writes a year, with its era before 1 CE at every
-  magnitude: "44 BC", "500000 BC" in en-US, never the astronomical "-43". Every
-  door refuses "-43" as typed text (it could be 43 BCE or 44 BCE), so a label
-  that wrote it could not be typed back. This changes how real BCE years were
-  shown, on purpose.
+  actor view, the causal graph's node labels, ingestion span labels and the
+  counterfactual axis) is written in the typed syntax of Req 12 at every
+  magnitude and in every locale: "1843", "44 BCE", "500000 BCE", never the
+  astronomical "-43" (which every door refuses as typed text, since it could be
+  43 BCE or 44 BCE). Year labels and ticks use the typed syntax so they read
+  back in any locale; full dates use the locale. This changes how real BCE
+  years were shown, on purpose.

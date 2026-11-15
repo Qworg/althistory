@@ -33,7 +33,7 @@ describe('formatSpan', () => {
   it('writes a deep history\'s span, never "?–?"', () => {
     const deep = historySpan([{ timestamp: '-499999-03-15T00:00:00.000Z' }, { timestamp: '+300000-01-01T00:00:00.000Z' }])
     expect(deep).not.toBeNull()
-    expect(formatSpan(deep!)).toBe('500000 BC–300000')
+    expect(formatSpan(deep!)).toBe('500000 BCE–300000')
   })
 
   it('flags a date outside a deep span', () => {

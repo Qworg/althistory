@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import * as d3 from 'd3'
 import {
   createTimeScale,
@@ -17,6 +17,43 @@ import {
 } from './d3Calculations'
 import { Event, Arc } from '@/types'
 import { historicalYear } from '@/utils/historicalTime'
+import { readDateBound, toInstant } from '@althistory/calendar'
+
+/**
+ * Run `fn` as if the browser's locale were `locale`: every Intl formatter and
+ * toLocale*String call that names no locale gets it.
+ */
+function withDefaultLocale(locale: string, fn: () => void): void {
+  const DateTimeFormat = Intl.DateTimeFormat
+  const NumberFormat = Intl.NumberFormat
+  const proto = Date.prototype
+  const saved = { date: proto.toLocaleDateString, time: proto.toLocaleTimeString, both: proto.toLocaleString }
+  const pick = (locales: Intl.LocalesArgument | undefined) => locales ?? locale
+  try {
+    Intl.DateTimeFormat = function (locales?: Intl.LocalesArgument, options?: Intl.DateTimeFormatOptions) {
+      return new DateTimeFormat(pick(locales), options)
+    } as unknown as typeof Intl.DateTimeFormat
+    Intl.NumberFormat = function (locales?: Intl.LocalesArgument, options?: Intl.NumberFormatOptions) {
+      return new NumberFormat(pick(locales), options)
+    } as unknown as typeof Intl.NumberFormat
+    proto.toLocaleDateString = function (this: Date, locales?: Intl.LocalesArgument, options?: Intl.DateTimeFormatOptions) {
+      return saved.date.call(this, pick(locales), options)
+    }
+    proto.toLocaleTimeString = function (this: Date, locales?: Intl.LocalesArgument, options?: Intl.DateTimeFormatOptions) {
+      return saved.time.call(this, pick(locales), options)
+    }
+    proto.toLocaleString = function (this: Date, locales?: Intl.LocalesArgument, options?: Intl.DateTimeFormatOptions) {
+      return saved.both.call(this, pick(locales), options)
+    }
+    fn()
+  } finally {
+    Intl.DateTimeFormat = DateTimeFormat
+    Intl.NumberFormat = NumberFormat
+    proto.toLocaleDateString = saved.date
+    proto.toLocaleTimeString = saved.time
+    proto.toLocaleString = saved.both
+  }
+}
 import { ArcWithUIState } from '@/components/timeline/arcHierarchyUtils'
 
 /**
@@ -561,19 +598,73 @@ describe('axisTicks near a Date\'s lower bound', () => {
   ])('ticks %s to %s in BCE years, though a Date holds both', (from, to) => {
     const ticks = axisTicks([new Date(from), new Date(to)], 8, null)
     expect(ticks.length).toBeGreaterThan(2)
-    expect(ticks.some((tick) => /\d BC$/.test(tick.label))).toBe(true)
-    expect(ticks.every((tick) => !/^-|s$|BCE|CE$/.test(tick.label))).toBe(true)
+    expect(ticks.some((tick) => /\d BCE$/.test(tick.label))).toBe(true)
+    expect(ticks.every((tick) => /^\d+(-\d{2}){0,2}( BCE)?$/.test(tick.label))).toBe(true)
   })
 
   it('ticks a real history across 1 CE with the era its labels use, never an astronomical year', () => {
     const ticks = axisTicks([new Date('-000099-01-01T00:00:00.000Z'), new Date('0100-01-01T00:00:00.000Z')], 8, null)
     expect(ticks.length).toBeGreaterThan(2)
-    expect(ticks.some((tick) => /^\d+ BC$/.test(tick.label))).toBe(true)
-    expect(ticks.every((tick) => !/^-|BCE/.test(tick.label))).toBe(true)
+    // The whole set in the typed syntax: no decade "s", no zero padding, BCE before 1 CE.
+    expect(ticks.some((tick) => /^\d+ BCE$/.test(tick.label))).toBe(true)
+    for (const tick of ticks) {
+      expect(tick.label).toMatch(/^[1-9]\d*( BCE)?$/)
+      const read = readDateBound(tick.label, 'start', null)
+      expect(read.ok && +read.date, tick.label).toBe(+tick.date)
+    }
     // At d3's own positions: a real history's axis is drawn where it always was.
     expect(ticks.map((tick) => +tick.date)).toEqual(
       d3.scaleUtc().domain([new Date('-000099-01-01T00:00:00.000Z'), new Date('0100-01-01T00:00:00.000Z')]).ticks(8).map(Number)
     )
+  })
+
+  it('labels a month-precision set across 1 CE in the bound syntax', () => {
+    const ticks = axisTicks([new Date('-000001-09-01T00:00:00.000Z'), new Date('0001-04-01T00:00:00.000Z')], 6, null)
+    expect(ticks.length).toBeGreaterThan(2)
+    expect(ticks.some((tick) => / BCE$/.test(tick.label))).toBe(true)
+    for (const tick of ticks) {
+      expect(tick.label).toMatch(/^[1-9]\d*-\d{2}(-\d{2})?( BCE)?$/)
+      const read = readDateBound(tick.label, 'start', null)
+      expect(read.ok && +read.date, tick.label).toBe(+tick.date)
+    }
+  })
+
+  it('labels a set before 1 CE read in local time from the local date, not the UTC one', () => {
+    vi.stubEnv('TZ', 'Pacific/Auckland')
+    try {
+      // Local midnight on 1 January of year 0 (1 BCE) is still 31 December of 2 BCE in UTC.
+      const tick = new Date(2000, 0, 1)
+      tick.setFullYear(0)
+      expect(tick.getUTCFullYear()).toBe(-1)
+      expect(formatTimeAxisTicks([tick], 5 * 365 * 86_400_000, false)).toEqual(['1 BCE'])
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('writes the same labels in every locale, and they read back as the ticks', () => {
+    const domains: Array<[string, string]> = [
+      ['-250000-01-01T00:00:00.000Z', '+050000-01-01T00:00:00.000Z'],
+      ['-000099-01-01T00:00:00.000Z', '0100-01-01T00:00:00.000Z'],
+      ['-000043-03-01T00:00:00.000Z', '-000043-03-20T00:00:00.000Z'],
+    ]
+    const english = domains.map(([a, b]) => axisTicks([new Date(a), new Date(b)], 8, null).map((tick) => tick.label))
+    for (const locale of ['en-US', 'de', 'fr', 'ja', 'ar-EG']) {
+      withDefaultLocale(locale, () => {
+        for (const [index, [a, b]] of domains.entries()) {
+          const ticks = axisTicks([new Date(a), new Date(b)], 8, null)
+          expect(ticks.map((tick) => tick.label), locale).toEqual(english[index])
+          for (const tick of ticks) {
+            const read = readDateBound(tick.label, 'start', null)
+            expect(read.ok && +read.date, `${locale} ${tick.label}`).toBe(+tick.date)
+          }
+        }
+        for (const iso of ['-000043-03-15T00:00:00Z', '-499999-03-15T00:00:00.000Z', '1843-11-20T00:00:00Z']) {
+          const read = readDateBound(historicalYear(iso, null), 'start', null)
+          expect(read.ok && read.date.getUTCFullYear(), `${locale} ${iso}`).toBe(toInstant(iso).getUTCFullYear())
+        }
+      })
+    }
   })
 
   it('labels deep-time year ticks as the year labels write them', () => {

@@ -82,13 +82,17 @@ export function formatHistoricalRange(start: DateInput, end: DateInput, locale?:
 
 /**
  * The year of a date: in a world, as its calendar names it ("312 AR");
- * without one, the UTC year as the locale writes it, with its era before 1 CE
- * at every magnitude ("1843", "44 BC", "500000 BC"), as every other date
- * label does. The astronomical "-43" is never shown: typed back it could be
- * 43 BCE or 44 BCE, and is refused. '?' when there is no date.
+ * without one, the UTC year as a person types it, in every locale, so that it
+ * reads back where it is typed: ASCII digits, BCE before 1 CE at every
+ * magnitude ("1843", "44 BCE", "500000 BCE"). Never the astronomical "-43",
+ * which could be 43 BCE or 44 BCE and is refused. (A full date is written by
+ * the locale, "Mar 15, 44 BC" in en-US: nobody types those back.) '?' when
+ * there is no date.
  */
-export function historicalYear(value: DateInput, calendar?: CalendarArg, locale?: string): string {
+export function historicalYear(value: DateInput, calendar?: CalendarArg): string {
   const date = calendarLib.toDate(value)
   if (Number.isNaN(date.getTime())) return '?'
-  return calendarLib.formatHistoricalDateAt(date, 'year', locale, resolveCalendar(calendar))
+  const world = resolveCalendar(calendar)
+  if (world) return calendarLib.formatHistoricalDateAt(date, 'year', undefined, world)
+  return calendarLib.formatBoundAt(date, 'year')
 }

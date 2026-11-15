@@ -14,7 +14,7 @@ import {
   EventComparisonItem,
 } from '@/utils/divergenceAnalysis'
 import { layoutEventLabels, truncateLabel, LABEL_ROW_OFFSETS, type EventLabelPlacement, type LabelLayoutConfig } from '@/components/timeline/eventLabelLayout'
-import { msApart, toAxisTime, toInstant } from '@althistory/calendar'
+import { formatBoundAt, msApart, toAxisTime, toInstant } from '@althistory/calendar'
 
 export interface CounterfactualTimelineCanvasProps {
   readonly baselineName: string
@@ -110,7 +110,11 @@ function formatTicks(dates: readonly Date[]): string[] {
       d.getUTCHours() === 0 &&
       d.getUTCMinutes() === 0
   )
-  return dates.map(d => (allYearStarts ? historicalYear(d, null) : formatHistoricalDate(d, undefined, null)))
+  // A set with any tick before 1 CE names its days as a person types them ("44-03-15 BCE"), as its years.
+  const beforeCommonEra = dates.some(d => d.getUTCFullYear() <= 0)
+  return dates.map(d =>
+    allYearStarts ? historicalYear(d, null) : beforeCommonEra ? formatBoundAt(d, 'day') : formatHistoricalDate(d, undefined, null)
+  )
 }
 
 /**
