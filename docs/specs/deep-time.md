@@ -118,7 +118,9 @@ default view is 20 seconds, and zoom reaches 1); a day's first moment
 (00:00:00.000) is written as its date. The axis names the day of its times in a
 caption under it ("44-03-15 BCE", or "44-03-14 BCE – 44-03-15 BCE" across
 midnight), taken from the visible span, so the day stays named however the
-ticks are thinned, even where there is no tick. The reader takes a time to the
+ticks are thinned, even where there is no tick. If two labels would still read
+the same (a day-long view whose ends share a time), every tick is its date and
+time instead, and no caption is drawn. The reader takes a time to the
 minute, second or millisecond after a date, so every label and the caption read
 back. Before 1 CE, in deep time and beyond 9999 (never for a world calendar), an
 end label that would run past the SVG is anchored inward, and ticks whose
