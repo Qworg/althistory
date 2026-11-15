@@ -246,6 +246,12 @@ export interface BatchLiveState {
   events?: Map<string, Event | null>;
   arcs?: Map<string, Arc | null>;
   links?: Array<{ cause_event_id: string; effect_event_id: string; live: StoredCausalRelationship[] }>;
+  /**
+   * The batch deleted an event or a link. Its version then has to find every
+   * head link that went with it, so every link object must be readable; a
+   * batch that only creates or edits needs just the links it touched.
+   */
+  deletesLinks?: boolean;
 }
 
 /** A value as stored (JSON), with every object's keys in order, so two spellings of one value compare equal. */
@@ -268,9 +274,13 @@ function sameData(head: Record<string, unknown>, written: Record<string, unknown
 /**
  * An arc's head-only `parent_arc_id`, as the edit leaves it:
  *
- *   - the parent the edit names in `metadata.parentArcId` (how the CLI, MCP
+ *   - a parent the edit names in `metadata.parentArcId` (how the CLI, MCP
  *     and the generator record one, and how a PUT moves an arc) wins over a
- *     different one the head still holds, which the export would prefer;
+ *     different one the head still holds, which the export would prefer --
+ *     but only when the edit changed it: a `parentArcId` the head's own
+ *     metadata already recorded is no move (`named` is undefined then). A
+ *     renaming import, before it remapped the metadata too, left a stale one
+ *     beside a remapped field, and an unrelated rename moved the arc;
  *   - none (null) once the arc is top level (level 0): a promoted arc that
  *     kept its parent made the export unimportable (ARC_HIERARCHY_VIOLATION).
  *
@@ -308,9 +318,11 @@ function overlay(
   if (!head) return projection;
   const data: Record<string, unknown> = { ...head, ...projection };
   if (type === 'arc' && 'parent_arc_id' in head && !('parent_arc_id' in projection)) {
-    const metadata = projection.metadata;
-    const named = metadata && typeof metadata === 'object' ? (metadata as Record<string, unknown>).parentArcId : undefined;
-    data.parent_arc_id = consistentParent(head.parent_arc_id, data.level, named);
+    const recordedParent = (metadata: unknown): unknown =>
+      metadata && typeof metadata === 'object' ? (metadata as Record<string, unknown>).parentArcId : undefined;
+    const named = recordedParent(projection.metadata);
+    const moved = named !== recordedParent(head.metadata) ? named : undefined;
+    data.parent_arc_id = consistentParent(head.parent_arc_id, data.level, moved);
   }
   if (type === 'relationship') {
     for (const [graphField, eventField] of [['causeGraphId', 'cause_event_id'], ['effectGraphId', 'effect_event_id']] as const) {
@@ -506,19 +518,27 @@ export class GraphWriteVersioningService {
 
   /** The difference a batch made from the head, committed as one version (nothing when it made none). */
   private async commitBatch(graphId: string, state: BatchLiveState): Promise<void> {
-    // Strict where leaving an unreadable object out would lose data: an entity
-    // the batch touched (it would read as one the head never had, and be
-    // versioned as the bare projection), and the links, when the batch deletes
-    // an event or touches a link (the scans below would miss one that joins
-    // it, and leave an orphan). Anything else stays lenient: one lost object
-    // elsewhere in the graph must not fail every batch on it.
-    const scansLinks = (state.links?.length ?? 0) > 0 || [...(state.events?.values() ?? [])].some((event) => event === null);
+    // Strict only where leaving an unreadable object out would lose data:
+    //   - an event or arc the batch edited (it would read as one the head never
+    //     had, and be versioned as the bare projection);
+    //   - a link the store now holds between a pair the batch touched, for the
+    //     same reason;
+    //   - every link, when the batch deleted an event or a link: the scans
+    //     below must find each head link that went with it, or leave an orphan.
+    // A delete needs only the tree entry (`lost` below), and anything else stays
+    // lenient: one lost object elsewhere must not fail every batch on the graph.
+    const liveLinks = new Set((state.links ?? []).flatMap((pair) => pair.live.map((link) => link.id)));
     const mustResolve = (type: EntityType, id: string): boolean =>
-      type === 'event' ? state.events?.has(id) === true
-        : type === 'arc' ? state.arcs?.has(id) === true
-          : type === 'relationship' ? scansLinks
+      type === 'event' ? state.events?.get(id) != null
+        : type === 'arc' ? state.arcs?.get(id) != null
+          : type === 'relationship' ? state.deletesLinks === true || liveLinks.has(id)
             : false;
-    const head = await this.graphRepository.checkout(graphId, undefined, { strict: mustResolve });
+    const missing: Array<{ type: EntityType; id: string }> = [];
+    const head = await this.graphRepository.checkout(graphId, undefined, { strict: mustResolve, missing });
+    // In the tree, though its object could not be read.
+    const lost = new Set(missing.map((entry) => `${entry.type}:${entry.id}`));
+    const inHead = (type: EntityType, entities: Record<string, unknown>, id: string): boolean =>
+      entities[id] !== undefined || lost.has(`${type}:${id}`);
     const changes: EntityChanges = { added: [], modified: [], deleted: [] };
     const deleted = new Set<string>();
     const remove = (type: EntityType, id: string): void => {
@@ -535,11 +555,11 @@ export class GraphWriteVersioningService {
 
     for (const [id, event] of state.events ?? []) {
       if (event) write('event', id, eventToVersionData(event), head.events[id]);
-      else if (head.events[id]) remove('event', id);
+      else if (inHead('event', head.events, id)) remove('event', id);
     }
     for (const [id, arc] of state.arcs ?? []) {
       if (arc) write('arc', id, arcToVersionData(arc), head.arcs[id]);
-      else if (head.arcs[id]) remove('arc', id);
+      else if (inHead('arc', head.arcs, id)) remove('arc', id);
     }
     for (const pair of state.links ?? []) {
       for (const link of pair.live) {
@@ -554,6 +574,11 @@ export class GraphWriteVersioningService {
     }
     // The live store detached every link of a deleted event.
     const goneEvents = new Set(changes.deleted.filter((entity) => entity.type === 'event').map((entity) => entity.id));
+    if (goneEvents.size > 0 && missing.some((entry) => entry.type === 'relationship')) {
+      // `deletesLinks` makes every link strict; a caller that deleted an event
+      // without saying so cannot be versioned without knowing its links.
+      throw new Error(`Cannot version a deleted event in graph ${graphId}: a link object in its head cannot be read`);
+    }
     for (const [id, link] of Object.entries(head.relationships)) {
       if (liveLinkIds.has(id)) continue;
       if (goneEvents.has(String(link.cause_event_id)) || goneEvents.has(String(link.effect_event_id))) remove('relationship', id);

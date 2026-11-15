@@ -43,6 +43,8 @@ export interface EntityChanges {
  */
 export interface ResolveOptions {
   strict?: boolean | ((type: EntityType, id: string) => boolean);
+  /** Collects the entries left out because their object could not be read (not strict). */
+  missing?: Array<{ type: EntityType; id: string }>;
 }
 
 /**
@@ -517,7 +519,7 @@ export class VersionRepository {
   /**
    * Resolve a tree to full graph data
    */
-  async resolveTree(graphId: string, tree: TreeObject, { strict = false }: ResolveOptions = {}): Promise<ResolvedGraphData> {
+  async resolveTree(graphId: string, tree: TreeObject, { strict = false, missing }: ResolveOptions = {}): Promise<ResolvedGraphData> {
     const result: ResolvedGraphData = {
       events: {},
       arcs: {},
@@ -538,7 +540,7 @@ export class VersionRepository {
         if (obj) result[key][id] = obj.data;
         else if (strict === true || (typeof strict === 'function' && strict(type, id))) {
           throw new Error(`The tree of graph ${graphId} names ${type} ${id}, whose object ${hash} cannot be read`);
-        }
+        } else missing?.push({ type, id });
       }
     }
 

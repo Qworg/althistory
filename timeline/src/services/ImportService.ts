@@ -2686,6 +2686,12 @@ export class ImportService {
         // FIX B#26: Preserve original metadata
         const originalMetadata = sanitizedArc.metadata || {};
         const storedCrossRefs = storedCrossRefsFor('arc', arc.id);
+        // The parent the CLI, MCP and the generator record in the metadata is
+        // remapped with parent_arc_id: left naming the old id, it sent a
+        // renamed copy back to the original parent on its next edit.
+        const recordedParent = (originalMetadata as Record<string, unknown>).parentArcId;
+        const remappedParent =
+          typeof recordedParent === 'string' && recordedParent !== '' ? { parentArcId: getRemappedId('arc', recordedParent) } : {};
         
         arcsToImport.push({
           id: newId,
@@ -2695,6 +2701,7 @@ export class ImportService {
             parent_arc_id: parentId,
             metadata: {
               ...originalMetadata,
+              ...remappedParent,
               ...provenanceData,
               originalId: arc.id !== newId ? arc.id : undefined,
               ...(storedCrossRefs ? { crossGraphRefs: storedCrossRefs } : {}),

@@ -371,7 +371,7 @@ export class GraphRepository {
   ): Promise<ResolvedGraphData> {
     // Options are forwarded only when given, so a plain checkout keeps its two-argument call.
     const read = (at: number): Promise<ResolvedGraphData> =>
-      options.strict ? this.versionRepository.checkout(graphId, at, options) : this.versionRepository.checkout(graphId, at);
+      options.strict || options.missing ? this.versionRepository.checkout(graphId, at, options) : this.versionRepository.checkout(graphId, at);
     if (version !== undefined) {
       return read(version);
     }

@@ -25,6 +25,7 @@ import type { ArcRepository } from '@/repositories/ArcRepository';
 import { CausalService, StoredCausalRelationship } from '@/services/CausalService';
 import { createLogger } from '@/utils/logger';
 import type { BatchLiveState, BatchStep } from '@/services/GraphWriteVersioningService';
+import { checkNamedParent } from '../arcParent';
 
 const logger = createLogger('BatchRoutes');
 
@@ -39,6 +40,8 @@ class Touched {
   readonly events = new Set<string>();
   readonly arcs = new Set<string>();
   readonly links = new Map<string, LinkPair>();
+  /** An event or a link was deleted: the version must read every head link (`BatchLiveState.deletesLinks`). */
+  deletesLinks = false;
 
   link(pair: LinkPair): void {
     this.links.set(JSON.stringify([pair.cause_event_id, pair.effect_event_id]), {
@@ -93,7 +96,7 @@ async function versionBatch(
 /** What the live store now holds of what a batch touched. */
 async function readBack(live: LiveReaders, touched: Touched): Promise<BatchLiveState> {
   const { eventRepository, arcRepository, causalService } = live;
-  const state: BatchLiveState = {};
+  const state: BatchLiveState = { deletesLinks: touched.deletesLinks };
   if (touched.events.size > 0 && eventRepository) {
     state.events = new Map();
     for (const id of touched.events) state.events.set(id, await eventRepository.findById(id));
@@ -804,6 +807,7 @@ batchRoutes.post(
 
           case 'update_arc': {
             const { id: arcId, ...arcUpdates } = op.data as { id: string } & Record<string, unknown>;
+            await checkNamedParent(arcId, arcUpdates, { arcRepository, head: () => req.container.graphRepository.checkout(requireGraphId(req)) });
             const updatedArc = await arcRepository.update(arcId, await readStepDates(arcUpdates, calendarOf, 'arc'));
             if (updatedArc) touched.arcs.add(arcId);
             opResult = { success: !!updatedArc, id: arcId };
@@ -813,7 +817,11 @@ batchRoutes.post(
           case 'delete_event': {
             const deleteEventId = (op.data as { id: string }).id;
             const deletedEvent = await eventRepository.delete(deleteEventId);
-            if (deletedEvent) touched.events.add(deleteEventId);
+            if (deletedEvent) {
+              touched.events.add(deleteEventId);
+              // Its links went with it (DETACH DELETE).
+              touched.deletesLinks = true;
+            }
             opResult = { success: deletedEvent, id: deleteEventId };
             break;
           }
@@ -867,6 +875,7 @@ batchRoutes.post(
               deleteRelData.effect_event_id
             );
             touched.link(deleteRelData);
+            touched.deletesLinks = true;
             const relId = `${deleteRelData.cause_event_id}_${deleteRelData.effect_event_id}`;
             opResult = { success: true, id: relId };
             liveIds.set(relId, deletedId);

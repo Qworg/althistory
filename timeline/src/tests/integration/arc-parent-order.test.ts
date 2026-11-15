@@ -321,4 +321,266 @@ describe("an arc's parent when a subtree moves", () => {
     await transaction(graphId, [{ type: 'update_arc', data: { id: 'D', metadata: { parentArcId: 'G' } } }]).expect(200);
     expect(await exported(graphId)).toEqual({ valid: true, errors: [], arcs: { G: [0, null], A: [0, null], B: [1, 'A'], C: [1, 'G'], D: [1, 'G'] } });
   });
+
+  /** The tree entries of a graph's head, by kind (present even when an object is lost). */
+  async function headTree(graphId: string): Promise<Record<string, Record<string, string>>> {
+    const versions = (container.graphRepository as unknown as { versionRepository: Record<string, (...args: unknown[]) => Promise<unknown>> }).versionRepository;
+    return (await versions.getTree(graphId, await versions.getCurrentTree(graphId))) as Record<string, Record<string, string>>;
+  }
+
+  const versionCount = async (graphId: string): Promise<number> => (await container.graphRepository.getVersionHistory(graphId)).total;
+
+  describe('fifth review', () => {
+    let importer: ImportService;
+
+    beforeAll(async () => {
+      importer = new ImportService({ dataDir: testDataDir, onHeadReplaced: (graphId, reason) => container.liveStoreSyncService.materialize(graphId, reason).then(() => undefined) });
+      await importer.initialize();
+    });
+
+    afterAll(async () => {
+      await importer.destroy();
+    });
+
+    // 1. An import that renamed a conflicting arc remapped its parent_arc_id
+    // and left metadata.parentArcId naming the old id; the overlay then took
+    // that stale metadata for a move, and an unrelated rename moved the copy.
+    for (const via of ['PUT', 'batch'] as const) {
+      it(`keeps an arc copied by a renaming import under its renamed parent through a rename, by ${via}`, async () => {
+        const graphId = await graphOf('cli', [['P', 0, '1800-01-01T00:00:00.000Z', '1900-01-01T00:00:00.000Z'], ['C', 1, '1810-01-01T00:00:00.000Z', '1820-01-01T00:00:00.000Z', 'P']]);
+        const document = await container.exportService.exportGraph({ graphId, scope: 'full', includeProvenance: false });
+        expect((await importer.executeImport(document.export, { mode: 'merge', conflictResolution: 'rename', graphId })).success).toBe(true);
+
+        const imported = await exported(graphId);
+        const childCopy = Object.keys(imported.arcs).find((id) => id.startsWith('C_imported'))!;
+        const parentCopy = Object.keys(imported.arcs).find((id) => id.startsWith('P_imported'))!;
+        expect(imported.arcs[childCopy]).toEqual([1, parentCopy]);
+        // The import remaps the parent the metadata records too, so the live store agrees.
+        const { arcRepository } = await container.graphScopedRepositories(graphId);
+        expect((await arcRepository.findById(childCopy))?.metadata?.parentArcId).toBe(parentCopy);
+
+        if (via === 'PUT') await put(graphId, childCopy, { name: 'Renamed copy' }).expect(200);
+        else await transaction(graphId, [{ type: 'update_arc', data: { id: childCopy, name: 'Renamed copy' } }]).expect(200);
+
+        const after = await exported(graphId);
+        expect(after.valid).toBe(true);
+        expect(after.arcs[childCopy]).toEqual([1, parentCopy]);
+        expect(after.arcs.C).toEqual([1, 'P']);
+      });
+    }
+
+    it('never moves an arc on an edit that leaves its recorded metadata parent as the head recorded it', async () => {
+      // A head whose metadata and field disagree, as a renaming import before
+      // this fix left one: the field is what the export reads.
+      graphCount += 1;
+      const graphId = (await container.graphService.createGraph({ name: `Stale metadata ${graphCount}` })).id;
+      const arc = (id: string, level: number, start: string, end: string, parent: string | null, metadataParent?: string) => ({
+        type: 'arc' as const,
+        id,
+        data: { id, name: id, description: id, start_time: start, end_time: end, level, parent_arc_id: parent, metadata: metadataParent ? { parentArcId: metadataParent } : {} },
+      });
+      await container.graphRepository.commitChanges(graphId, {
+        added: [
+          arc('A', 0, '1800-01-01T00:00:00.000Z', '1900-01-01T00:00:00.000Z', null),
+          arc('B', 0, '1801-01-01T00:00:00.000Z', '1899-01-01T00:00:00.000Z', null),
+          arc('C', 1, '1810-01-01T00:00:00.000Z', '1820-01-01T00:00:00.000Z', 'B', 'A'),
+        ],
+        modified: [],
+        deleted: [],
+      }, 'import', 'An import');
+      await container.liveStoreSyncService.materialize(graphId, 'import');
+
+      await put(graphId, 'C', { name: 'C renamed' }).expect(200);
+      expect((await exported(graphId)).arcs.C).toEqual([1, 'B']);
+      await transaction(graphId, [{ type: 'update_arc', data: { id: 'C', description: 'Edited in a batch' } }]).expect(200);
+      expect((await exported(graphId)).arcs.C).toEqual([1, 'B']);
+    });
+
+    // 3. Nothing checked the arc metadata names as a parent.
+    const badParents: Array<[string, string]> = [['itself', 'B'], ['its own child', 'C'], ['an arc that does not exist', 'missing-arc']];
+    for (const kind of ['cli', 'imported'] as const) {
+      for (const [what, parent] of badParents) {
+        it(`refuses to give ${kind} arc B ${what} as its parent, by PUT and in a batch`, async () => {
+          const graphId = await graphOf(kind, [
+            G,
+            ['A', 0, '1800-01-01T00:00:00.000Z', '1900-01-01T00:00:00.000Z'],
+            ['B', 1, '1805-01-01T00:00:00.000Z', '1850-01-01T00:00:00.000Z', 'A'],
+            ['C', 2, '1810-01-01T00:00:00.000Z', '1820-01-01T00:00:00.000Z', 'B'],
+          ]);
+          const before = await exported(graphId);
+          expect(before.valid).toBe(true);
+
+          const refused = await put(graphId, 'B', { metadata: { parentArcId: parent } }).expect(400);
+          expect(refused.body.error.message).toContain('parentArcId');
+          const step = await transaction(graphId, [{ type: 'update_arc', data: { id: 'B', metadata: { parentArcId: parent } } }]).expect(400);
+          expect(step.body.result.results[0]).toMatchObject({ success: false });
+          expect(String(step.body.result.results[0].error)).toContain('parentArcId');
+
+          expect(await exported(graphId)).toEqual(before);
+        });
+      }
+    }
+
+    // 2. Any batch that touched a link read every link strictly, so one lost
+    // link object failed every link batch on the graph.
+    it('versions a batch that creates links, though an unrelated link object is lost', async () => {
+      graphCount += 1;
+      const graphId = (await container.graphService.createGraph({ name: `Lost link ${graphCount}` })).id;
+      const add = async (description: string, timestamp: string): Promise<string> =>
+        (await request(app).post('/api/events').set('X-API-Key', key).set('X-Graph-Id', graphId).send({ description, actor: 'A', target: 'B', timestamp }).expect(201)).body.data.id as string;
+      const a = await add('A', '1800-01-01T00:00:00.000Z');
+      const b = await add('B', '1801-01-01T00:00:00.000Z');
+      const c = await add('C', '1802-01-01T00:00:00.000Z');
+      const d = await add('D', '1803-01-01T00:00:00.000Z');
+      await request(app)
+        .post('/api/causal/link')
+        .set('X-API-Key', key)
+        .set('X-Graph-Id', graphId)
+        .send({ causeEventId: a, effectEventId: b, relationship: { type: 'direct', strength: 0.5, confidence: 0.5, evidence: 'Seen' } })
+        .expect(201);
+      const lost = Object.keys((await container.graphRepository.checkout(graphId)).relationships)[0]!;
+      await loseObject(graphId, 'relationships', lost);
+
+      let versions = await versionCount(graphId);
+      await transaction(graphId, [{ type: 'create_relationship', data: { cause_event_id: b, effect_event_id: c, evidence: 'Seen' } }]).expect(200);
+      expect(await versionCount(graphId)).toBe(++versions);
+      await request(app).post('/api/batch/relationships').set('X-API-Key', key).set('X-Graph-Id', graphId)
+        .send({ graphId, relationships: [{ cause_event_id: a, effect_event_id: d, evidence: 'Seen' }] }).expect(201);
+      expect(await versionCount(graphId)).toBe(++versions);
+
+      const head = await container.graphRepository.checkout(graphId);
+      const pairs = Object.values(head.relationships).map((link) => `${link.cause_event_id}>${link.effect_event_id}`);
+      expect(pairs).toEqual(expect.arrayContaining([`${b}>${c}`, `${a}>${d}`]));
+      // The lost link is still in the tree.
+      expect(lost in (await headTree(graphId)).relationships).toBe(true);
+
+      // A batch that deletes a link still reads every link, and fails.
+      await transaction(graphId, [{ type: 'delete_relationship', data: { cause_event_id: b, effect_event_id: c } }]).expect(500);
+    });
+
+    // 4. A delete needs only the tree entry, but the batch read the object.
+    it('deletes, in a batch, an arc and an event whose objects are lost, as the single DELETE does', async () => {
+      const graphId = await graphOf('imported', [G, ['P', 0, '1800-01-01T00:00:00.000Z', '1900-01-01T00:00:00.000Z']]);
+      const event = (await request(app).post('/api/events').set('X-API-Key', key).set('X-Graph-Id', graphId)
+        .send({ description: 'Alone', actor: 'A', target: 'B', timestamp: '1850-01-01T00:00:00.000Z' }).expect(201)).body.data.id as string;
+      await loseObject(graphId, 'arcs', 'G');
+      await loseObject(graphId, 'events', event);
+      const versions = await versionCount(graphId);
+
+      await transaction(graphId, [{ type: 'delete_arc', data: { id: 'G' } }, { type: 'delete_event', data: { id: event } }]).expect(200);
+
+      expect(await versionCount(graphId)).toBe(versions + 1);
+      const tree = await headTree(graphId);
+      expect('G' in tree.arcs).toBe(false);
+      expect(event in tree.events).toBe(false);
+      expect('P' in tree.arcs).toBe(true);
+    });
+
+    it('leaves an untouched entity whose object is lost in the tree', async () => {
+      const graphId = await graphOf('imported', [G, ['P', 0, '1800-01-01T00:00:00.000Z', '1900-01-01T00:00:00.000Z']]);
+      const before = (await headTree(graphId)).arcs.G;
+      await loseObject(graphId, 'arcs', 'G');
+      await transaction(graphId, [{ type: 'update_arc', data: { id: 'P', name: 'P2' } }]).expect(200);
+      expect((await headTree(graphId)).arcs.G).toBe(before);
+    });
+  });
+
+  // The interactions of the fifth review's changes with their neighbours.
+  describe('fifth review, neighbours', () => {
+    const fourDeep: ArcSpec[] = [
+      G,
+      ['A', 0, '1800-01-01T00:00:00.000Z', '1900-01-01T00:00:00.000Z'],
+      ['B', 1, '1805-01-01T00:00:00.000Z', '1850-01-01T00:00:00.000Z', 'A'],
+      ['C', 2, '1810-01-01T00:00:00.000Z', '1820-01-01T00:00:00.000Z', 'B'],
+    ];
+
+    for (const kind of ['cli', 'imported'] as const) {
+      it(`${kind} arcs: a second move by metadata, and one back to the first parent, both land`, async () => {
+        const graphId = await graphOf(kind, fourDeep);
+        await put(graphId, 'B', { metadata: { parentArcId: 'G' } }).expect(200);
+        expect((await exported(graphId)).arcs.B).toEqual([1, 'G']);
+        await transaction(graphId, [{ type: 'update_arc', data: { id: 'B', metadata: { parentArcId: 'A' } } }]).expect(200);
+        const after = await exported(graphId);
+        expect(after.arcs.B).toEqual([1, 'A']);
+        expect(after.valid).toBe(true);
+      });
+
+      it(`${kind} arcs: a move whose version cannot be made is undone, in the live store and the head`, async () => {
+        const graphId = await graphOf(kind, fourDeep);
+        const before = await exported(graphId);
+        vi.spyOn(container.graphRepository, 'commitChanges').mockRejectedValueOnce(new Error('version store is down'));
+        await put(graphId, 'B', { metadata: { parentArcId: 'G' } }).expect(500);
+        expect(await exported(graphId)).toEqual(before);
+        const { arcRepository } = await container.graphScopedRepositories(graphId);
+        expect((await arcRepository.findById('B'))?.metadata?.parentArcId).toBe(kind === 'cli' ? 'A' : undefined);
+      });
+
+      it(`${kind} arcs: a move to the top level is not refused for the parent it names, which is cleared`, async () => {
+        const graphId = await graphOf(kind, demoteArcs);
+        await put(graphId, 'C', { level: 0, metadata: { parentArcId: 'no-such-arc' } }).expect(200);
+        expect((await exported(graphId)).arcs.C).toEqual([0, null]);
+      });
+
+      it(`${kind} arcs: a batch cannot close a loop over two steps`, async () => {
+        const graphId = await graphOf(kind, [
+          ['X', 1, '1800-01-01T00:00:00.000Z', '1900-01-01T00:00:00.000Z', 'G'],
+          ['Y', 1, '1801-01-01T00:00:00.000Z', '1899-01-01T00:00:00.000Z', 'G'],
+          G,
+        ]);
+        const res = await transaction(graphId, [
+          { type: 'update_arc', data: { id: 'X', metadata: { parentArcId: 'Y' } } },
+          { type: 'update_arc', data: { id: 'Y', metadata: { parentArcId: 'X' } } },
+        ]).expect(400);
+        expect(String(res.body.result.results[1].error)).toContain('is inside this arc');
+      });
+    }
+
+    it("does not refuse an edit that resends a CLI arc's recorded parent as it is, even a parent since deleted", async () => {
+      const graphId = await graphOf('cli', fourDeep);
+      const { arcRepository } = await container.graphScopedRepositories(graphId);
+      await arcRepository.delete('A');
+      const metadata = (await arcRepository.findById('B'))?.metadata;
+      expect(metadata?.parentArcId).toBe('A');
+      await put(graphId, 'B', { name: 'B renamed', metadata }).expect(200);
+      await transaction(graphId, [{ type: 'update_arc', data: { id: 'B', description: 'Edited', metadata } }]).expect(200);
+    });
+
+    it('keeps the parents of a graph re-imported over itself (overwrite) through a rename', async () => {
+      const graphId = await graphOf('cli', fourDeep);
+      const document = await container.exportService.exportGraph({ graphId, scope: 'full', includeProvenance: false });
+      const importer = new ImportService({ dataDir: testDataDir, onHeadReplaced: (id, reason) => container.liveStoreSyncService.materialize(id, reason).then(() => undefined) });
+      await importer.initialize();
+      try {
+        expect((await importer.executeImport(document.export, { mode: 'merge', conflictResolution: 'overwrite', graphId })).success).toBe(true);
+      } finally {
+        await importer.destroy();
+      }
+      await put(graphId, 'C', { name: 'C renamed' }).expect(200);
+      await transaction(graphId, [{ type: 'update_arc', data: { id: 'B', name: 'B renamed' } }]).expect(200);
+      const after = await exported(graphId);
+      expect(after).toMatchObject({ valid: true, arcs: { B: [1, 'A'], C: [2, 'B'] } });
+    });
+
+    it('deletes, in a batch, an event whose object is lost, with the readable link that went with it', async () => {
+      graphCount += 1;
+      const graphId = (await container.graphService.createGraph({ name: `Lost event ${graphCount}` })).id;
+      const add = async (description: string, timestamp: string): Promise<string> =>
+        (await request(app).post('/api/events').set('X-API-Key', key).set('X-Graph-Id', graphId).send({ description, actor: 'A', target: 'B', timestamp }).expect(201)).body.data.id as string;
+      const cause = await add('Cause', '1800-01-01T00:00:00.000Z');
+      const effect = await add('Effect', '1801-01-01T00:00:00.000Z');
+      await request(app)
+        .post('/api/causal/link')
+        .set('X-API-Key', key)
+        .set('X-Graph-Id', graphId)
+        .send({ causeEventId: cause, effectEventId: effect, relationship: { type: 'direct', strength: 0.5, confidence: 0.5, evidence: 'Seen' } })
+        .expect(201);
+      await loseObject(graphId, 'events', cause);
+
+      await transaction(graphId, [{ type: 'delete_event', data: { id: cause } }]).expect(200);
+      const tree = await headTree(graphId);
+      expect(cause in tree.events).toBe(false);
+      expect(Object.keys(tree.relationships)).toEqual([]);
+      expect(effect in tree.events).toBe(true);
+    });
+  });
 });

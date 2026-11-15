@@ -1,4 +1,5 @@
 import { readRequestTime, queryInstant } from '../worldDates';
+import { checkNamedParent } from '../arcParent';
 import { Router, Response, NextFunction } from 'express';
 import { compareInstants } from '@althistory/calendar';
 import { CreateArcRequest, UpdateArcRequest } from '@/models/Arc';
@@ -326,6 +327,12 @@ arcRoutes.put('/:id', ...entityPermission('write:arcs'), async (req: RequestWith
     if (!existingArc) {
       throw new NotFoundError(`Arc with ID ${id} not found`, 'Arc', id);
     }
+
+    // A parent the edit names must be an arc of this graph above this one.
+    await checkNamedParent(id, updates as Record<string, unknown>, {
+      arcRepository: repository,
+      head: () => req.container.graphRepository.checkout(requireGraphId(req)),
+    });
 
     const updatedArc = await repository.update(id, updates);
     

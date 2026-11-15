@@ -354,6 +354,20 @@ describe('VersionRepository Unit Tests', () => {
       expect((await repository.resolveTree('graph-1', tree)).arcs).toEqual({ a1: { id: 'a1' } });
       await expect(repository.resolveTree('graph-1', tree, { strict: true })).rejects.toThrow('arc a2');
     });
+
+    it('throws only for the entries a strict predicate names, and reports the rest it left out', async () => {
+      const spied = repository as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>;
+      vi.spyOn(spied, 'getObject').mockImplementation(async (_graphId: unknown, hash: unknown) =>
+        hash === 'hash-a1' ? { type: 'arc', data: { id: 'a1' } } : null
+      );
+      const tree = { events: { e1: 'hash-e1' }, arcs: { a1: 'hash-a1', a2: 'hash-a2' }, relationships: {}, pressures: {} };
+
+      const missing: NonNullable<Parameters<VersionRepository['resolveTree']>[2]>['missing'] = [];
+      const resolved = await repository.resolveTree('graph-1', tree, { strict: (type, id) => type === 'arc' && id === 'a1', missing });
+      expect(resolved.arcs).toEqual({ a1: { id: 'a1' } });
+      expect(missing).toEqual([{ type: 'event', id: 'e1' }, { type: 'arc', id: 'a2' }]);
+      await expect(repository.resolveTree('graph-1', tree, { strict: (type) => type === 'event' })).rejects.toThrow('event e1');
+    });
   });
 
   describe('checkout()', () => {
