@@ -92,7 +92,7 @@ Every tool that takes a date takes it as the world's calendar writes it: a day (
 
 7. Offer branches. Name two or three moments where the world could have gone another way, and offer to branch at one with althistory_branch_timeline.
 
-Names, places and dates are canon once written, so keep the world consistent with itself. Do not borrow real-world history unless the author asks for it. If the author wants a rough draft first, althistory_generate_timeline with world set drafts a skeleton to revise. Its result says who wrote it: "source": "model" when the althistory server has its own model key, and "template" otherwise, which is a generic skeleton you should rewrite rather than present as the world's history.`;
+Names, places and dates are canon once written, so keep the world consistent with itself. Do not borrow real-world history unless the author asks for it. If the author wants a rough draft first, althistory_generate_timeline with world set drafts a skeleton to revise. Its result says who wrote it: "source": "model" when a model key is set where the drafting runs (in the app, while the app is running), and "template" otherwise, which is a generic skeleton you should rewrite rather than present as the world's history.`;
 }
 
 function alternateHistory(args: Record<string, string>): string {
@@ -112,7 +112,7 @@ ${divergenceLine}
 
 Althistory keeps the history as a graph of events, arcs (periods) and causal links, checks it for contradictions, and branches it at any event. Timestamps are real ISO-8601 dates. Work in this order.
 
-1. Draft. althistory_generate_timeline with premise and divergencePoint creates a graph with a first draft. Its result says who wrote it: "source": "model" when the althistory server has its own model key, or "template", a generic skeleton. With a template, build the draft yourself instead: althistory_create_graph, then althistory_create_arc, althistory_create_event and althistory_link_events.
+1. Draft. althistory_generate_timeline with premise and divergencePoint creates a graph with a first draft. Its result says who wrote it: "source": "model" when a model key is set where the drafting runs (in the app, while the app is running), or "template", a generic skeleton. With a template, build the draft yourself instead: althistory_create_graph, then althistory_create_arc, althistory_create_event and althistory_link_events.
 
 2. Ground it. Before the divergence, the history is real. Where the draft gets real events wrong, correct them with althistory_create_event, or ingest a summary of what actually happened with althistory_ingest_text.
 

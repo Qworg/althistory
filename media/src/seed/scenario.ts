@@ -589,7 +589,7 @@ export const deep: DeepScenario = {
   events: [
     {
       key: 'traps',
-      description: 'The Siberian Traps erupt, pouring out lava and carbon for hundreds of thousands of years',
+      description: 'The Siberian Traps reach their main eruptions, pouring out lava and carbon',
       actor: 'Siberian Traps',
       target: "Earth's climate",
       timestamp: '252100000 BCE',
@@ -633,6 +633,15 @@ export const deep: DeepScenario = {
       significance: 0.8,
     },
     {
+      key: 'dominance',
+      description: 'Dinosaurs come to dominate the land in the Early Jurassic',
+      actor: 'Dinosaurs',
+      target: 'Life on land',
+      timestamp: '200000000 BCE',
+      arc: 'mesozoic',
+      significance: 0.7,
+    },
+    {
       key: 'impact',
       description: 'An asteroid strikes Chicxulub, and the non-avian dinosaurs die out',
       actor: 'The Chicxulub impactor',
@@ -661,7 +670,7 @@ export const deep: DeepScenario = {
     },
     {
       key: 'hominins',
-      description: 'Sahelanthropus lives in what is now Chad, among the earliest known hominins',
+      description: 'Sahelanthropus lives in what is now Chad, possibly among the earliest hominins',
       actor: 'Hominins',
       target: 'Africa',
       timestamp: '7000000 BCE',
@@ -688,7 +697,7 @@ export const deep: DeepScenario = {
     },
     {
       key: 'toba',
-      description: 'Toba erupts in Sumatra, the largest eruption of the last two million years',
+      description: 'Toba erupts in Sumatra, the largest explosive eruption of the last two million years',
       actor: 'Toba',
       target: "Earth's climate",
       timestamp: '72000 BCE',
@@ -701,7 +710,8 @@ export const deep: DeepScenario = {
     { cause: 'traps', effect: 'extinction', type: 'direct', weight: 0.85, confidence: 0.85, evidence: "The Traps' carbon warmed the planet and stripped the oceans of oxygen." },
     { cause: 'extinction', effect: 'dinosaurs', type: 'contributory', weight: 0.6, confidence: 0.7, evidence: 'The emptied world let the archosaurs, and then the dinosaurs, spread.' },
     { cause: 'camp', effect: 'triassic', type: 'direct', weight: 0.8, confidence: 0.8, evidence: "The eruptions' carbon is the leading explanation of the extinction." },
-    { cause: 'dinosaurs', effect: 'triassic', type: 'indirect', weight: 0.4, confidence: 0.6, evidence: 'The dinosaurs survived it, and their rivals did not.' },
+    { cause: 'triassic', effect: 'dominance', type: 'direct', weight: 0.75, confidence: 0.75, evidence: "Their crocodile-line rivals died out, and the dinosaurs did not." },
+    { cause: 'dinosaurs', effect: 'dominance', type: 'contributory', weight: 0.4, confidence: 0.7, evidence: 'The dinosaurs that appeared in the Late Triassic were already there to inherit the land.' },
     { cause: 'impact', effect: 'mammals', type: 'direct', weight: 0.85, confidence: 0.85, evidence: 'With the non-avian dinosaurs gone, mammals filled their niches.' },
     { cause: 'mammals', effect: 'hominins', type: 'indirect', weight: 0.6, confidence: 0.8, evidence: 'Primates were among the mammals that spread after the extinction.' },
     { cause: 'antarctica', effect: 'iceages', type: 'contributory', weight: 0.5, confidence: 0.6, evidence: 'The long cooling that froze Antarctica led on to the ice ages.' },

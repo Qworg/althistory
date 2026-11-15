@@ -247,7 +247,7 @@ test('a branch of the world keeps its calendar', async ({ page }) => {
 
 /* ------------------------------------------------------------- deep time --- */
 
-const DEEP_COUNTS = '12 events · 4 arcs · 9 links'
+const DEEP_COUNTS = '13 events · 4 arcs · 10 links'
 
 test('a link opens on deep time, 252 million years on one axis', async ({ page }) => {
   const errors: string[] = []
@@ -258,8 +258,8 @@ test('a link opens on deep time, 252 million years on one axis', async ({ page }
 
   // Every event is drawn, most of them far beyond a JavaScript Date (±275,760 years).
   const marks = page.locator('g[data-timeline-mark="event"]')
-  await expect(marks).toHaveCount(12)
-  await expect(page.locator('g[data-timeline-mark="event"][aria-label*="Siberian Traps erupt"]')).toHaveAttribute('aria-label', /at 252100000 BC\b/)
+  await expect(marks).toHaveCount(13)
+  await expect(page.locator('g[data-timeline-mark="event"][aria-label*="Siberian Traps reach"]')).toHaveAttribute('aria-label', /at 252100000 BC\b/)
   await expect(page.locator('g[data-timeline-mark="event"][aria-label*="Chicxulub"]')).toHaveAttribute('aria-label', /at 66000000 BC\b/)
   // Inside a Date's range, in the same graph.
   await expect(page.locator('g[data-timeline-mark="event"][aria-label*="Toba erupts"]')).toHaveAttribute('aria-label', /at 72000 BC\b/)
@@ -278,7 +278,7 @@ test('a link opens on deep time, 252 million years on one axis', async ({ page }
 
   // The other views open on it too.
   await page.goto('./#/causal-graph')
-  await expect(page.getByText('12 events · 9 links')).toBeVisible()
+  await expect(page.getByText('13 events · 10 links')).toBeVisible()
   await page.goto('./#/actor-perspective')
   await expect(page.getByRole('button', { name: /Search and select an actor/ })).toBeVisible()
   expect(errors).toEqual([])

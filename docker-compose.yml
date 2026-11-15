@@ -154,8 +154,11 @@ services:
     environment:
       NODE_ENV: test
       LOCAL_EXECUTION_ENABLED: "false"
-      # These suites drive the Neo4j/Redis repositories directly, not the HTTP
-      # API, so they pin the entity guard off rather than manufacture a key.
+      # Most of these suites drive the Neo4j/Redis repositories directly, not
+      # the HTTP API, so they pin the entity guard off rather than manufacture a
+      # key. cloud-live-feed boots the HTTP app and makes its own keys (stream
+      # tokens always need one), so it runs the same with the guard on, as CI's
+      # cloud job runs it.
       API_AUTH_REQUIRED: "false"
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USERNAME: neo4j

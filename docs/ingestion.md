@@ -116,6 +116,14 @@ redirects, checking each hop.
 
 All routes are under `/api/ingest` and require the `ingest` permission.
 
+The three extraction routes take an optional `context`: `defaultTimeRange`
+(`{ start, end }`), `defaultActors` and `knownEntities`. The range's ends are
+read as every door reads a date, in the graph's calendar when it has one (its
+notation, then ISO 8601; without one, year-first text such as `1066` or
+`44 BCE` too), and an end is the last moment of what it names. Text that rule
+cannot read, or a range that ends before it starts, is refused with a 400
+naming the field (`context.defaultTimeRange.start`).
+
 | Route | Purpose |
 | --- | --- |
 | `POST /api/ingest/text` | Extract from pasted text. Answers a **preview**. |
@@ -178,7 +186,7 @@ and why (no date, no actor, below the confidence threshold).
 | --- | --- | --- |
 | `text` | A sentence stream. | Dated sentences become events. |
 | `wikipedia` | Article prose. | Link-following and depth are bounded (depth ≤ 3). |
-| `wikidata` | An item's claims. | Dates and participants come from the item, at the precision Wikidata gives (a month, a year; a decade to a billion years as a year), BCE years included. |
+| `wikidata` | An item's claims. | Dates and participants come from the item, at the precision Wikidata gives (a day, a month, a year; a decade to a billion years as a year), BCE years included. A date beyond the timeline's range, about 285 million years either side of 1970 (the formation of the Earth, the Big Bang), is dropped. |
 | `text` | Pasted text — or the text of a fetched page. | `ingest url` on a non-Wikipedia page reads it as a text document, so its events are `text`-sourced. |
 
 Events ingested **through the API** carry a `sourceRef` naming where they came

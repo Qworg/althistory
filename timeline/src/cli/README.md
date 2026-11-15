@@ -103,8 +103,9 @@ Dates beyond year 9999 are ISO 8601 with a signed, six-digit year
 astronomical: year 0 is 1 BCE, so `-000043` is 44 BCE and `-499999` is
 500,000 BCE. In a date, a minus sign goes only before ISO's six digits:
 `-0043` or `-43` could be 43 BCE or 44 BCE, so it is refused with both; write
-`44 BCE` or `-000043`. `--epoch-year` takes any year on the axis, as a number
-counted the ISO way (`-43` is 44 BCE) or six-digit.
+`44 BCE` or `-000043`. `--epoch-year` is different: it takes a number, not a
+date, and counts the ISO way, so `--epoch-year -43` is 44 BCE (six digits work
+too).
 
 Because a `Date` cannot hold such a moment, every event or arc a command prints
 also carries it as whole milliseconds from 1970, as a decimal string (JSON has

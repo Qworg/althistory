@@ -1262,7 +1262,7 @@
    "events": [
     {
      "id": "event_deep_traps",
-     "description": "The Siberian Traps erupt, pouring out lava and carbon for hundreds of thousands of years",
+     "description": "The Siberian Traps reach their main eruptions, pouring out lava and carbon",
      "actor": "Siberian Traps",
      "target": "Earth's climate",
      "timestamp": "-252099999-01-01T00:00:00.000Z",
@@ -1326,6 +1326,19 @@
      }
     },
     {
+     "id": "event_deep_dominance",
+     "description": "Dinosaurs come to dominate the land in the Early Jurassic",
+     "actor": "Dinosaurs",
+     "target": "Life on land",
+     "timestamp": "-199999999-01-01T00:00:00.000Z",
+     "timestamp_ms": "-6311452535596800000",
+     "metadata": {
+      "arcId": "arc_deep_mesozoic",
+      "significance": 0.7,
+      "datePrecision": "year"
+     }
+    },
+    {
      "id": "event_deep_impact",
      "description": "An asteroid strikes Chicxulub, and the non-avian dinosaurs die out",
      "actor": "The Chicxulub impactor",
@@ -1366,7 +1379,7 @@
     },
     {
      "id": "event_deep_hominins",
-     "description": "Sahelanthropus lives in what is now Chad, among the earliest known hominins",
+     "description": "Sahelanthropus lives in what is now Chad, possibly among the earliest hominins",
      "actor": "Hominins",
      "target": "Africa",
      "timestamp": "-6999999-01-01T00:00:00.000Z",
@@ -1405,7 +1418,7 @@
     },
     {
      "id": "event_deep_toba",
-     "description": "Toba erupts in Sumatra, the largest eruption of the last two million years",
+     "description": "Toba erupts in Sumatra, the largest explosive eruption of the last two million years",
      "actor": "Toba",
      "target": "Earth's climate",
      "timestamp": "-071999-01-01T00:00:00.000Z",
@@ -1493,15 +1506,24 @@
     },
     {
      "id": "local_38",
-     "cause_event_id": "event_deep_dinosaurs",
-     "effect_event_id": "event_deep_triassic",
-     "weight": 0.4,
-     "confidence": 0.6,
-     "evidence": "The dinosaurs survived it, and their rivals did not.",
-     "relationship_type": "indirect"
+     "cause_event_id": "event_deep_triassic",
+     "effect_event_id": "event_deep_dominance",
+     "weight": 0.75,
+     "confidence": 0.75,
+     "evidence": "Their crocodile-line rivals died out, and the dinosaurs did not.",
+     "relationship_type": "direct"
     },
     {
      "id": "local_39",
+     "cause_event_id": "event_deep_dinosaurs",
+     "effect_event_id": "event_deep_dominance",
+     "weight": 0.4,
+     "confidence": 0.7,
+     "evidence": "The dinosaurs that appeared in the Late Triassic were already there to inherit the land.",
+     "relationship_type": "contributory"
+    },
+    {
+     "id": "local_40",
      "cause_event_id": "event_deep_impact",
      "effect_event_id": "event_deep_mammals",
      "weight": 0.85,
@@ -1510,7 +1532,7 @@
      "relationship_type": "direct"
     },
     {
-     "id": "local_40",
+     "id": "local_41",
      "cause_event_id": "event_deep_mammals",
      "effect_event_id": "event_deep_hominins",
      "weight": 0.6,
@@ -1519,7 +1541,7 @@
      "relationship_type": "indirect"
     },
     {
-     "id": "local_41",
+     "id": "local_42",
      "cause_event_id": "event_deep_antarctica",
      "effect_event_id": "event_deep_iceages",
      "weight": 0.5,
@@ -1528,7 +1550,7 @@
      "relationship_type": "contributory"
     },
     {
-     "id": "local_42",
+     "id": "local_43",
      "cause_event_id": "event_deep_hominins",
      "effect_event_id": "event_deep_sapiens",
      "weight": 0.7,
@@ -1537,7 +1559,7 @@
      "relationship_type": "indirect"
     },
     {
-     "id": "local_43",
+     "id": "local_44",
      "cause_event_id": "event_deep_iceages",
      "effect_event_id": "event_deep_sapiens",
      "weight": 0.4,
@@ -2373,15 +2395,24 @@
      },
      {
       "id": "local_38",
-      "cause_event_id": "event_deep_dinosaurs",
-      "effect_event_id": "event_deep_triassic",
-      "weight": 0.4,
-      "confidence": 0.6,
-      "evidence": "The dinosaurs survived it, and their rivals did not.",
-      "relationship_type": "indirect"
+      "cause_event_id": "event_deep_triassic",
+      "effect_event_id": "event_deep_dominance",
+      "weight": 0.75,
+      "confidence": 0.75,
+      "evidence": "Their crocodile-line rivals died out, and the dinosaurs did not.",
+      "relationship_type": "direct"
      },
      {
       "id": "local_39",
+      "cause_event_id": "event_deep_dinosaurs",
+      "effect_event_id": "event_deep_dominance",
+      "weight": 0.4,
+      "confidence": 0.7,
+      "evidence": "The dinosaurs that appeared in the Late Triassic were already there to inherit the land.",
+      "relationship_type": "contributory"
+     },
+     {
+      "id": "local_40",
       "cause_event_id": "event_deep_impact",
       "effect_event_id": "event_deep_mammals",
       "weight": 0.85,
@@ -2390,7 +2421,7 @@
       "relationship_type": "direct"
      },
      {
-      "id": "local_40",
+      "id": "local_41",
       "cause_event_id": "event_deep_mammals",
       "effect_event_id": "event_deep_hominins",
       "weight": 0.6,
@@ -2399,7 +2430,7 @@
       "relationship_type": "indirect"
      },
      {
-      "id": "local_41",
+      "id": "local_42",
       "cause_event_id": "event_deep_antarctica",
       "effect_event_id": "event_deep_iceages",
       "weight": 0.5,
@@ -2408,7 +2439,7 @@
       "relationship_type": "contributory"
      },
      {
-      "id": "local_42",
+      "id": "local_43",
       "cause_event_id": "event_deep_hominins",
       "effect_event_id": "event_deep_sapiens",
       "weight": 0.7,
@@ -2417,7 +2448,7 @@
       "relationship_type": "indirect"
      },
      {
-      "id": "local_43",
+      "id": "local_44",
       "cause_event_id": "event_deep_iceages",
       "effect_event_id": "event_deep_sapiens",
       "weight": 0.4,
@@ -3082,7 +3113,7 @@
     "data": [
      {
       "id": "event_deep_traps",
-      "description": "The Siberian Traps erupt, pouring out lava and carbon for hundreds of thousands of years",
+      "description": "The Siberian Traps reach their main eruptions, pouring out lava and carbon",
       "actor": "Siberian Traps",
       "target": "Earth's climate",
       "timestamp": "-252099999-01-01T00:00:00.000Z",
@@ -3146,6 +3177,19 @@
       }
      },
      {
+      "id": "event_deep_dominance",
+      "description": "Dinosaurs come to dominate the land in the Early Jurassic",
+      "actor": "Dinosaurs",
+      "target": "Life on land",
+      "timestamp": "-199999999-01-01T00:00:00.000Z",
+      "timestamp_ms": "-6311452535596800000",
+      "metadata": {
+       "arcId": "arc_deep_mesozoic",
+       "significance": 0.7,
+       "datePrecision": "year"
+      }
+     },
+     {
       "id": "event_deep_impact",
       "description": "An asteroid strikes Chicxulub, and the non-avian dinosaurs die out",
       "actor": "The Chicxulub impactor",
@@ -3186,7 +3230,7 @@
      },
      {
       "id": "event_deep_hominins",
-      "description": "Sahelanthropus lives in what is now Chad, among the earliest known hominins",
+      "description": "Sahelanthropus lives in what is now Chad, possibly among the earliest hominins",
       "actor": "Hominins",
       "target": "Africa",
       "timestamp": "-6999999-01-01T00:00:00.000Z",
@@ -3225,7 +3269,7 @@
      },
      {
       "id": "event_deep_toba",
-      "description": "Toba erupts in Sumatra, the largest eruption of the last two million years",
+      "description": "Toba erupts in Sumatra, the largest explosive eruption of the last two million years",
       "actor": "Toba",
       "target": "Earth's climate",
       "timestamp": "-071999-01-01T00:00:00.000Z",
@@ -3240,7 +3284,7 @@
     "pagination": {
      "limit": 1000,
      "offset": 0,
-     "total": 12,
+     "total": 13,
      "hasMore": false
     },
     "filters": {
@@ -3380,14 +3424,14 @@
       "id": "graph_deep_time",
       "name": "Since the Great Dying",
       "description": "From the end-Permian extinction to the first people: 252 million years, on one axis.",
-      "createdAt": "2026-11-15T06:07:47.114Z",
-      "updatedAt": "2026-11-15T06:07:50.830Z",
-      "version": 25,
+      "createdAt": "2026-11-15T06:23:18.194Z",
+      "updatedAt": "2026-11-15T06:23:23.661Z",
+      "version": 27,
       "status": "active",
       "metadata": {
-       "eventCount": 12,
+       "eventCount": 13,
        "arcCount": 4,
-       "relationshipCount": 9,
+       "relationshipCount": 10,
        "pressureCount": 0,
        "temporalRange": {
         "start": "-252099999-01-01T00:00:00.000Z",
@@ -3399,6 +3443,7 @@
         "Archosaurs",
         "Central Atlantic Magmatic Province",
         "Volcanic warming",
+        "Dinosaurs",
         "The Chicxulub impactor",
         "Mammals",
         "A cooling climate",
@@ -3412,8 +3457,8 @@
       "id": "graph_vael",
       "name": "Vael",
       "description": "A drowned archipelago where salt is money and the tide-priests keep the count of years.",
-      "createdAt": "2026-11-15T06:07:41.746Z",
-      "updatedAt": "2026-11-15T06:07:46.971Z",
+      "createdAt": "2026-11-15T06:23:14.922Z",
+      "updatedAt": "2026-11-15T06:23:18.052Z",
       "version": 21,
       "status": "active",
       "metadata": {
@@ -3557,8 +3602,8 @@
       "id": "graph_clerks_prevail",
       "name": "The Engine Age — Clerks Prevail",
       "description": "Branch: Parliament bans engines outright in 1860 instead of licensing them.",
-      "createdAt": "2026-11-15T06:07:40.393Z",
-      "updatedAt": "2026-11-15T06:07:41.385Z",
+      "createdAt": "2026-11-15T06:23:14.260Z",
+      "updatedAt": "2026-11-15T06:23:14.775Z",
       "version": 4,
       "parentGraphId": "graph_engine_age",
       "branchPoint": 46,
@@ -3594,8 +3639,8 @@
       "id": "graph_engine_age",
       "name": "The Engine Age",
       "description": "What if Babbage finished the Analytical Engine in 1843? A Victorian computing revolution, a century early.",
-      "createdAt": "2026-11-15T06:07:22.197Z",
-      "updatedAt": "2026-11-15T06:07:40.042Z",
+      "createdAt": "2026-11-15T06:23:06.960Z",
+      "updatedAt": "2026-11-15T06:23:14.116Z",
       "version": 47,
       "status": "active",
       "metadata": {
@@ -3643,14 +3688,14 @@
       "id": "graph_deep_time",
       "name": "Since the Great Dying",
       "description": "From the end-Permian extinction to the first people: 252 million years, on one axis.",
-      "createdAt": "2026-11-15T06:07:47.114Z",
-      "updatedAt": "2026-11-15T06:07:50.830Z",
-      "version": 25,
+      "createdAt": "2026-11-15T06:23:18.194Z",
+      "updatedAt": "2026-11-15T06:23:23.661Z",
+      "version": 27,
       "status": "active",
       "metadata": {
-       "eventCount": 12,
+       "eventCount": 13,
        "arcCount": 4,
-       "relationshipCount": 9,
+       "relationshipCount": 10,
        "pressureCount": 0,
        "temporalRange": {
         "start": "-252099999-01-01T00:00:00.000Z",
@@ -3662,6 +3707,7 @@
         "Archosaurs",
         "Central Atlantic Magmatic Province",
         "Volcanic warming",
+        "Dinosaurs",
         "The Chicxulub impactor",
         "Mammals",
         "A cooling climate",
@@ -3675,8 +3721,8 @@
       "id": "graph_vael",
       "name": "Vael",
       "description": "A drowned archipelago where salt is money and the tide-priests keep the count of years.",
-      "createdAt": "2026-11-15T06:07:41.746Z",
-      "updatedAt": "2026-11-15T06:07:46.971Z",
+      "createdAt": "2026-11-15T06:23:14.922Z",
+      "updatedAt": "2026-11-15T06:23:18.052Z",
       "version": 21,
       "status": "active",
       "metadata": {
@@ -3820,8 +3866,8 @@
       "id": "graph_clerks_prevail",
       "name": "The Engine Age — Clerks Prevail",
       "description": "Branch: Parliament bans engines outright in 1860 instead of licensing them.",
-      "createdAt": "2026-11-15T06:07:40.393Z",
-      "updatedAt": "2026-11-15T06:07:41.385Z",
+      "createdAt": "2026-11-15T06:23:14.260Z",
+      "updatedAt": "2026-11-15T06:23:14.775Z",
       "version": 4,
       "parentGraphId": "graph_engine_age",
       "branchPoint": 46,
@@ -3857,8 +3903,8 @@
       "id": "graph_engine_age",
       "name": "The Engine Age",
       "description": "What if Babbage finished the Analytical Engine in 1843? A Victorian computing revolution, a century early.",
-      "createdAt": "2026-11-15T06:07:22.197Z",
-      "updatedAt": "2026-11-15T06:07:40.042Z",
+      "createdAt": "2026-11-15T06:23:06.960Z",
+      "updatedAt": "2026-11-15T06:23:14.116Z",
       "version": 47,
       "status": "active",
       "metadata": {
@@ -3906,14 +3952,14 @@
       "id": "graph_deep_time",
       "name": "Since the Great Dying",
       "description": "From the end-Permian extinction to the first people: 252 million years, on one axis.",
-      "createdAt": "2026-11-15T06:07:47.114Z",
-      "updatedAt": "2026-11-15T06:07:50.830Z",
-      "version": 25,
+      "createdAt": "2026-11-15T06:23:18.194Z",
+      "updatedAt": "2026-11-15T06:23:23.661Z",
+      "version": 27,
       "status": "active",
       "metadata": {
-       "eventCount": 12,
+       "eventCount": 13,
        "arcCount": 4,
-       "relationshipCount": 9,
+       "relationshipCount": 10,
        "pressureCount": 0,
        "temporalRange": {
         "start": "-252099999-01-01T00:00:00.000Z",
@@ -3925,6 +3971,7 @@
         "Archosaurs",
         "Central Atlantic Magmatic Province",
         "Volcanic warming",
+        "Dinosaurs",
         "The Chicxulub impactor",
         "Mammals",
         "A cooling climate",
@@ -3938,8 +3985,8 @@
       "id": "graph_vael",
       "name": "Vael",
       "description": "A drowned archipelago where salt is money and the tide-priests keep the count of years.",
-      "createdAt": "2026-11-15T06:07:41.746Z",
-      "updatedAt": "2026-11-15T06:07:46.971Z",
+      "createdAt": "2026-11-15T06:23:14.922Z",
+      "updatedAt": "2026-11-15T06:23:18.052Z",
       "version": 21,
       "status": "active",
       "metadata": {
@@ -4083,8 +4130,8 @@
       "id": "graph_clerks_prevail",
       "name": "The Engine Age — Clerks Prevail",
       "description": "Branch: Parliament bans engines outright in 1860 instead of licensing them.",
-      "createdAt": "2026-11-15T06:07:40.393Z",
-      "updatedAt": "2026-11-15T06:07:41.385Z",
+      "createdAt": "2026-11-15T06:23:14.260Z",
+      "updatedAt": "2026-11-15T06:23:14.775Z",
       "version": 4,
       "parentGraphId": "graph_engine_age",
       "branchPoint": 46,
@@ -4120,8 +4167,8 @@
       "id": "graph_engine_age",
       "name": "The Engine Age",
       "description": "What if Babbage finished the Analytical Engine in 1843? A Victorian computing revolution, a century early.",
-      "createdAt": "2026-11-15T06:07:22.197Z",
-      "updatedAt": "2026-11-15T06:07:40.042Z",
+      "createdAt": "2026-11-15T06:23:06.960Z",
+      "updatedAt": "2026-11-15T06:23:14.116Z",
       "version": 47,
       "status": "active",
       "metadata": {
@@ -4169,14 +4216,14 @@
       "id": "graph_deep_time",
       "name": "Since the Great Dying",
       "description": "From the end-Permian extinction to the first people: 252 million years, on one axis.",
-      "createdAt": "2026-11-15T06:07:47.114Z",
-      "updatedAt": "2026-11-15T06:07:50.830Z",
-      "version": 25,
+      "createdAt": "2026-11-15T06:23:18.194Z",
+      "updatedAt": "2026-11-15T06:23:23.661Z",
+      "version": 27,
       "status": "active",
       "metadata": {
-       "eventCount": 12,
+       "eventCount": 13,
        "arcCount": 4,
-       "relationshipCount": 9,
+       "relationshipCount": 10,
        "pressureCount": 0,
        "temporalRange": {
         "start": "-252099999-01-01T00:00:00.000Z",
@@ -4188,6 +4235,7 @@
         "Archosaurs",
         "Central Atlantic Magmatic Province",
         "Volcanic warming",
+        "Dinosaurs",
         "The Chicxulub impactor",
         "Mammals",
         "A cooling climate",
@@ -4201,8 +4249,8 @@
       "id": "graph_vael",
       "name": "Vael",
       "description": "A drowned archipelago where salt is money and the tide-priests keep the count of years.",
-      "createdAt": "2026-11-15T06:07:41.746Z",
-      "updatedAt": "2026-11-15T06:07:46.971Z",
+      "createdAt": "2026-11-15T06:23:14.922Z",
+      "updatedAt": "2026-11-15T06:23:18.052Z",
       "version": 21,
       "status": "active",
       "metadata": {
@@ -4346,8 +4394,8 @@
       "id": "graph_clerks_prevail",
       "name": "The Engine Age — Clerks Prevail",
       "description": "Branch: Parliament bans engines outright in 1860 instead of licensing them.",
-      "createdAt": "2026-11-15T06:07:40.393Z",
-      "updatedAt": "2026-11-15T06:07:41.385Z",
+      "createdAt": "2026-11-15T06:23:14.260Z",
+      "updatedAt": "2026-11-15T06:23:14.775Z",
       "version": 4,
       "parentGraphId": "graph_engine_age",
       "branchPoint": 46,
@@ -4383,8 +4431,8 @@
       "id": "graph_engine_age",
       "name": "The Engine Age",
       "description": "What if Babbage finished the Analytical Engine in 1843? A Victorian computing revolution, a century early.",
-      "createdAt": "2026-11-15T06:07:22.197Z",
-      "updatedAt": "2026-11-15T06:07:40.042Z",
+      "createdAt": "2026-11-15T06:23:06.960Z",
+      "updatedAt": "2026-11-15T06:23:14.116Z",
       "version": 47,
       "status": "active",
       "metadata": {
@@ -4431,8 +4479,8 @@
      "id": "graph_engine_age",
      "name": "The Engine Age",
      "description": "What if Babbage finished the Analytical Engine in 1843? A Victorian computing revolution, a century early.",
-     "createdAt": "2026-11-15T06:07:22.197Z",
-     "updatedAt": "2026-11-15T06:07:40.042Z",
+     "createdAt": "2026-11-15T06:23:06.960Z",
+     "updatedAt": "2026-11-15T06:23:14.116Z",
      "version": 47,
      "status": "active",
      "metadata": {
@@ -4472,8 +4520,8 @@
      "id": "graph_clerks_prevail",
      "name": "The Engine Age — Clerks Prevail",
      "description": "Branch: Parliament bans engines outright in 1860 instead of licensing them.",
-     "createdAt": "2026-11-15T06:07:40.393Z",
-     "updatedAt": "2026-11-15T06:07:41.385Z",
+     "createdAt": "2026-11-15T06:23:14.260Z",
+     "updatedAt": "2026-11-15T06:23:14.775Z",
      "version": 4,
      "parentGraphId": "graph_engine_age",
      "branchPoint": 46,
@@ -4516,8 +4564,8 @@
      "id": "graph_vael",
      "name": "Vael",
      "description": "A drowned archipelago where salt is money and the tide-priests keep the count of years.",
-     "createdAt": "2026-11-15T06:07:41.746Z",
-     "updatedAt": "2026-11-15T06:07:46.971Z",
+     "createdAt": "2026-11-15T06:23:14.922Z",
+     "updatedAt": "2026-11-15T06:23:18.052Z",
      "version": 21,
      "status": "active",
      "metadata": {
@@ -4668,14 +4716,14 @@
      "id": "graph_deep_time",
      "name": "Since the Great Dying",
      "description": "From the end-Permian extinction to the first people: 252 million years, on one axis.",
-     "createdAt": "2026-11-15T06:07:47.114Z",
-     "updatedAt": "2026-11-15T06:07:50.830Z",
-     "version": 25,
+     "createdAt": "2026-11-15T06:23:18.194Z",
+     "updatedAt": "2026-11-15T06:23:23.661Z",
+     "version": 27,
      "status": "active",
      "metadata": {
-      "eventCount": 12,
+      "eventCount": 13,
       "arcCount": 4,
-      "relationshipCount": 9,
+      "relationshipCount": 10,
       "pressureCount": 0,
       "temporalRange": {
        "start": "-252099999-01-01T00:00:00.000Z",
@@ -4687,6 +4735,7 @@
        "Archosaurs",
        "Central Atlantic Magmatic Province",
        "Volcanic warming",
+       "Dinosaurs",
        "The Chicxulub impactor",
        "Mammals",
        "A cooling climate",
@@ -4707,8 +4756,8 @@
      "id": "graph_engine_age",
      "name": "The Engine Age",
      "description": "What if Babbage finished the Analytical Engine in 1843? A Victorian computing revolution, a century early.",
-     "createdAt": "2026-11-15T06:07:22.197Z",
-     "updatedAt": "2026-11-15T06:07:40.042Z",
+     "createdAt": "2026-11-15T06:23:06.960Z",
+     "updatedAt": "2026-11-15T06:23:14.116Z",
      "version": 47,
      "status": "active",
      "metadata": {
@@ -4748,8 +4797,8 @@
      "id": "graph_engine_age",
      "name": "The Engine Age",
      "description": "What if Babbage finished the Analytical Engine in 1843? A Victorian computing revolution, a century early.",
-     "createdAt": "2026-11-15T06:07:22.197Z",
-     "updatedAt": "2026-11-15T06:07:40.042Z",
+     "createdAt": "2026-11-15T06:23:06.960Z",
+     "updatedAt": "2026-11-15T06:23:14.116Z",
      "version": 47,
      "status": "active",
      "metadata": {
@@ -4789,8 +4838,8 @@
      "id": "graph_engine_age",
      "name": "The Engine Age",
      "description": "What if Babbage finished the Analytical Engine in 1843? A Victorian computing revolution, a century early.",
-     "createdAt": "2026-11-15T06:07:22.197Z",
-     "updatedAt": "2026-11-15T06:07:40.042Z",
+     "createdAt": "2026-11-15T06:23:06.960Z",
+     "updatedAt": "2026-11-15T06:23:14.116Z",
      "version": 47,
      "status": "active",
      "metadata": {
@@ -4830,8 +4879,8 @@
      "id": "graph_engine_age",
      "name": "The Engine Age",
      "description": "What if Babbage finished the Analytical Engine in 1843? A Victorian computing revolution, a century early.",
-     "createdAt": "2026-11-15T06:07:22.197Z",
-     "updatedAt": "2026-11-15T06:07:40.042Z",
+     "createdAt": "2026-11-15T06:23:06.960Z",
+     "updatedAt": "2026-11-15T06:23:14.116Z",
      "version": 47,
      "status": "active",
      "metadata": {
@@ -4872,8 +4921,8 @@
       "id": "graph_clerks_prevail",
       "name": "The Engine Age — Clerks Prevail",
       "description": "Branch: Parliament bans engines outright in 1860 instead of licensing them.",
-      "createdAt": "2026-11-15T06:07:40.393Z",
-      "updatedAt": "2026-11-15T06:07:41.385Z",
+      "createdAt": "2026-11-15T06:23:14.260Z",
+      "updatedAt": "2026-11-15T06:23:14.775Z",
       "version": 4,
       "parentGraphId": "graph_engine_age",
       "branchPoint": 46,
@@ -4917,7 +4966,7 @@
      {
       "graphId": "graph_engine_age",
       "version": 46,
-      "timestamp": "2026-11-15T06:07:39.989Z",
+      "timestamp": "2026-11-15T06:23:14.109Z",
       "parentVersion": 45,
       "operation": "create",
       "description": "Added link: “Parliament passes the Engine Licensing Act” → “Britain and Prussia begin an engine arms race”",
@@ -4926,13 +4975,13 @@
         {
          "type": "relationship",
          "id": "local_24",
-         "hash": "d05d4e602c56e58f6c367b07db5df117443c66ac0ed113627cec611050975621"
+         "hash": "c197221e85ae658b5667b173291c540376d5a7dd86fb03189e85d93455045072"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "89e85fe87ef133c51a2334eafa7a58def9b562bb5bde9a180f0ebb54bba3b181"
+      "treeHash": "8bdb24dbfa101f594076aa8c2868c36cc8269dc4401300156078abe875ca7fee"
      }
     ],
     "pagination": {
@@ -4952,7 +5001,7 @@
      {
       "graphId": "graph_engine_age",
       "version": 46,
-      "timestamp": "2026-11-15T06:07:39.989Z",
+      "timestamp": "2026-11-15T06:23:14.109Z",
       "parentVersion": 45,
       "operation": "create",
       "description": "Added link: “Parliament passes the Engine Licensing Act” → “Britain and Prussia begin an engine arms race”",
@@ -4961,13 +5010,13 @@
         {
          "type": "relationship",
          "id": "local_24",
-         "hash": "d05d4e602c56e58f6c367b07db5df117443c66ac0ed113627cec611050975621"
+         "hash": "c197221e85ae658b5667b173291c540376d5a7dd86fb03189e85d93455045072"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "89e85fe87ef133c51a2334eafa7a58def9b562bb5bde9a180f0ebb54bba3b181"
+      "treeHash": "8bdb24dbfa101f594076aa8c2868c36cc8269dc4401300156078abe875ca7fee"
      }
     ],
     "pagination": {
@@ -4987,7 +5036,7 @@
      {
       "graphId": "graph_engine_age",
       "version": 46,
-      "timestamp": "2026-11-15T06:07:39.989Z",
+      "timestamp": "2026-11-15T06:23:14.109Z",
       "parentVersion": 45,
       "operation": "create",
       "description": "Added link: “Parliament passes the Engine Licensing Act” → “Britain and Prussia begin an engine arms race”",
@@ -4996,13 +5045,13 @@
         {
          "type": "relationship",
          "id": "local_24",
-         "hash": "d05d4e602c56e58f6c367b07db5df117443c66ac0ed113627cec611050975621"
+         "hash": "c197221e85ae658b5667b173291c540376d5a7dd86fb03189e85d93455045072"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "89e85fe87ef133c51a2334eafa7a58def9b562bb5bde9a180f0ebb54bba3b181"
+      "treeHash": "8bdb24dbfa101f594076aa8c2868c36cc8269dc4401300156078abe875ca7fee"
      }
     ],
     "pagination": {
@@ -5022,7 +5071,7 @@
      {
       "graphId": "graph_engine_age",
       "version": 46,
-      "timestamp": "2026-11-15T06:07:39.989Z",
+      "timestamp": "2026-11-15T06:23:14.109Z",
       "parentVersion": 45,
       "operation": "create",
       "description": "Added link: “Parliament passes the Engine Licensing Act” → “Britain and Prussia begin an engine arms race”",
@@ -5031,13 +5080,13 @@
         {
          "type": "relationship",
          "id": "local_24",
-         "hash": "d05d4e602c56e58f6c367b07db5df117443c66ac0ed113627cec611050975621"
+         "hash": "c197221e85ae658b5667b173291c540376d5a7dd86fb03189e85d93455045072"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "89e85fe87ef133c51a2334eafa7a58def9b562bb5bde9a180f0ebb54bba3b181"
+      "treeHash": "8bdb24dbfa101f594076aa8c2868c36cc8269dc4401300156078abe875ca7fee"
      }
     ],
     "pagination": {
@@ -5057,7 +5106,7 @@
      {
       "graphId": "graph_engine_age",
       "version": 46,
-      "timestamp": "2026-11-15T06:07:39.989Z",
+      "timestamp": "2026-11-15T06:23:14.109Z",
       "parentVersion": 45,
       "operation": "create",
       "description": "Added link: “Parliament passes the Engine Licensing Act” → “Britain and Prussia begin an engine arms race”",
@@ -5066,18 +5115,18 @@
         {
          "type": "relationship",
          "id": "local_24",
-         "hash": "d05d4e602c56e58f6c367b07db5df117443c66ac0ed113627cec611050975621"
+         "hash": "c197221e85ae658b5667b173291c540376d5a7dd86fb03189e85d93455045072"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "89e85fe87ef133c51a2334eafa7a58def9b562bb5bde9a180f0ebb54bba3b181"
+      "treeHash": "8bdb24dbfa101f594076aa8c2868c36cc8269dc4401300156078abe875ca7fee"
      },
      {
       "graphId": "graph_engine_age",
       "version": 45,
-      "timestamp": "2026-11-15T06:07:38.786Z",
+      "timestamp": "2026-11-15T06:23:13.956Z",
       "parentVersion": 44,
       "operation": "create",
       "description": "Added link: “Moltke uses engine-planned railway timetables to mobilise” → “Britain and Prussia begin an engine arms race”",
@@ -5086,18 +5135,18 @@
         {
          "type": "relationship",
          "id": "local_23",
-         "hash": "0d2c90dbe6fab1abd8b051e5d93f2d13ea1397996c159f865acd0f8471083d37"
+         "hash": "efd2e7e3eea0d3f9e0763067b44781fbf8ddba775a758e59f326900b2ed23808"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "1c6e00196ece8ea436ea3fd81b500de708c508fd6ff5b22063534818cb65dbe1"
+      "treeHash": "af4dac7277ba79a562f2be7c2161124faac89de49ee6d09e9e194a8807d69bf9"
      },
      {
       "graphId": "graph_engine_age",
       "version": 44,
-      "timestamp": "2026-11-15T06:07:38.314Z",
+      "timestamp": "2026-11-15T06:23:13.803Z",
       "parentVersion": 43,
       "operation": "create",
       "description": "Added link: “Prussia buys three engines for its General Staff” → “Moltke uses engine-planned railway timetables to mobilise”",
@@ -5106,18 +5155,18 @@
         {
          "type": "relationship",
          "id": "local_22",
-         "hash": "c939ccc035c7ba8a58382a1b7b09be070787edb915acdc29b5cb5dd17d620078"
+         "hash": "9da9730a4eb0dadcadd8e8dac9b44ae0bc5c288e2e40734d75d934c3fd2afa6d"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "f1e4a3c8f22c380e4e7947645d8e40c746bc7dc661fbd2fa7b217ac8f53ce4c8"
+      "treeHash": "141b51b8d490c1166062c16b0db54bd85444f70a12d919bdf17dd7aab4d9de08"
      },
      {
       "graphId": "graph_engine_age",
       "version": 43,
-      "timestamp": "2026-11-15T06:07:37.685Z",
+      "timestamp": "2026-11-15T06:23:13.650Z",
       "parentVersion": 42,
       "operation": "create",
       "description": "Added link: “Engines in London and Manchester exchange results by telegraph” → “Moltke uses engine-planned railway timetables to mobilise”",
@@ -5126,18 +5175,18 @@
         {
          "type": "relationship",
          "id": "local_21",
-         "hash": "acd0b14cf64d60ec9ad6d5922f3ba5d75193b1330099489aa5bcd2ae9feab220"
+         "hash": "2e99708dedad5e13b1449914e3abf7363464c5a2bc76538a1b97cc90355514a5"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "75bd5a185faf063f35a6ecdf4066f06d6084e4e64cbeb2dbce72a52f5e6ba7c2"
+      "treeHash": "a54c11bf865d3a46562de53f657a5c5e81151446164b391082d664db7b3c338b"
      },
      {
       "graphId": "graph_engine_age",
       "version": 42,
-      "timestamp": "2026-11-15T06:07:37.061Z",
+      "timestamp": "2026-11-15T06:23:13.499Z",
       "parentVersion": 41,
       "operation": "create",
       "description": "Added link: “Ten thousand clerks protest at Westminster against the engines” → “Parliament passes the Engine Licensing Act”",
@@ -5146,18 +5195,18 @@
         {
          "type": "relationship",
          "id": "local_20",
-         "hash": "b6e052254290b8a1dc60ef3d8d3902acbcf2df4b882c83b48727fa32d95b47ba"
+         "hash": "d3f3d7bb54e16cffe589f3e78562126ce6b01ac40fbb8584687ec8bf917c4d14"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "637233110e4f3deb06ec15d85240c9fa7cfc1c507e1ca6b11ba97fc159d33165"
+      "treeHash": "daed2bcf4c800064c9c3475dc1194fd555033e7a5dcb4a6775207d6496030bb3"
      },
      {
       "graphId": "graph_engine_age",
       "version": 41,
-      "timestamp": "2026-11-15T06:07:34.299Z",
+      "timestamp": "2026-11-15T06:23:13.349Z",
       "parentVersion": 40,
       "operation": "create",
       "description": "Added link: “Parliament debates engine licensing legislation” → “Parliament passes the Engine Licensing Act”",
@@ -5166,18 +5215,18 @@
         {
          "type": "relationship",
          "id": "local_19",
-         "hash": "b56a0b2bf66ab46dd93db80830a472f359485ca5ab21836c5721f6aeeb29f50c"
+         "hash": "2b6716eb40336cc2bac5df7531a4fc997ee88c17df3fac9fb386b3a90e0e7bd3"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "07baf5f144d1012a881026ec5932472d78c5d1d55a7241a674a5be8e1ed80068"
+      "treeHash": "b6579cf52373a0dabc6de317011b6d21166c23c5ffe1dc4404a6be7552be6d07"
      },
      {
       "graphId": "graph_engine_age",
       "version": 40,
-      "timestamp": "2026-11-15T06:07:33.730Z",
+      "timestamp": "2026-11-15T06:23:13.196Z",
       "parentVersion": 39,
       "operation": "create",
       "description": "Added link: “Ten thousand clerks protest at Westminster against the engines” → “Parliament debates engine licensing legislation”",
@@ -5186,18 +5235,18 @@
         {
          "type": "relationship",
          "id": "local_18",
-         "hash": "fe3da2595d5efd4b5f262a1bd78fe39db5472c69ed73240a87797d7aedc7c427"
+         "hash": "847753c0f667011df81c8cc557e89f20b5aec7e018374d5c2ae2b6c537791da1"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "cdfc26e26c04e448826d5335a891de4d2f60886d798f4d60d240c314f8c4f6a3"
+      "treeHash": "09d7cb890e7c936311840f83827b336f1da2caca74d77378c8b7ca9038db4906"
      },
      {
       "graphId": "graph_engine_age",
       "version": 39,
-      "timestamp": "2026-11-15T06:07:33.288Z",
+      "timestamp": "2026-11-15T06:23:13.040Z",
       "parentVersion": 38,
       "operation": "create",
       "description": "Added link: “Ten thousand clerks protest at Westminster against the engines” → “Manchester clerks hold a demonstration in solidarity”",
@@ -5206,18 +5255,18 @@
         {
          "type": "relationship",
          "id": "local_17",
-         "hash": "2079e253e3c941d2cdb3faecadd8cd5b8af9afdbd4fec292c7cac3f9bf3e952c"
+         "hash": "7006b8fefb73acb132fbacd63ec848bfb449b873f1119d991ccdd9741c00e084"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "a5c49d5d727506ae3cd92c93e378492bd21146c3721f2e259fc718a6e43b72c2"
+      "treeHash": "7fe2e74a69737e7c364708bb6fbc5e7850af420a34064d7cd17c5222e8698ff8"
      },
      {
       "graphId": "graph_engine_age",
       "version": 38,
-      "timestamp": "2026-11-15T06:07:32.661Z",
+      "timestamp": "2026-11-15T06:23:12.875Z",
       "parentVersion": 37,
       "operation": "create",
       "description": "Added link: “Lloyd’s opens an actuarial engine room for the insurance market” → “The Bank of England moves its ledgers onto engines”",
@@ -5226,18 +5275,18 @@
         {
          "type": "relationship",
          "id": "local_16",
-         "hash": "7ac2d9d2fa5a87cae578d110537ce94bc94a53ff8d38aec0d7ba8c5cde3c274b"
+         "hash": "89733631db7ce5f0af5af44989b08656efa4d9e8d43abe9e9804ce77a275d47e"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "7411190639871df266c2daf834920bfbdf5b7941b848743a46918e73ee3d492e"
+      "treeHash": "3ecb4b54c01da6d969f5893bce68e004f9c56d2a4cad20939dee61276eb2fbb0"
      },
      {
       "graphId": "graph_engine_age",
       "version": 37,
-      "timestamp": "2026-11-15T06:07:31.982Z",
+      "timestamp": "2026-11-15T06:23:12.721Z",
       "parentVersion": 36,
       "operation": "create",
       "description": "Added link: “Lloyd’s opens an actuarial engine room for the insurance market” → “Ten thousand clerks protest at Westminster against the engines”",
@@ -5246,18 +5295,18 @@
         {
          "type": "relationship",
          "id": "local_15",
-         "hash": "ed1ed3e29ff3ac34bb691da2ff676fa4202d67b5995553542fa0cbfa343afd1c"
+         "hash": "cb42ef55ae1f90610defbb924fa70a6cffcd1ded96f5f3dd645903e518fb8173"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "3340cc89b563dd1d31a9b1e10bfdfc2744ce822d3c4b54da8658a8ee014bd083"
+      "treeHash": "fc3e29b4a70f5080c2fde028a42fa5c771c9614eccf59e64f23ab29e9223b7a6"
      },
      {
       "graphId": "graph_engine_age",
       "version": 36,
-      "timestamp": "2026-11-15T06:07:31.676Z",
+      "timestamp": "2026-11-15T06:23:12.564Z",
       "parentVersion": 35,
       "operation": "create",
       "description": "Added link: “The 1851 census is tabulated entirely by engine” → “Ten thousand clerks protest at Westminster against the engines”",
@@ -5266,18 +5315,18 @@
         {
          "type": "relationship",
          "id": "local_14",
-         "hash": "d011a83f27db4dca73c666047599b3397834828ebbd7760bf1ca22fa9d4f3370"
+         "hash": "2a80811d72635c0058a74e70d4eadbbca776bbbac063c9b5d20871b97b04dce6"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "827cd0313f1dc3e0e7b674b74997cd3aff8c526f00660ae75b5137453cf8c39a"
+      "treeHash": "984a19b3fee82d79302a9ce6c568f9466691d73390c56aaa63845c8814099474"
      },
      {
       "graphId": "graph_engine_age",
       "version": 35,
-      "timestamp": "2026-11-15T06:07:31.355Z",
+      "timestamp": "2026-11-15T06:23:12.413Z",
       "parentVersion": 34,
       "operation": "create",
       "description": "Added link: “The Great Exhibition’s centrepiece is a working engine hall” → “Prussia buys three engines for its General Staff”",
@@ -5286,18 +5335,18 @@
         {
          "type": "relationship",
          "id": "local_13",
-         "hash": "fc78539ffc72604463dfbabbe79fa456848e6b76b072ae3317d00a77a21a53ac"
+         "hash": "2fcbcdd0f9b2af3ff31d4dc5341df97d9e5d0df49fa0bd7ad3b46fc45a7ba07b"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "1eab3735747c0a9065eaa4f8d5c02fa2810f6dafcd379fe051747569ae8e08a6"
+      "treeHash": "5ef6d45ca483314b0e217746f80aa8c9d4a21946844ea4e381b4739373cee665"
      },
      {
       "graphId": "graph_engine_age",
       "version": 34,
-      "timestamp": "2026-11-15T06:07:31.054Z",
+      "timestamp": "2026-11-15T06:23:12.255Z",
       "parentVersion": 33,
       "operation": "create",
       "description": "Added link: “Lloyd’s opens an actuarial engine room for the insurance market” → “Engines in London and Manchester exchange results by telegraph”",
@@ -5306,18 +5355,18 @@
         {
          "type": "relationship",
          "id": "local_12",
-         "hash": "beebb37fb30578c326a5c20b0cfa9a79b25af5a7c5919075104c7040c8c7ec40"
+         "hash": "01a4d819fd4d5e7d9021f7646248a8c61368e73714d76cf78f276ab0bfef3d1c"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "9736116dda219858948c386f08d015d29f85d078e7084eb8aa3d7749f5efe45a"
+      "treeHash": "de99ae5c304b745a0eb6e748fac81c080e14a82345353ee00f4a4ae443202e9a"
      },
      {
       "graphId": "graph_engine_age",
       "version": 33,
-      "timestamp": "2026-11-15T06:07:30.541Z",
+      "timestamp": "2026-11-15T06:23:12.096Z",
       "parentVersion": 32,
       "operation": "create",
       "description": "Added link: “The 1851 census is tabulated entirely by engine” → “The Great Exhibition’s centrepiece is a working engine hall”",
@@ -5326,18 +5375,18 @@
         {
          "type": "relationship",
          "id": "local_11",
-         "hash": "716c738f8d123a16d46502c21945b5fadd5b365e5473917688973ca634ad2489"
+         "hash": "5f3a40c7bb5959f4d0c7577df36a9a7d5eb18340510d889fc20a96b9bbaa3fdc"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "7d96fcb2ad91fd826faf2252e3a63c9197fcae8498382a8319bebdd643170d00"
+      "treeHash": "80463ef1abb12a8a13382380416decedd179a0d8af01e2d3d2e02f9412d66123"
      },
      {
       "graphId": "graph_engine_age",
       "version": 32,
-      "timestamp": "2026-11-15T06:07:30.076Z",
+      "timestamp": "2026-11-15T06:23:11.939Z",
       "parentVersion": 31,
       "operation": "create",
       "description": "Added link: “The Admiralty orders engines to compute navigation tables” → “The 1851 census is tabulated entirely by engine”",
@@ -5346,18 +5395,18 @@
         {
          "type": "relationship",
          "id": "local_10",
-         "hash": "742ed3a8492668390a8562ed559a0d76a8208eeb6f310f6c121f241b176e4a41"
+         "hash": "22bfe82b695d95746e72b225fb682698147873c2fe9b5f092755437d6c840875"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "08b3e8d77f948b7f44fff5ef7ec891f41fafef607e86ecd4f900b1b9b1608204"
+      "treeHash": "a93bfba385f2850a5aaf9129e55a59c2f95c04fcc0d98976feee4823e525d165"
      },
      {
       "graphId": "graph_engine_age",
       "version": 31,
-      "timestamp": "2026-11-15T06:07:29.690Z",
+      "timestamp": "2026-11-15T06:23:11.790Z",
       "parentVersion": 30,
       "operation": "create",
       "description": "Added link: “Lovelace founds the School of Engine Programming in London” → “The 1851 census is tabulated entirely by engine”",
@@ -5366,18 +5415,18 @@
         {
          "type": "relationship",
          "id": "local_9",
-         "hash": "387499e48afc9fb197bbe531e68e754727dbcefd90856a4a4c0fd6cc816fcc9c"
+         "hash": "597815eda874c248f8f2e8ef2355be518ce1296eb8ab7d7417f1659633d725b1"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "d82ccf02447ab5ddceb885cf4170f2b1c4a19103962c6f05b9e4b3333f1f687b"
+      "treeHash": "bbf442682afc52a01c2839220abfe8ac0f10f45939c36980ae23373d18041dbc"
      },
      {
       "graphId": "graph_engine_age",
       "version": 30,
-      "timestamp": "2026-11-15T06:07:29.461Z",
+      "timestamp": "2026-11-15T06:23:11.636Z",
       "parentVersion": 29,
       "operation": "create",
       "description": "Added link: “Ada Lovelace publishes Note G, the first program” → “Lovelace founds the School of Engine Programming in London”",
@@ -5386,18 +5435,18 @@
         {
          "type": "relationship",
          "id": "local_8",
-         "hash": "acc5d0cf22943ab2938fe6021f62a64fe19dc5573a3a23f2a2c847ee42c46419"
+         "hash": "24a5f91508ce05e82a27a32828003eeb1759d4d5ee033ac5538c65d3c1a6c4fc"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "fe19ee23002bae6ca509caa5f648ec3535a0b50334f3d7821da0a62fa8d29b52"
+      "treeHash": "b7d091714e1a3819d112c2467b475238a15dac8b21df447c9ed4d4d21fc5b902"
      },
      {
       "graphId": "graph_engine_age",
       "version": 29,
-      "timestamp": "2026-11-15T06:07:28.836Z",
+      "timestamp": "2026-11-15T06:23:11.479Z",
       "parentVersion": 28,
       "operation": "create",
       "description": "Added link: “The Engine computes Bernoulli numbers before the Royal Society” → “Lloyd’s opens an actuarial engine room for the insurance market”",
@@ -5406,18 +5455,18 @@
         {
          "type": "relationship",
          "id": "local_7",
-         "hash": "019c3a6d7c406b5fbc022ff838a1cd7cf9f857bd2d10de84e8d13e153afdba3b"
+         "hash": "56d1943dd7494fae426662f76c2397d5879ebc115d3ed9fd086935dd4729a251"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "48a401bce7ccb32c943213fbdd617af58b047fa9966c07f19416becb55e70fa9"
+      "treeHash": "f1721f246eb1899ebae6aa3fea25a28249a61aee2cb3fff9e8810868fd3d265c"
      },
      {
       "graphId": "graph_engine_age",
       "version": 28,
-      "timestamp": "2026-11-15T06:07:28.478Z",
+      "timestamp": "2026-11-15T06:23:11.320Z",
       "parentVersion": 27,
       "operation": "create",
       "description": "Added link: “The Engine computes Bernoulli numbers before the Royal Society” → “The Admiralty orders engines to compute navigation tables”",
@@ -5426,18 +5475,18 @@
         {
          "type": "relationship",
          "id": "local_6",
-         "hash": "e8b7b03b5577a840f8598c881642d9c6f8e6dd37c89ea6129b4dc3ed394cee38"
+         "hash": "049d389224c9b06bd2561238c4794a20f11705883d2fe6e7ad99bc58f32c2ebe"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "2c4db6871670bdf9b42eb85155a6610855bb040b13d4345f0a386278de7955b4"
+      "treeHash": "0dd8ec1d08377225cdb2c2d4a3dd0ce43acfaf3bde97bb2a2a255a8638cd00a8"
      },
      {
       "graphId": "graph_engine_age",
       "version": 27,
-      "timestamp": "2026-11-15T06:07:28.308Z",
+      "timestamp": "2026-11-15T06:23:11.163Z",
       "parentVersion": 26,
       "operation": "create",
       "description": "Added link: “Ada Lovelace publishes Note G, the first program” → “The Engine computes Bernoulli numbers before the Royal Society”",
@@ -5446,18 +5495,18 @@
         {
          "type": "relationship",
          "id": "local_5",
-         "hash": "21eb820b81d22564b497dbd805f0ab25ff7b878c8668b6841261019cfe2440c3"
+         "hash": "885acc8a6bc7ab9787b369764073ac77f90b2479d2b4afec9e7c28cf0acf1ae9"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "928403ce864817becee1a22bcd49e38ecf32e27646b29f126d3b0abadd886a6c"
+      "treeHash": "6fcae1741fa4715e66ce2ac9bae5e34ef5139101e0085aaa5c44c7116edb7d0f"
      },
      {
       "graphId": "graph_engine_age",
       "version": 26,
-      "timestamp": "2026-11-15T06:07:28.095Z",
+      "timestamp": "2026-11-15T06:23:11.002Z",
       "parentVersion": 25,
       "operation": "create",
       "description": "Added link: “Babbage completes the full design of the Analytical Engine” → “Ada Lovelace publishes Note G, the first program”",
@@ -5466,18 +5515,18 @@
         {
          "type": "relationship",
          "id": "local_4",
-         "hash": "4d7d634abd662b4c97304adff54eb3bb43b4452db368239c4594ce85381037c6"
+         "hash": "9f58cf407635c3a19f8984b06c7293e97ec79d320cc9418ee13a4537358f640c"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "8351f9f904197f0b93f9139b4eb80130947533544451d02403d8ad32789440bf"
+      "treeHash": "28a2a0ca94377542e49800e8b708d86b339192418908a8d8dc8254f3a59a09e2"
      },
      {
       "graphId": "graph_engine_age",
       "version": 25,
-      "timestamp": "2026-11-15T06:07:27.852Z",
+      "timestamp": "2026-11-15T06:23:10.850Z",
       "parentVersion": 24,
       "operation": "create",
       "description": "Added link: “Joseph Clement standardises the engine’s gears and screw threads” → “The Engine computes Bernoulli numbers before the Royal Society”",
@@ -5486,18 +5535,18 @@
         {
          "type": "relationship",
          "id": "local_3",
-         "hash": "d7bec58cea03820b2c04f5ef82a92b4beef2c3d00c6230383e6447592a118ec9"
+         "hash": "87ec6c91dcc6f83963a49fff1f64171b86a80cc9208ffa67e44d87669edd6e6c"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "5f2d8311f64853e08a3f812b4a8b03d7906574824c427a0e212094b07c2ceff0"
+      "treeHash": "5c563cb904e07d821ebfcaf22ad3d2ab6119039e09234788c5d69c49aa5c5d5f"
      },
      {
       "graphId": "graph_engine_age",
       "version": 24,
-      "timestamp": "2026-11-15T06:07:27.646Z",
+      "timestamp": "2026-11-15T06:23:10.699Z",
       "parentVersion": 23,
       "operation": "create",
       "description": "Added link: “Prime Minister Peel reverses course and funds construction” → “Joseph Clement standardises the engine’s gears and screw threads”",
@@ -5506,18 +5555,18 @@
         {
          "type": "relationship",
          "id": "local_2",
-         "hash": "7d897746ac167498daa346640f294f341d3f54b81fd1fb65593f3dbdbe1763cb"
+         "hash": "4bd2b5421123a11c527e686fe72e21543986f64c8b8a6c0269ba86b34c77ddfd"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "57958e0e1b68d96408cc3f397486662cd871841148ed99b66a05281c62147027"
+      "treeHash": "4af1e4c028f07cf03c6dc72082d900de1b236ba6eef641ae203d1d1f9da67017"
      },
      {
       "graphId": "graph_engine_age",
       "version": 23,
-      "timestamp": "2026-11-15T06:07:27.459Z",
+      "timestamp": "2026-11-15T06:23:10.549Z",
       "parentVersion": 22,
       "operation": "create",
       "description": "Added link: “Babbage completes the full design of the Analytical Engine” → “Prime Minister Peel reverses course and funds construction”",
@@ -5526,18 +5575,18 @@
         {
          "type": "relationship",
          "id": "local_1",
-         "hash": "7d71428dcba6dde2ce4fc034a866697c58dedcc0238cc3e76af082cc3db2bf96"
+         "hash": "207cb03a297e5ff049c5b4a78e7ec96885e7d6117b964734a65c5e8bbb0b22bc"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "a3a929e57a1ea853c3ddf58fab7fd94523cbbe3361d3cf84761abe1c9aa1a1d5"
+      "treeHash": "7e95a771e3cbec51026a99f6d8534af87b8404105d411c1264a25931ffd188f1"
      },
      {
       "graphId": "graph_engine_age",
       "version": 22,
-      "timestamp": "2026-11-15T06:07:27.232Z",
+      "timestamp": "2026-11-15T06:23:10.397Z",
       "parentVersion": 21,
       "operation": "create",
       "description": "Added event “Britain and Prussia begin an engine arms race”",
@@ -5546,18 +5595,18 @@
         {
          "type": "event",
          "id": "event_race",
-         "hash": "cbcf60032c3911bae02412770fa8daa21b6a0d4f119b8d02b01bfb589eff411a"
+         "hash": "500d818090969795ce2ddaefc97d0828dfb0be78ede0ce7b13ed2688711e075b"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "a1c5e5fa81f28bbe81bc80281a6baeaf8aafd5329fb4ba25a08be1c7a4cd1523"
+      "treeHash": "6753a6272d7f1e6d022d48e13878d89a5114b920632432145445e5f68939eca0"
      },
      {
       "graphId": "graph_engine_age",
       "version": 21,
-      "timestamp": "2026-11-15T06:07:26.989Z",
+      "timestamp": "2026-11-15T06:23:10.244Z",
       "parentVersion": 20,
       "operation": "create",
       "description": "Added event “Moltke uses engine-planned railway timetables to mobilise”",
@@ -5566,18 +5615,18 @@
         {
          "type": "event",
          "id": "event_moltke",
-         "hash": "4d922fbb4b3acca92ed18a55ef35038e98dbac5874a702b74d2e59d68727b3ce"
+         "hash": "c7122c535e5ed3f485113859d3e22111686c5d486af1fa56c8fad03a27dc01e1"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "af4cf89b41c6e7cc4635eed201402ee3442e328d06317aa7cc32245d60fab66e"
+      "treeHash": "ffc95f013c394bae910865f95655e1d552655ea1489d01f167a8a0d0fc269081"
      },
      {
       "graphId": "graph_engine_age",
       "version": 20,
-      "timestamp": "2026-11-15T06:07:26.654Z",
+      "timestamp": "2026-11-15T06:23:10.093Z",
       "parentVersion": 19,
       "operation": "create",
       "description": "Added event “Parliament passes the Engine Licensing Act”",
@@ -5586,18 +5635,18 @@
         {
          "type": "event",
          "id": "event_act",
-         "hash": "51b42335bc1733946a82b610302ea94397752a6f014d5abcebe053135a25640d"
+         "hash": "7a1b502c4575e031c28299b9972e018e46d034899619c424e6dc16fadd69905b"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "44d18ba8771f5570ffd77f22d3f1580edb660588a306c84f3fa87bf0739a5ef2"
+      "treeHash": "3541ed79235cee2648437c4011299b3fddb50bbc73e5a8dfb55f771b1cafda74"
      },
      {
       "graphId": "graph_engine_age",
       "version": 19,
-      "timestamp": "2026-11-15T06:07:26.164Z",
+      "timestamp": "2026-11-15T06:23:09.945Z",
       "parentVersion": 18,
       "operation": "create",
       "description": "Added event “Parliament debates engine licensing legislation”",
@@ -5606,18 +5655,18 @@
         {
          "type": "event",
          "id": "event_debate",
-         "hash": "ff6d503b7150bd889d6d43329272d36d06b491a061c2b5e5c21dd5251b6c961c"
+         "hash": "da9def7bf5e66ab4e21727a1a5dd343b6e1f0e956e064eb6898f6271e01f3764"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "84725a5bca66b329b63141d044930c38af3570176904e366dfc328d2182f1b40"
+      "treeHash": "40df7149a75d18364e4b72d212e9ada82b26402819b2c2c81b9cad1a47e3fdf7"
      },
      {
       "graphId": "graph_engine_age",
       "version": 18,
-      "timestamp": "2026-11-15T06:07:25.801Z",
+      "timestamp": "2026-11-15T06:23:09.797Z",
       "parentVersion": 17,
       "operation": "create",
       "description": "Added event “Manchester clerks hold a demonstration in solidarity”",
@@ -5626,18 +5675,18 @@
         {
          "type": "event",
          "id": "event_manchester",
-         "hash": "d9e0c5524eb3f2f375eaee95f38ab596eb7c40ecb91597a389187d91d987ed6a"
+         "hash": "6c5a1a98a3ec61d30285983bff719f636e21a3e848fbe99056a3366b5cdcd6d8"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "7fe6e7556517d6364b664a931762ad03a00da5539bb25db42b35f6b25c0e551c"
+      "treeHash": "f29331dd191edfd067b1658b0a8c0da655ac5409c5af7004e9468b473217a3ad"
      },
      {
       "graphId": "graph_engine_age",
       "version": 17,
-      "timestamp": "2026-11-15T06:07:25.508Z",
+      "timestamp": "2026-11-15T06:23:09.649Z",
       "parentVersion": 16,
       "operation": "create",
       "description": "Added event “Ten thousand clerks protest at Westminster against the engines”",
@@ -5646,18 +5695,18 @@
         {
          "type": "event",
          "id": "event_clerks",
-         "hash": "d70cb571b14a24fa9c61647220dee1b488905ef3d79a95509af95e04405f182b"
+         "hash": "8268e65e46bce817d433083a17eefdb11a5892e57b21bc3d47623a0c944fdfbd"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "d9390eea6daae816f7096402a435dcdd883a8ca28187b1fe340aaf130514c5b9"
+      "treeHash": "d32694910911500343dd8808379d159febec8a8cd63316ee73b69cf70665b806"
      },
      {
       "graphId": "graph_engine_age",
       "version": 16,
-      "timestamp": "2026-11-15T06:07:25.152Z",
+      "timestamp": "2026-11-15T06:23:09.501Z",
       "parentVersion": 15,
       "operation": "create",
       "description": "Added event “Prussia buys three engines for its General Staff”",
@@ -5666,18 +5715,18 @@
         {
          "type": "event",
          "id": "event_prussia",
-         "hash": "fdbc65f729a436d0b4a7fa35f4c540d245cd98ae701762039d88d2ba1299e517"
+         "hash": "1e91af0bc6b24ab3e76e3c6bf545c6c6dd95d99c436776c79d743e1bcc2f1b50"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "92f30f97dd7add24fd9d6687ce9de43d883fa51d4b0f98c134b61cec3b798987"
+      "treeHash": "eb360347f9ff8f24c7fb65f60d3bd47f1471aa2de0101fde299b3b5882c31148"
      },
      {
       "graphId": "graph_engine_age",
       "version": 15,
-      "timestamp": "2026-11-15T06:07:24.933Z",
+      "timestamp": "2026-11-15T06:23:09.354Z",
       "parentVersion": 14,
       "operation": "create",
       "description": "Added event “Engines in London and Manchester exchange results by telegraph”",
@@ -5686,18 +5735,18 @@
         {
          "type": "event",
          "id": "event_wire",
-         "hash": "a1f2dba8433c7b586d33ee80272f82ad0a5f4e3f9589ad91b2285b59c366e10d"
+         "hash": "f547618a936862d93a1b6d1db57eeed8d61a559725dcdcf654eee81fe30ae08a"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "1e48fb258c7c14e814b0eddc7d46f8ea4f63944f065e9e40857f952b034cc5c3"
+      "treeHash": "0ee17d89ffbc1dfe330dd2c0a013b985d1c9be4b90eee62701c67191a3b43107"
      },
      {
       "graphId": "graph_engine_age",
       "version": 14,
-      "timestamp": "2026-11-15T06:07:24.622Z",
+      "timestamp": "2026-11-15T06:23:09.206Z",
       "parentVersion": 13,
       "operation": "create",
       "description": "Added event “The Great Exhibition’s centrepiece is a working engine hall”",
@@ -5706,18 +5755,18 @@
         {
          "type": "event",
          "id": "event_exhibition",
-         "hash": "5490ae509dc0f1a462efdc5ea113bc1bb7cfb8db0d136d70db587eaa58cef91d"
+         "hash": "68d30dc60e8d034cd7504ea1acb02f26ae239f8180ee66fd2c03d881d7c6e6c9"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "ef83253c8885b956117b8a16c2eb8f7c03acccdd04c05c67a50c8560f1756398"
+      "treeHash": "4f081afc6100b876f8e1a1499f8a69614c014c6b4106657e9825a4b84c954c4f"
      },
      {
       "graphId": "graph_engine_age",
       "version": 13,
-      "timestamp": "2026-11-15T06:07:24.425Z",
+      "timestamp": "2026-11-15T06:23:09.059Z",
       "parentVersion": 12,
       "operation": "create",
       "description": "Added event “The 1851 census is tabulated entirely by engine”",
@@ -5726,18 +5775,18 @@
         {
          "type": "event",
          "id": "event_census",
-         "hash": "56c3f5332ea4dc09e8168efb9aa4d9b39e78beb15b5c2dd70e5643dda26d2e4a"
+         "hash": "4630026c131cc527466c888ae8b89ea78d743b1f1a41ff866bf8c4018ee2872a"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "f904e418777db5dd5a4b64e54acb1cdbdd32bfc0f99ba2f69c99022943397272"
+      "treeHash": "1def68140ab8f076f8f88cbd9983edc01212039def006e0be5d7c59d1bc7a407"
      },
      {
       "graphId": "graph_engine_age",
       "version": 12,
-      "timestamp": "2026-11-15T06:07:24.217Z",
+      "timestamp": "2026-11-15T06:23:08.908Z",
       "parentVersion": 11,
       "operation": "create",
       "description": "Added event “Lovelace founds the School of Engine Programming in London”",
@@ -5746,18 +5795,18 @@
         {
          "type": "event",
          "id": "event_school",
-         "hash": "32ee64c83220f7f983fabb1142c69c6d04616d6d7a20c3be90584e0ac3f8e5fc"
+         "hash": "4dd67d31195a6140dcebe2a7b1f5aa0444aa9f75d5c9e2ec385698c8cad28ff7"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "9dbdfd855fadae8c7cf4506a12f3a015f71b9ed930325af5c51a7a899e71856c"
+      "treeHash": "7c1fa3baaf4b0fd3b3753bba9fc202db722d48272600c5bac67b7b877b6be164"
      },
      {
       "graphId": "graph_engine_age",
       "version": 11,
-      "timestamp": "2026-11-15T06:07:24.026Z",
+      "timestamp": "2026-11-15T06:23:08.755Z",
       "parentVersion": 10,
       "operation": "create",
       "description": "Added event “The Bank of England moves its ledgers onto engines”",
@@ -5766,18 +5815,18 @@
         {
          "type": "event",
          "id": "event_bank",
-         "hash": "681de14fc2f31b8e2e52cc13c780c2a086b8a1234466028e10e4e6c0a60d4cff"
+         "hash": "79b248cf660db6ec7019341b8d1ce819eb583f0ae3d6010a41b2c49d54b07a10"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "898190faf5be61bfd8e2eab8fd3c47587c9afea9db1bc4b9fa41fa37808da380"
+      "treeHash": "4fc01739942d59c2a1af371d207278ac6d42f827983c0cbca6ea43e0da6db83a"
      },
      {
       "graphId": "graph_engine_age",
       "version": 10,
-      "timestamp": "2026-11-15T06:07:23.854Z",
+      "timestamp": "2026-11-15T06:23:08.603Z",
       "parentVersion": 9,
       "operation": "create",
       "description": "Added event “Lloyd’s opens an actuarial engine room for the insurance market”",
@@ -5786,18 +5835,18 @@
         {
          "type": "event",
          "id": "event_lloyds",
-         "hash": "806949d6dc339f41aceae626fac94c33800520b265db0a2b61c33e02e9705a0e"
+         "hash": "dd7f2aff15b6f022f1c428d116eba050aedb80562c64949ecf649d22922c991c"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "be1712cf3516a4f1e0c75a398a2be7411732f1a1f014d0cb382e1cd88500414e"
+      "treeHash": "f7cad7f6b8acd414410c81df969cd6da1164679b2f8ea5d8d1566869aab37ed6"
      },
      {
       "graphId": "graph_engine_age",
       "version": 9,
-      "timestamp": "2026-11-15T06:07:23.703Z",
+      "timestamp": "2026-11-15T06:23:08.442Z",
       "parentVersion": 8,
       "operation": "create",
       "description": "Added event “The Admiralty orders engines to compute navigation tables”",
@@ -5806,18 +5855,18 @@
         {
          "type": "event",
          "id": "event_admiralty",
-         "hash": "b01890304e302ef0eb47a0fee070642afc15ff3543b2983f632137e7b13c922c"
+         "hash": "b929b3947a253b78edcdd05ca59d8902e026262b102ab7a0f3d02bc745f7aa88"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "3d72876688708e8fbd2eb716405e6e7b8cbe05b616192bfd4e4186d93c8cc2e3"
+      "treeHash": "98ff332dc0524f386b61587e69d512e9eddffc736933042f874bc37a8acc5b98"
      },
      {
       "graphId": "graph_engine_age",
       "version": 8,
-      "timestamp": "2026-11-15T06:07:23.553Z",
+      "timestamp": "2026-11-15T06:23:08.289Z",
       "parentVersion": 7,
       "operation": "create",
       "description": "Added event “The Engine computes Bernoulli numbers before the Royal Society”",
@@ -5826,18 +5875,18 @@
         {
          "type": "event",
          "id": "event_firstrun",
-         "hash": "3ab4522bc1194df15e5c8bd854a2e7fdae9c50bc262ecd2bc51edb05d4c3f1ba"
+         "hash": "8eaa6e0013217902057272b6c98bb88125a35993cb620b03727804fef0ecd13f"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "ac4aa7eb38fad8ccc8ba8deed659da25adab3e47fd37da7aef9b6b1b6e899d7d"
+      "treeHash": "8738b6ecaa3ffe4d128cc199bf9892a7a7dc8c19d33f6f60ebab7b6ccd20ed13"
      },
      {
       "graphId": "graph_engine_age",
       "version": 7,
-      "timestamp": "2026-11-15T06:07:23.407Z",
+      "timestamp": "2026-11-15T06:23:08.140Z",
       "parentVersion": 6,
       "operation": "create",
       "description": "Added event “Ada Lovelace publishes Note G, the first program”",
@@ -5846,18 +5895,18 @@
         {
          "type": "event",
          "id": "event_noteg",
-         "hash": "322ac8a96fc109713c3918839c3612a318ad38c5a7e41250eb512fdd33ab5aed"
+         "hash": "6a4ce8e6808498fddefa379bf6cb12d93f96f1795d6b3a98429b0dbdee875be0"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "96ef9c3a280601412441372e75e6c3ba7a21fe03a280d80c32c7669e374a8cca"
+      "treeHash": "10840ebee4c880fcac85d9c7463afed51b36aaac003f3df53077f3b9604d1526"
      },
      {
       "graphId": "graph_engine_age",
       "version": 6,
-      "timestamp": "2026-11-15T06:07:23.258Z",
+      "timestamp": "2026-11-15T06:23:07.990Z",
       "parentVersion": 5,
       "operation": "create",
       "description": "Added event “Joseph Clement standardises the engine’s gears and screw threads”",
@@ -5866,18 +5915,18 @@
         {
          "type": "event",
          "id": "event_clement",
-         "hash": "2f6a90ecea5b0f49b7526183ec1fa0f6e9c26469c6d841fae8e4442fa729f0d6"
+         "hash": "a2aa9e6c3d034e58998875b14869e037fd15d8b8703c320c77c0bc7fd4d8f591"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "cd3216f3e0997c16e0e826a7382d21948e1ed540b056a016a7e3657bec3d6d64"
+      "treeHash": "28456ca46893e64c8d80934ed067309b963aa6b9f551f244a1a609903dd504ee"
      },
      {
       "graphId": "graph_engine_age",
       "version": 5,
-      "timestamp": "2026-11-15T06:07:23.107Z",
+      "timestamp": "2026-11-15T06:23:07.844Z",
       "parentVersion": 4,
       "operation": "create",
       "description": "Added event “Prime Minister Peel reverses course and funds construction”",
@@ -5886,18 +5935,18 @@
         {
          "type": "event",
          "id": "event_peel",
-         "hash": "26bb5c82f1c5bf82ef08166b8577009e04a93293cbcd7db635cc5e1425af9111"
+         "hash": "472b317585aefbe5d0937e1057175e2f98bc442ed141509bb6b3b92f52edc4ec"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "30d94b3c5c9c60dfd57dcb51cb9fe9fd3ba5750e9ab607a5f8d80cd76927b00b"
+      "treeHash": "af14ccfbfacba3a56c3d782d73e3374442575834ac6aaa641e0896cfe909c0b6"
      },
      {
       "graphId": "graph_engine_age",
       "version": 4,
-      "timestamp": "2026-11-15T06:07:22.956Z",
+      "timestamp": "2026-11-15T06:23:07.697Z",
       "parentVersion": 3,
       "operation": "create",
       "description": "Added event “Babbage completes the full design of the Analytical Engine”",
@@ -5906,18 +5955,18 @@
         {
          "type": "event",
          "id": "event_design",
-         "hash": "cfc1f619082913839f36d6c7100284b11755cda16e4890f7e038ce210bf14933"
+         "hash": "e10b963f87e1ac5ec45c5e2d33c3029c019075a3fcaa62610fbf6c8d674e400d"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "1ba8d8c1ceca5e873b64824a5aa3f3f17f18c56d4242196363e6d4ca841983ea"
+      "treeHash": "02960e6984981e38d99fcbf64e51b60d4ee784f0aa6e8738e41c1852703b145b"
      },
      {
       "graphId": "graph_engine_age",
       "version": 3,
-      "timestamp": "2026-11-15T06:07:22.799Z",
+      "timestamp": "2026-11-15T06:23:07.550Z",
       "parentVersion": 2,
       "operation": "create",
       "description": "Added arc “Engines on the Wire”",
@@ -5926,18 +5975,18 @@
         {
          "type": "arc",
          "id": "arc_telegraph",
-         "hash": "be05367c65b2499a43ab85b21636c3c24310a36e36099c35842188ed6320394f"
+         "hash": "93413a8aa2f6592476d621c757cc5557a1980d6629ab29bf4a4930051afebba7"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "a48ecb3a3d7a00a1cae36ba9146d3b3f5fa7f66bd55a19e10c74a8160bdfae5a"
+      "treeHash": "8687e3d032ef294b9524ffbd510ed2455f865fa253acf199b80a3177d0495ac6"
      },
      {
       "graphId": "graph_engine_age",
       "version": 2,
-      "timestamp": "2026-11-15T06:07:22.649Z",
+      "timestamp": "2026-11-15T06:23:07.403Z",
       "parentVersion": 1,
       "operation": "create",
       "description": "Added arc “The Clerks’ Rebellion”",
@@ -5946,18 +5995,18 @@
         {
          "type": "arc",
          "id": "arc_reaction",
-         "hash": "2cecc0de25115329419e2fb7fc4a19bd9a406b5cefa08ca48c29783f23a16772"
+         "hash": "f2c5061e7aa13b3ddbc0c8cf3436d03375a481824883df740b7a7e40a20a9433"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "9d3d78635ae305225797ecc0b0212df0cd708f52473ab02c23c75e2fab72e89c"
+      "treeHash": "d845924de1b23d806bfd553097c4e72f01dc6202fcdc7b42d68a576c018f8987"
      },
      {
       "graphId": "graph_engine_age",
       "version": 1,
-      "timestamp": "2026-11-15T06:07:22.500Z",
+      "timestamp": "2026-11-15T06:23:07.257Z",
       "parentVersion": 0,
       "operation": "create",
       "description": "Added arc “The Calculating Offices”",
@@ -5966,18 +6015,18 @@
         {
          "type": "arc",
          "id": "arc_offices",
-         "hash": "3cf86fccac0a1fe336c6a817fc4c29fa1431daa5ddd666d974d9c603743c9469"
+         "hash": "126aea00c2e0601f65bb72c03b3205d934e7a534a8888eb48e7139dc88ec4a3e"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "6effa11b6f1e3bbbf5e0ac42d62cefd1e6f1a7e30915006a7ecddc5101d03392"
+      "treeHash": "fc4d610d887600f1987a8fc2c096997a7102df896d45ba4109a290f06981e7e2"
      },
      {
       "graphId": "graph_engine_age",
       "version": 0,
-      "timestamp": "2026-11-15T06:07:22.349Z",
+      "timestamp": "2026-11-15T06:23:07.109Z",
       "parentVersion": null,
       "operation": "create",
       "description": "Added arc “Building the Engine”",
@@ -5986,13 +6035,13 @@
         {
          "type": "arc",
          "id": "arc_build",
-         "hash": "8f715fa8e6aba2682d24cbf1bdebdfefd4d197b495af08ae5a4ce2cd5ae8fc5a"
+         "hash": "28338bd81cbf4789bb2a37948c1a59097a5bb64b6f937ddda2200c77a0fbcf4f"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "24cf97dd7ad4d5112734e59d7a116c3fcf9ac5ad82001e8d0deaa53501758267"
+      "treeHash": "83da0d8d15d6ba7c7f4bea9003746907fb99f24cb9d0a8ae8bedb52f315cbde6"
      }
     ],
     "pagination": {
@@ -6012,8 +6061,8 @@
      "id": "graph_clerks_prevail",
      "name": "The Engine Age — Clerks Prevail",
      "description": "Branch: Parliament bans engines outright in 1860 instead of licensing them.",
-     "createdAt": "2026-11-15T06:07:40.393Z",
-     "updatedAt": "2026-11-15T06:07:41.385Z",
+     "createdAt": "2026-11-15T06:23:14.260Z",
+     "updatedAt": "2026-11-15T06:23:14.775Z",
      "version": 4,
      "parentGraphId": "graph_engine_age",
      "branchPoint": 46,
@@ -6064,7 +6113,7 @@
      {
       "graphId": "graph_clerks_prevail",
       "version": 3,
-      "timestamp": "2026-11-15T06:07:41.381Z",
+      "timestamp": "2026-11-15T06:23:14.766Z",
       "parentVersion": 2,
       "operation": "create",
       "description": "Added link: “Parliament bans private calculating engines” → “Lovelace’s programmers emigrate to Berlin”",
@@ -6073,13 +6122,13 @@
         {
          "type": "relationship",
          "id": "local_25",
-         "hash": "43f5fdd40bf59171dd7ee3ee7bb9dbbddde482f55d230b222d471f1a3f571e35"
+         "hash": "4cf143046b7855b26de0a2825ada9893dc705a40816cb7a387b25a7e85efb875"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "d79d5b36b4602c15a118f4873633afb7d20a7a2ad01984dbf2ea08ed2d2c6f6b"
+      "treeHash": "955501938fe583299fa09e046774c989cc69f2830ba1d7a4f9a0c5e096225c11"
      }
     ],
     "pagination": {
@@ -6099,7 +6148,7 @@
      {
       "graphId": "graph_clerks_prevail",
       "version": 3,
-      "timestamp": "2026-11-15T06:07:41.381Z",
+      "timestamp": "2026-11-15T06:23:14.766Z",
       "parentVersion": 2,
       "operation": "create",
       "description": "Added link: “Parliament bans private calculating engines” → “Lovelace’s programmers emigrate to Berlin”",
@@ -6108,13 +6157,13 @@
         {
          "type": "relationship",
          "id": "local_25",
-         "hash": "43f5fdd40bf59171dd7ee3ee7bb9dbbddde482f55d230b222d471f1a3f571e35"
+         "hash": "4cf143046b7855b26de0a2825ada9893dc705a40816cb7a387b25a7e85efb875"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "d79d5b36b4602c15a118f4873633afb7d20a7a2ad01984dbf2ea08ed2d2c6f6b"
+      "treeHash": "955501938fe583299fa09e046774c989cc69f2830ba1d7a4f9a0c5e096225c11"
      }
     ],
     "pagination": {
@@ -6134,7 +6183,7 @@
      {
       "graphId": "graph_clerks_prevail",
       "version": 3,
-      "timestamp": "2026-11-15T06:07:41.381Z",
+      "timestamp": "2026-11-15T06:23:14.766Z",
       "parentVersion": 2,
       "operation": "create",
       "description": "Added link: “Parliament bans private calculating engines” → “Lovelace’s programmers emigrate to Berlin”",
@@ -6143,13 +6192,13 @@
         {
          "type": "relationship",
          "id": "local_25",
-         "hash": "43f5fdd40bf59171dd7ee3ee7bb9dbbddde482f55d230b222d471f1a3f571e35"
+         "hash": "4cf143046b7855b26de0a2825ada9893dc705a40816cb7a387b25a7e85efb875"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "d79d5b36b4602c15a118f4873633afb7d20a7a2ad01984dbf2ea08ed2d2c6f6b"
+      "treeHash": "955501938fe583299fa09e046774c989cc69f2830ba1d7a4f9a0c5e096225c11"
      }
     ],
     "pagination": {
@@ -6161,7 +6210,7 @@
     "requestId": "req_43"
    }
   },
-  "GET /graphs/graph_clerks_prevail/versions?limit=100 @graph_clerks_prevail": {
+  "GET /graphs/graph_clerks_prevail/versions?limit=1 @graph_deep_time": {
    "status": 200,
    "body": {
     "success": true,
@@ -6169,7 +6218,7 @@
      {
       "graphId": "graph_clerks_prevail",
       "version": 3,
-      "timestamp": "2026-11-15T06:07:41.381Z",
+      "timestamp": "2026-11-15T06:23:14.766Z",
       "parentVersion": 2,
       "operation": "create",
       "description": "Added link: “Parliament bans private calculating engines” → “Lovelace’s programmers emigrate to Berlin”",
@@ -6178,18 +6227,53 @@
         {
          "type": "relationship",
          "id": "local_25",
-         "hash": "43f5fdd40bf59171dd7ee3ee7bb9dbbddde482f55d230b222d471f1a3f571e35"
+         "hash": "4cf143046b7855b26de0a2825ada9893dc705a40816cb7a387b25a7e85efb875"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "d79d5b36b4602c15a118f4873633afb7d20a7a2ad01984dbf2ea08ed2d2c6f6b"
+      "treeHash": "955501938fe583299fa09e046774c989cc69f2830ba1d7a4f9a0c5e096225c11"
+     }
+    ],
+    "pagination": {
+     "total": 4,
+     "limit": 1,
+     "offset": 0,
+     "hasMore": true
+    },
+    "requestId": "req_44"
+   }
+  },
+  "GET /graphs/graph_clerks_prevail/versions?limit=100 @graph_clerks_prevail": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "graphId": "graph_clerks_prevail",
+      "version": 3,
+      "timestamp": "2026-11-15T06:23:14.766Z",
+      "parentVersion": 2,
+      "operation": "create",
+      "description": "Added link: “Parliament bans private calculating engines” → “Lovelace’s programmers emigrate to Berlin”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_25",
+         "hash": "4cf143046b7855b26de0a2825ada9893dc705a40816cb7a387b25a7e85efb875"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "955501938fe583299fa09e046774c989cc69f2830ba1d7a4f9a0c5e096225c11"
      },
      {
       "graphId": "graph_clerks_prevail",
       "version": 2,
-      "timestamp": "2026-11-15T06:07:41.074Z",
+      "timestamp": "2026-11-15T06:23:14.607Z",
       "parentVersion": 1,
       "operation": "create",
       "description": "Added event “Lovelace’s programmers emigrate to Berlin”",
@@ -6198,18 +6282,18 @@
         {
          "type": "event",
          "id": "event_2",
-         "hash": "46f8b01ae8ee0eeccea5ef048534386769d16e1675a87785d2834e9408afa665"
+         "hash": "42814eef6806ade23b18aaae3e62f1b0aa0584d47c1dbcaac8971d0def94be3f"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "d8a9ce9801346854a0bcb6c58c2f2823c9aed19e10c8dcc4f6c5786bb700d5fa"
+      "treeHash": "738d5d39ec8a184f2515df361ce6081a06618edc3704d367626fd3bd6a3f5499"
      },
      {
       "graphId": "graph_clerks_prevail",
       "version": 1,
-      "timestamp": "2026-11-15T06:07:40.702Z",
+      "timestamp": "2026-11-15T06:23:14.453Z",
       "parentVersion": 0,
       "operation": "create",
       "description": "Added event “Parliament bans private calculating engines”",
@@ -6218,18 +6302,18 @@
         {
          "type": "event",
          "id": "event_1",
-         "hash": "27ecd0d01408616617e68972c861f607cb9502c73c3ddd4423a63a9b9bada378"
+         "hash": "24052c7b5d4c5f6a146341c000f92e77640e337ea217898194386d4fea186ab3"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "73a8a66bed447c319d147195a398f9d91ad192d3ffd29be3311270b46a1253f1"
+      "treeHash": "b95f08733371779c8ab249772845bb52a8de43b12012ef7ea951a86f3aa4f1f6"
      },
      {
       "graphId": "graph_clerks_prevail",
       "version": 0,
-      "timestamp": "2026-11-15T06:07:40.408Z",
+      "timestamp": "2026-11-15T06:23:14.281Z",
       "parentVersion": null,
       "operation": "branch",
       "description": "Branched from The Engine Age",
@@ -6238,243 +6322,243 @@
         {
          "type": "event",
          "id": "event_design",
-         "hash": "cfc1f619082913839f36d6c7100284b11755cda16e4890f7e038ce210bf14933"
+         "hash": "e10b963f87e1ac5ec45c5e2d33c3029c019075a3fcaa62610fbf6c8d674e400d"
         },
         {
          "type": "event",
          "id": "event_peel",
-         "hash": "26bb5c82f1c5bf82ef08166b8577009e04a93293cbcd7db635cc5e1425af9111"
+         "hash": "472b317585aefbe5d0937e1057175e2f98bc442ed141509bb6b3b92f52edc4ec"
         },
         {
          "type": "event",
          "id": "event_clement",
-         "hash": "2f6a90ecea5b0f49b7526183ec1fa0f6e9c26469c6d841fae8e4442fa729f0d6"
+         "hash": "a2aa9e6c3d034e58998875b14869e037fd15d8b8703c320c77c0bc7fd4d8f591"
         },
         {
          "type": "event",
          "id": "event_noteg",
-         "hash": "322ac8a96fc109713c3918839c3612a318ad38c5a7e41250eb512fdd33ab5aed"
+         "hash": "6a4ce8e6808498fddefa379bf6cb12d93f96f1795d6b3a98429b0dbdee875be0"
         },
         {
          "type": "event",
          "id": "event_firstrun",
-         "hash": "3ab4522bc1194df15e5c8bd854a2e7fdae9c50bc262ecd2bc51edb05d4c3f1ba"
+         "hash": "8eaa6e0013217902057272b6c98bb88125a35993cb620b03727804fef0ecd13f"
         },
         {
          "type": "event",
          "id": "event_admiralty",
-         "hash": "b01890304e302ef0eb47a0fee070642afc15ff3543b2983f632137e7b13c922c"
+         "hash": "b929b3947a253b78edcdd05ca59d8902e026262b102ab7a0f3d02bc745f7aa88"
         },
         {
          "type": "event",
          "id": "event_lloyds",
-         "hash": "806949d6dc339f41aceae626fac94c33800520b265db0a2b61c33e02e9705a0e"
+         "hash": "dd7f2aff15b6f022f1c428d116eba050aedb80562c64949ecf649d22922c991c"
         },
         {
          "type": "event",
          "id": "event_bank",
-         "hash": "681de14fc2f31b8e2e52cc13c780c2a086b8a1234466028e10e4e6c0a60d4cff"
+         "hash": "79b248cf660db6ec7019341b8d1ce819eb583f0ae3d6010a41b2c49d54b07a10"
         },
         {
          "type": "event",
          "id": "event_school",
-         "hash": "32ee64c83220f7f983fabb1142c69c6d04616d6d7a20c3be90584e0ac3f8e5fc"
+         "hash": "4dd67d31195a6140dcebe2a7b1f5aa0444aa9f75d5c9e2ec385698c8cad28ff7"
         },
         {
          "type": "event",
          "id": "event_census",
-         "hash": "56c3f5332ea4dc09e8168efb9aa4d9b39e78beb15b5c2dd70e5643dda26d2e4a"
+         "hash": "4630026c131cc527466c888ae8b89ea78d743b1f1a41ff866bf8c4018ee2872a"
         },
         {
          "type": "event",
          "id": "event_exhibition",
-         "hash": "5490ae509dc0f1a462efdc5ea113bc1bb7cfb8db0d136d70db587eaa58cef91d"
+         "hash": "68d30dc60e8d034cd7504ea1acb02f26ae239f8180ee66fd2c03d881d7c6e6c9"
         },
         {
          "type": "event",
          "id": "event_wire",
-         "hash": "a1f2dba8433c7b586d33ee80272f82ad0a5f4e3f9589ad91b2285b59c366e10d"
+         "hash": "f547618a936862d93a1b6d1db57eeed8d61a559725dcdcf654eee81fe30ae08a"
         },
         {
          "type": "event",
          "id": "event_prussia",
-         "hash": "fdbc65f729a436d0b4a7fa35f4c540d245cd98ae701762039d88d2ba1299e517"
+         "hash": "1e91af0bc6b24ab3e76e3c6bf545c6c6dd95d99c436776c79d743e1bcc2f1b50"
         },
         {
          "type": "event",
          "id": "event_clerks",
-         "hash": "d70cb571b14a24fa9c61647220dee1b488905ef3d79a95509af95e04405f182b"
+         "hash": "8268e65e46bce817d433083a17eefdb11a5892e57b21bc3d47623a0c944fdfbd"
         },
         {
          "type": "event",
          "id": "event_manchester",
-         "hash": "d9e0c5524eb3f2f375eaee95f38ab596eb7c40ecb91597a389187d91d987ed6a"
+         "hash": "6c5a1a98a3ec61d30285983bff719f636e21a3e848fbe99056a3366b5cdcd6d8"
         },
         {
          "type": "event",
          "id": "event_debate",
-         "hash": "ff6d503b7150bd889d6d43329272d36d06b491a061c2b5e5c21dd5251b6c961c"
+         "hash": "da9def7bf5e66ab4e21727a1a5dd343b6e1f0e956e064eb6898f6271e01f3764"
         },
         {
          "type": "event",
          "id": "event_act",
-         "hash": "51b42335bc1733946a82b610302ea94397752a6f014d5abcebe053135a25640d"
+         "hash": "7a1b502c4575e031c28299b9972e018e46d034899619c424e6dc16fadd69905b"
         },
         {
          "type": "event",
          "id": "event_moltke",
-         "hash": "4d922fbb4b3acca92ed18a55ef35038e98dbac5874a702b74d2e59d68727b3ce"
+         "hash": "c7122c535e5ed3f485113859d3e22111686c5d486af1fa56c8fad03a27dc01e1"
         },
         {
          "type": "event",
          "id": "event_race",
-         "hash": "cbcf60032c3911bae02412770fa8daa21b6a0d4f119b8d02b01bfb589eff411a"
+         "hash": "500d818090969795ce2ddaefc97d0828dfb0be78ede0ce7b13ed2688711e075b"
         },
         {
          "type": "arc",
          "id": "arc_build",
-         "hash": "8f715fa8e6aba2682d24cbf1bdebdfefd4d197b495af08ae5a4ce2cd5ae8fc5a"
+         "hash": "28338bd81cbf4789bb2a37948c1a59097a5bb64b6f937ddda2200c77a0fbcf4f"
         },
         {
          "type": "arc",
          "id": "arc_offices",
-         "hash": "3cf86fccac0a1fe336c6a817fc4c29fa1431daa5ddd666d974d9c603743c9469"
+         "hash": "126aea00c2e0601f65bb72c03b3205d934e7a534a8888eb48e7139dc88ec4a3e"
         },
         {
          "type": "arc",
          "id": "arc_reaction",
-         "hash": "2cecc0de25115329419e2fb7fc4a19bd9a406b5cefa08ca48c29783f23a16772"
+         "hash": "f2c5061e7aa13b3ddbc0c8cf3436d03375a481824883df740b7a7e40a20a9433"
         },
         {
          "type": "arc",
          "id": "arc_telegraph",
-         "hash": "be05367c65b2499a43ab85b21636c3c24310a36e36099c35842188ed6320394f"
+         "hash": "93413a8aa2f6592476d621c757cc5557a1980d6629ab29bf4a4930051afebba7"
         },
         {
          "type": "relationship",
          "id": "local_1",
-         "hash": "7d71428dcba6dde2ce4fc034a866697c58dedcc0238cc3e76af082cc3db2bf96"
+         "hash": "207cb03a297e5ff049c5b4a78e7ec96885e7d6117b964734a65c5e8bbb0b22bc"
         },
         {
          "type": "relationship",
          "id": "local_2",
-         "hash": "7d897746ac167498daa346640f294f341d3f54b81fd1fb65593f3dbdbe1763cb"
+         "hash": "4bd2b5421123a11c527e686fe72e21543986f64c8b8a6c0269ba86b34c77ddfd"
         },
         {
          "type": "relationship",
          "id": "local_3",
-         "hash": "d7bec58cea03820b2c04f5ef82a92b4beef2c3d00c6230383e6447592a118ec9"
+         "hash": "87ec6c91dcc6f83963a49fff1f64171b86a80cc9208ffa67e44d87669edd6e6c"
         },
         {
          "type": "relationship",
          "id": "local_4",
-         "hash": "4d7d634abd662b4c97304adff54eb3bb43b4452db368239c4594ce85381037c6"
+         "hash": "9f58cf407635c3a19f8984b06c7293e97ec79d320cc9418ee13a4537358f640c"
         },
         {
          "type": "relationship",
          "id": "local_5",
-         "hash": "21eb820b81d22564b497dbd805f0ab25ff7b878c8668b6841261019cfe2440c3"
+         "hash": "885acc8a6bc7ab9787b369764073ac77f90b2479d2b4afec9e7c28cf0acf1ae9"
         },
         {
          "type": "relationship",
          "id": "local_6",
-         "hash": "e8b7b03b5577a840f8598c881642d9c6f8e6dd37c89ea6129b4dc3ed394cee38"
+         "hash": "049d389224c9b06bd2561238c4794a20f11705883d2fe6e7ad99bc58f32c2ebe"
         },
         {
          "type": "relationship",
          "id": "local_7",
-         "hash": "019c3a6d7c406b5fbc022ff838a1cd7cf9f857bd2d10de84e8d13e153afdba3b"
+         "hash": "56d1943dd7494fae426662f76c2397d5879ebc115d3ed9fd086935dd4729a251"
         },
         {
          "type": "relationship",
          "id": "local_8",
-         "hash": "acc5d0cf22943ab2938fe6021f62a64fe19dc5573a3a23f2a2c847ee42c46419"
+         "hash": "24a5f91508ce05e82a27a32828003eeb1759d4d5ee033ac5538c65d3c1a6c4fc"
         },
         {
          "type": "relationship",
          "id": "local_9",
-         "hash": "387499e48afc9fb197bbe531e68e754727dbcefd90856a4a4c0fd6cc816fcc9c"
+         "hash": "597815eda874c248f8f2e8ef2355be518ce1296eb8ab7d7417f1659633d725b1"
         },
         {
          "type": "relationship",
          "id": "local_10",
-         "hash": "742ed3a8492668390a8562ed559a0d76a8208eeb6f310f6c121f241b176e4a41"
+         "hash": "22bfe82b695d95746e72b225fb682698147873c2fe9b5f092755437d6c840875"
         },
         {
          "type": "relationship",
          "id": "local_11",
-         "hash": "716c738f8d123a16d46502c21945b5fadd5b365e5473917688973ca634ad2489"
+         "hash": "5f3a40c7bb5959f4d0c7577df36a9a7d5eb18340510d889fc20a96b9bbaa3fdc"
         },
         {
          "type": "relationship",
          "id": "local_12",
-         "hash": "beebb37fb30578c326a5c20b0cfa9a79b25af5a7c5919075104c7040c8c7ec40"
+         "hash": "01a4d819fd4d5e7d9021f7646248a8c61368e73714d76cf78f276ab0bfef3d1c"
         },
         {
          "type": "relationship",
          "id": "local_13",
-         "hash": "fc78539ffc72604463dfbabbe79fa456848e6b76b072ae3317d00a77a21a53ac"
+         "hash": "2fcbcdd0f9b2af3ff31d4dc5341df97d9e5d0df49fa0bd7ad3b46fc45a7ba07b"
         },
         {
          "type": "relationship",
          "id": "local_14",
-         "hash": "d011a83f27db4dca73c666047599b3397834828ebbd7760bf1ca22fa9d4f3370"
+         "hash": "2a80811d72635c0058a74e70d4eadbbca776bbbac063c9b5d20871b97b04dce6"
         },
         {
          "type": "relationship",
          "id": "local_15",
-         "hash": "ed1ed3e29ff3ac34bb691da2ff676fa4202d67b5995553542fa0cbfa343afd1c"
+         "hash": "cb42ef55ae1f90610defbb924fa70a6cffcd1ded96f5f3dd645903e518fb8173"
         },
         {
          "type": "relationship",
          "id": "local_16",
-         "hash": "7ac2d9d2fa5a87cae578d110537ce94bc94a53ff8d38aec0d7ba8c5cde3c274b"
+         "hash": "89733631db7ce5f0af5af44989b08656efa4d9e8d43abe9e9804ce77a275d47e"
         },
         {
          "type": "relationship",
          "id": "local_17",
-         "hash": "2079e253e3c941d2cdb3faecadd8cd5b8af9afdbd4fec292c7cac3f9bf3e952c"
+         "hash": "7006b8fefb73acb132fbacd63ec848bfb449b873f1119d991ccdd9741c00e084"
         },
         {
          "type": "relationship",
          "id": "local_18",
-         "hash": "fe3da2595d5efd4b5f262a1bd78fe39db5472c69ed73240a87797d7aedc7c427"
+         "hash": "847753c0f667011df81c8cc557e89f20b5aec7e018374d5c2ae2b6c537791da1"
         },
         {
          "type": "relationship",
          "id": "local_19",
-         "hash": "b56a0b2bf66ab46dd93db80830a472f359485ca5ab21836c5721f6aeeb29f50c"
+         "hash": "2b6716eb40336cc2bac5df7531a4fc997ee88c17df3fac9fb386b3a90e0e7bd3"
         },
         {
          "type": "relationship",
          "id": "local_20",
-         "hash": "b6e052254290b8a1dc60ef3d8d3902acbcf2df4b882c83b48727fa32d95b47ba"
+         "hash": "d3f3d7bb54e16cffe589f3e78562126ce6b01ac40fbb8584687ec8bf917c4d14"
         },
         {
          "type": "relationship",
          "id": "local_21",
-         "hash": "acd0b14cf64d60ec9ad6d5922f3ba5d75193b1330099489aa5bcd2ae9feab220"
+         "hash": "2e99708dedad5e13b1449914e3abf7363464c5a2bc76538a1b97cc90355514a5"
         },
         {
          "type": "relationship",
          "id": "local_22",
-         "hash": "c939ccc035c7ba8a58382a1b7b09be070787edb915acdc29b5cb5dd17d620078"
+         "hash": "9da9730a4eb0dadcadd8e8dac9b44ae0bc5c288e2e40734d75d934c3fd2afa6d"
         },
         {
          "type": "relationship",
          "id": "local_23",
-         "hash": "0d2c90dbe6fab1abd8b051e5d93f2d13ea1397996c159f865acd0f8471083d37"
+         "hash": "efd2e7e3eea0d3f9e0763067b44781fbf8ddba775a758e59f326900b2ed23808"
         },
         {
          "type": "relationship",
          "id": "local_24",
-         "hash": "d05d4e602c56e58f6c367b07db5df117443c66ac0ed113627cec611050975621"
+         "hash": "c197221e85ae658b5667b173291c540376d5a7dd86fb03189e85d93455045072"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "89e85fe87ef133c51a2334eafa7a58def9b562bb5bde9a180f0ebb54bba3b181"
+      "treeHash": "8bdb24dbfa101f594076aa8c2868c36cc8269dc4401300156078abe875ca7fee"
      }
     ],
     "pagination": {
@@ -6483,7 +6567,7 @@
      "offset": 0,
      "hasMore": false
     },
-    "requestId": "req_44"
+    "requestId": "req_45"
    }
   },
   "GET /graphs/graph_vael @graph_vael": {
@@ -6494,8 +6578,8 @@
      "id": "graph_vael",
      "name": "Vael",
      "description": "A drowned archipelago where salt is money and the tide-priests keep the count of years.",
-     "createdAt": "2026-11-15T06:07:41.746Z",
-     "updatedAt": "2026-11-15T06:07:46.971Z",
+     "createdAt": "2026-11-15T06:23:14.922Z",
+     "updatedAt": "2026-11-15T06:23:18.052Z",
      "version": 21,
      "status": "active",
      "metadata": {
@@ -6635,7 +6719,7 @@
       ]
      }
     },
-    "requestId": "req_45"
+    "requestId": "req_46"
    }
   },
   "GET /graphs/graph_vael/branches @graph_vael": {
@@ -6643,7 +6727,7 @@
    "body": {
     "success": true,
     "data": [],
-    "requestId": "req_46"
+    "requestId": "req_47"
    }
   },
   "GET /graphs/graph_vael/versions?limit=1 @graph_engine_age": {
@@ -6654,7 +6738,7 @@
      {
       "graphId": "graph_vael",
       "version": 20,
-      "timestamp": "2026-11-15T06:07:46.965Z",
+      "timestamp": "2026-11-15T06:23:18.048Z",
       "parentVersion": 19,
       "operation": "create",
       "description": "Added link: “The last salt-king drowns at the Siege of Hollow Isle” → “The Glass Republic is proclaimed in Ambry”",
@@ -6663,48 +6747,13 @@
         {
          "type": "relationship",
          "id": "local_34",
-         "hash": "df2e17b39a7b7ebb6fe621e915556e0f9f43b17f998cb7b73903587a5215dcd9"
+         "hash": "f9541b62a6417970712f45aebe0b415b0c729293747c16ce3070eb223f55a6c3"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "6e764944463aa18814653030d013f201a4590b21783597909e199262609a1696"
-     }
-    ],
-    "pagination": {
-     "total": 21,
-     "limit": 1,
-     "offset": 0,
-     "hasMore": true
-    },
-    "requestId": "req_47"
-   }
-  },
-  "GET /graphs/graph_vael/versions?limit=1 @graph_clerks_prevail": {
-   "status": 200,
-   "body": {
-    "success": true,
-    "data": [
-     {
-      "graphId": "graph_vael",
-      "version": 20,
-      "timestamp": "2026-11-15T06:07:46.965Z",
-      "parentVersion": 19,
-      "operation": "create",
-      "description": "Added link: “The last salt-king drowns at the Siege of Hollow Isle” → “The Glass Republic is proclaimed in Ambry”",
-      "changes": {
-       "added": [
-        {
-         "type": "relationship",
-         "id": "local_34",
-         "hash": "df2e17b39a7b7ebb6fe621e915556e0f9f43b17f998cb7b73903587a5215dcd9"
-        }
-       ],
-       "modified": [],
-       "deleted": []
-      },
-      "treeHash": "6e764944463aa18814653030d013f201a4590b21783597909e199262609a1696"
+      "treeHash": "923c935a118379c1f1d0487594a293d6aa171aa58e60b0769f3ee2bc06785548"
      }
     ],
     "pagination": {
@@ -6716,7 +6765,7 @@
     "requestId": "req_48"
    }
   },
-  "GET /graphs/graph_vael/versions?limit=1 @graph_vael": {
+  "GET /graphs/graph_vael/versions?limit=1 @graph_clerks_prevail": {
    "status": 200,
    "body": {
     "success": true,
@@ -6724,7 +6773,7 @@
      {
       "graphId": "graph_vael",
       "version": 20,
-      "timestamp": "2026-11-15T06:07:46.965Z",
+      "timestamp": "2026-11-15T06:23:18.048Z",
       "parentVersion": 19,
       "operation": "create",
       "description": "Added link: “The last salt-king drowns at the Siege of Hollow Isle” → “The Glass Republic is proclaimed in Ambry”",
@@ -6733,13 +6782,13 @@
         {
          "type": "relationship",
          "id": "local_34",
-         "hash": "df2e17b39a7b7ebb6fe621e915556e0f9f43b17f998cb7b73903587a5215dcd9"
+         "hash": "f9541b62a6417970712f45aebe0b415b0c729293747c16ce3070eb223f55a6c3"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "6e764944463aa18814653030d013f201a4590b21783597909e199262609a1696"
+      "treeHash": "923c935a118379c1f1d0487594a293d6aa171aa58e60b0769f3ee2bc06785548"
      }
     ],
     "pagination": {
@@ -6751,7 +6800,7 @@
     "requestId": "req_49"
    }
   },
-  "GET /graphs/graph_vael/versions?limit=100 @graph_vael": {
+  "GET /graphs/graph_vael/versions?limit=1 @graph_vael": {
    "status": 200,
    "body": {
     "success": true,
@@ -6759,7 +6808,7 @@
      {
       "graphId": "graph_vael",
       "version": 20,
-      "timestamp": "2026-11-15T06:07:46.965Z",
+      "timestamp": "2026-11-15T06:23:18.048Z",
       "parentVersion": 19,
       "operation": "create",
       "description": "Added link: “The last salt-king drowns at the Siege of Hollow Isle” → “The Glass Republic is proclaimed in Ambry”",
@@ -6768,18 +6817,88 @@
         {
          "type": "relationship",
          "id": "local_34",
-         "hash": "df2e17b39a7b7ebb6fe621e915556e0f9f43b17f998cb7b73903587a5215dcd9"
+         "hash": "f9541b62a6417970712f45aebe0b415b0c729293747c16ce3070eb223f55a6c3"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "6e764944463aa18814653030d013f201a4590b21783597909e199262609a1696"
+      "treeHash": "923c935a118379c1f1d0487594a293d6aa171aa58e60b0769f3ee2bc06785548"
+     }
+    ],
+    "pagination": {
+     "total": 21,
+     "limit": 1,
+     "offset": 0,
+     "hasMore": true
+    },
+    "requestId": "req_50"
+   }
+  },
+  "GET /graphs/graph_vael/versions?limit=1 @graph_deep_time": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "graphId": "graph_vael",
+      "version": 20,
+      "timestamp": "2026-11-15T06:23:18.048Z",
+      "parentVersion": 19,
+      "operation": "create",
+      "description": "Added link: “The last salt-king drowns at the Siege of Hollow Isle” → “The Glass Republic is proclaimed in Ambry”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_34",
+         "hash": "f9541b62a6417970712f45aebe0b415b0c729293747c16ce3070eb223f55a6c3"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "923c935a118379c1f1d0487594a293d6aa171aa58e60b0769f3ee2bc06785548"
+     }
+    ],
+    "pagination": {
+     "total": 21,
+     "limit": 1,
+     "offset": 0,
+     "hasMore": true
+    },
+    "requestId": "req_51"
+   }
+  },
+  "GET /graphs/graph_vael/versions?limit=100 @graph_vael": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [
+     {
+      "graphId": "graph_vael",
+      "version": 20,
+      "timestamp": "2026-11-15T06:23:18.048Z",
+      "parentVersion": 19,
+      "operation": "create",
+      "description": "Added link: “The last salt-king drowns at the Siege of Hollow Isle” → “The Glass Republic is proclaimed in Ambry”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_34",
+         "hash": "f9541b62a6417970712f45aebe0b415b0c729293747c16ce3070eb223f55a6c3"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "923c935a118379c1f1d0487594a293d6aa171aa58e60b0769f3ee2bc06785548"
      },
      {
       "graphId": "graph_vael",
       "version": 19,
-      "timestamp": "2026-11-15T06:07:46.816Z",
+      "timestamp": "2026-11-15T06:23:17.899Z",
       "parentVersion": 18,
       "operation": "create",
       "description": "Added link: “The glassmakers of Ambry side with the priests” → “The last salt-king drowns at the Siege of Hollow Isle”",
@@ -6788,18 +6907,18 @@
         {
          "type": "relationship",
          "id": "local_33",
-         "hash": "d3ace901f32f2689e3b1143886cfbee7c633c94ef14a691b92b58ad8abbfbed2"
+         "hash": "8f44538288b78762032c2bf249b5dab36b892e1080d3540b6b857c7b3a1a8bd3"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "0d0a45c12c0cd28f3be26c06813594c13bec7f2bc2107fa41220fa49d7b87fe2"
+      "treeHash": "fc2d9f6e03e9cf8198d4c6cce69cc428c925894c9ef83ff8260e35dfe8f97cc7"
      },
      {
       "graphId": "graph_vael",
       "version": 18,
-      "timestamp": "2026-11-15T06:07:46.667Z",
+      "timestamp": "2026-11-15T06:23:17.750Z",
       "parentVersion": 17,
       "operation": "create",
       "description": "Added link: “The priests close the harbours; the Tide War begins” → “The glassmakers of Ambry side with the priests”",
@@ -6808,18 +6927,18 @@
         {
          "type": "relationship",
          "id": "local_32",
-         "hash": "b16252075e0cda0cbb5d661dfc65c41db1ff1e05da5ddc8a956c20fe7e9d892d"
+         "hash": "d23b9224c5f0d57d51b97da314f03cf55efe8f0e28de905f4d8c10f65bb04cd4"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "28a6ae261e28d00a2187f045dd51b565df5c1aa4272cd8de7c805a8b69371a0d"
+      "treeHash": "92a58d0bd7d4aa68221ba052b3eb987b96ec9cf22a20b562c76ceefe3cf314bf"
      },
      {
       "graphId": "graph_vael",
       "version": 17,
-      "timestamp": "2026-11-15T06:07:46.515Z",
+      "timestamp": "2026-11-15T06:23:17.599Z",
       "parentVersion": 16,
       "operation": "create",
       "description": "Added link: “A salt ban forbids Ambry's glassmakers to trade without the king's salt” → “The glassmakers of Ambry side with the priests”",
@@ -6828,18 +6947,18 @@
         {
          "type": "relationship",
          "id": "local_31",
-         "hash": "212197c6025494f4baba21afa7f40d6107e8f12dc8a333741c27e74f1f0c84ba"
+         "hash": "e7154b1091c8304419e8859669174afb86a8e75ba71ebad6e94cd9b8c0641c83"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "081e94d8beb647aa6ad761298ccbbd5a654e79ecefe9eb17b3c8d8717a20fca1"
+      "treeHash": "78b0547205b7033014b09dfddaea92ee731b1cf06142213c21f23c2387cc73a1"
      },
      {
       "graphId": "graph_vael",
       "version": 16,
-      "timestamp": "2026-11-15T06:07:46.362Z",
+      "timestamp": "2026-11-15T06:23:17.449Z",
       "parentVersion": 15,
       "operation": "create",
       "description": "Added link: “The salt-kings tax the tide-priests' shrines” → “The priests close the harbours; the Tide War begins”",
@@ -6848,18 +6967,18 @@
         {
          "type": "relationship",
          "id": "local_30",
-         "hash": "417857f3cd4f1c121554d241d0b7b3dfda55842341847767847400601cb3bc54"
+         "hash": "404f9806c07df11add1f4d5edde24244bc5e131ca613ab805f444279aefdb6af"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "e704b46308eb4c0d433359037f64039e70102abda0a32a5bb147d44ce525d453"
+      "treeHash": "5936fcf38e48938fe89cfbefc52909b2aa4ee5d4fcb1b9d2a0203d2ff41e51b8"
      },
      {
       "graphId": "graph_vael",
       "version": 15,
-      "timestamp": "2026-11-15T06:07:46.202Z",
+      "timestamp": "2026-11-15T06:23:17.296Z",
       "parentVersion": 14,
       "operation": "create",
       "description": "Added link: “The tide-priests begin the Reckoning, counting years from the Rising” → “The priests close the harbours; the Tide War begins”",
@@ -6868,18 +6987,18 @@
         {
          "type": "relationship",
          "id": "local_29",
-         "hash": "1970a51b00060666c2fe6e12e98fcf37fdff62d96fdb1931cfe41549720d15f7"
+         "hash": "5ef30f5526a381017131316fd901979208c904a269fd34f19c0907acf4747df6"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "ba5cb340e1ae1fc3f25ff2190651b911831f200d330dd666f756221a800ad400"
+      "treeHash": "8fb65ddfde8b35e6fc013b2694fd80293ae1090aacd762fba862161e769e13ae"
      },
      {
       "graphId": "graph_vael",
       "version": 14,
-      "timestamp": "2026-11-15T06:07:46.044Z",
+      "timestamp": "2026-11-15T06:23:17.147Z",
       "parentVersion": 13,
       "operation": "create",
       "description": "Added link: “The tide-priests begin the Reckoning, counting years from the Rising” → “The salt-kings tax the tide-priests' shrines”",
@@ -6888,18 +7007,18 @@
         {
          "type": "relationship",
          "id": "local_28",
-         "hash": "9e0c1ee792d600a28f1f1237de309a72503b2570d76e5b4491f51196876d7017"
+         "hash": "496ff47bacf834f3d771a6b91e07c2a8b29a1d9004df61ee957f49baf389658a"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "114bf915c12c59ca592257b954d8ffbd39f5c762d1f08ce0ff83682f92f9ec09"
+      "treeHash": "60677170b3faccdd017fd05af7a31a7be3cc3e4a52724378e3cb54404ffaa608"
      },
      {
       "graphId": "graph_vael",
       "version": 13,
-      "timestamp": "2026-11-15T06:07:45.892Z",
+      "timestamp": "2026-11-15T06:23:16.994Z",
       "parentVersion": 12,
       "operation": "create",
       "description": "Added link: “The salt-kings fix the weight of the salt coin” → “The salt-kings tax the tide-priests' shrines”",
@@ -6908,18 +7027,18 @@
         {
          "type": "relationship",
          "id": "local_27",
-         "hash": "9265e2a397441f85714f9f91eb733fc6912dc1d0fd40f202b45770fd1f526797"
+         "hash": "8bfa422aca302bf71411d28e964251bc477f19395ab25717b849ecaea0fc2b87"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "28a7197a5baf723fb4063a241de8d2f6793bd7e0de074168fc3ffa90cb78339c"
+      "treeHash": "879de6bace3da56377450f605a20b96a55f376f30aa1c21fbdc89441cbc68eb3"
      },
      {
       "graphId": "graph_vael",
       "version": 12,
-      "timestamp": "2026-11-15T06:07:45.642Z",
+      "timestamp": "2026-11-15T06:23:16.842Z",
       "parentVersion": 11,
       "operation": "create",
       "description": "Added link: “The waters rise; the survivors crown the first salt-king on Hollow Isle” → “The salt-kings fix the weight of the salt coin”",
@@ -6928,18 +7047,18 @@
         {
          "type": "relationship",
          "id": "local_26",
-         "hash": "16808a6929632fbeda5a3663d720801770de054cfa43dcc05c36f9fac6846448"
+         "hash": "c5cd8e6263d74d3eee792b75f1b3421aeedf44079c51b73254058ac24c5319f1"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "448ba623bc194ff8e1008f4ba8908354bf8ea1d20c1b1d8adc78b0645c9036ea"
+      "treeHash": "35a909b43b8e83435299927aab4c9f69f8c527695a761e7e6c875698b4080aeb"
      },
      {
       "graphId": "graph_vael",
       "version": 11,
-      "timestamp": "2026-11-15T06:07:45.411Z",
+      "timestamp": "2026-11-15T06:23:16.694Z",
       "parentVersion": 10,
       "operation": "create",
       "description": "Added event “The Glass Republic is proclaimed in Ambry”",
@@ -6948,18 +7067,18 @@
         {
          "type": "event",
          "id": "event_vael_republic",
-         "hash": "30f64a2bf20df1bae1bf93d1bcaa07f47a1dbec4d6427e656722683f5e1b06b8"
+         "hash": "b15066159dbf07e8d487cd8be9aead67fd1a84b6941c70b1d1dc6b244a56b580"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "5f4c1769a893c3e6e2556b479597666469784386b8b9687ae5eceb730ed7bf0f"
+      "treeHash": "34e84a5e6ff7f682d5a0ac27f01c9d0838684d7871b4f9de23872c1baf5dffee"
      },
      {
       "graphId": "graph_vael",
       "version": 10,
-      "timestamp": "2026-11-15T06:07:45.231Z",
+      "timestamp": "2026-11-15T06:23:16.546Z",
       "parentVersion": 9,
       "operation": "create",
       "description": "Added event “The last salt-king drowns at the Siege of Hollow Isle”",
@@ -6968,18 +7087,18 @@
         {
          "type": "event",
          "id": "event_vael_siege",
-         "hash": "8c011ea3556382f9225380fd72b73bf47dd56fbdea0a2e1c99478e8efea79e33"
+         "hash": "2f3dd2d6b96a4881a2865fc7ad864f887017c3b898250b60da7a0a3a0ffec110"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "0768797aecf70408ffc0f1d295b6296356177662fde82f09e5a1d12888d4cc08"
+      "treeHash": "06d7ca9536741710409c0f1415408a484f002f4c9ba3e5d753c2fd6f5987f53c"
      },
      {
       "graphId": "graph_vael",
       "version": 9,
-      "timestamp": "2026-11-15T06:07:45.022Z",
+      "timestamp": "2026-11-15T06:23:16.399Z",
       "parentVersion": 8,
       "operation": "create",
       "description": "Added event “The glassmakers of Ambry side with the priests”",
@@ -6988,18 +7107,18 @@
         {
          "type": "event",
          "id": "event_vael_ambry",
-         "hash": "8dc2676c4687d2b6c03cd5f66568b5523392ab506ca64560f3cbf3842f31f0c9"
+         "hash": "7ff3f1adf2d5af3e1499211f8849c13c590a030b19185445df6a41f30eb0433b"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "cf0a272a3501c7a6363ff361008644d2d7b7e907d88bb2096f011b7cf473564d"
+      "treeHash": "fa49c863597bc85590d8342607b40d642b34af74ab28f5db14527077aa79ca95"
      },
      {
       "graphId": "graph_vael",
       "version": 8,
-      "timestamp": "2026-11-15T06:07:44.768Z",
+      "timestamp": "2026-11-15T06:23:16.253Z",
       "parentVersion": 7,
       "operation": "create",
       "description": "Added event “The priests close the harbours; the Tide War begins”",
@@ -7008,18 +7127,18 @@
         {
          "type": "event",
          "id": "event_vael_harbours",
-         "hash": "c7a17a5e4316232990f89482c4ae2ce8a62dad7ea77e7ee643b19c1eadb6e01e"
+         "hash": "f63208bdd96b39e9969b9e06370bea57307613d303d0ec8d6dea20e2f9d8dfdc"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "4c4ef2d9332859d32810fb175ceefc3d10439eef3dc24c0409e92067b269d619"
+      "treeHash": "5ecc59cfd9c2a2cf3cf7f3074bef14266f8c6d2bcbfffaf6081ad0e17991fc84"
      },
      {
       "graphId": "graph_vael",
       "version": 7,
-      "timestamp": "2026-11-15T06:07:44.404Z",
+      "timestamp": "2026-11-15T06:23:16.107Z",
       "parentVersion": 6,
       "operation": "create",
       "description": "Added event “The salt-kings tax the tide-priests' shrines”",
@@ -7028,18 +7147,18 @@
         {
          "type": "event",
          "id": "event_vael_shrinetax",
-         "hash": "5cd28b3d0b2d12997f8dff558e08d5030c633ca99d33c1fad85c8ff63ac2fb25"
+         "hash": "b267fbfeafa5a128fcef90971355f2529249644ef4c51c1b0f8d3ce769e2be18"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "a82d077a177439cb2551be88a3ee9b869311a21697b99c4e0526262868b71b5b"
+      "treeHash": "199c51abac26e44588b318e27b0258c57b783ea00695c4e95f015e0300f50ecd"
      },
      {
       "graphId": "graph_vael",
       "version": 6,
-      "timestamp": "2026-11-15T06:07:44.093Z",
+      "timestamp": "2026-11-15T06:23:15.962Z",
       "parentVersion": 5,
       "operation": "create",
       "description": "Added event “A salt ban forbids Ambry's glassmakers to trade without the king's salt”",
@@ -7048,18 +7167,18 @@
         {
          "type": "event",
          "id": "event_vael_saltban",
-         "hash": "2b7d4e626f0b74121ed8744a8588b3b52b7a16087da326b84425679c87e489a1"
+         "hash": "90616db8c6349052fe91a514686d095b2b70544ebc0142c0c5c1d75c6ac7e4a5"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "a55ce765af50d843b444e360f16442a1b54df0ac729e132658595984527601ac"
+      "treeHash": "f492dbd4c4f16eceac0e652e49fabde57dce4e09dbcca7c289ba563c82781edd"
      },
      {
       "graphId": "graph_vael",
       "version": 5,
-      "timestamp": "2026-11-15T06:07:43.875Z",
+      "timestamp": "2026-11-15T06:23:15.814Z",
       "parentVersion": 4,
       "operation": "create",
       "description": "Added event “The tide-priests begin the Reckoning, counting years from the Rising”",
@@ -7068,18 +7187,18 @@
         {
          "type": "event",
          "id": "event_vael_reckoning",
-         "hash": "dc8d8af04a150090a5e63b376c3dcac5603d821f50c8f5f7650e5283d491fa67"
+         "hash": "98bd163fe9d19b5eea87c712da8cd58bfc30644022fde32dcadb732f70126a0d"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "9b25db8b6d18189ded83114e9a57022b8888aae78d4c64e37cc995f02e760b04"
+      "treeHash": "bb09d4522f09836d3517ce2d21fa64885d76e5593eb598be00b7635cbc55aa32"
      },
      {
       "graphId": "graph_vael",
       "version": 4,
-      "timestamp": "2026-11-15T06:07:43.682Z",
+      "timestamp": "2026-11-15T06:23:15.666Z",
       "parentVersion": 3,
       "operation": "create",
       "description": "Added event “The salt-kings fix the weight of the salt coin”",
@@ -7088,18 +7207,18 @@
         {
          "type": "event",
          "id": "event_vael_coin",
-         "hash": "f9377e6cda25fd815975c16d7641908898af679dc45cdcf38eefb1d1b42fee34"
+         "hash": "c0bed723a3f21be1c336b5c5fc26285bf5347fdaf7982b7cef5e6da678f5f307"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "a54d035f90c8666155122cdfaf6399a612d283aaaebd8d2b3cfdb2b8f4039bb6"
+      "treeHash": "5e66b94ca07bff0267fe5857715d0b145d95f798f7ff3fc692fbc63d32ee4c7c"
      },
      {
       "graphId": "graph_vael",
       "version": 3,
-      "timestamp": "2026-11-15T06:07:43.472Z",
+      "timestamp": "2026-11-15T06:23:15.517Z",
       "parentVersion": 2,
       "operation": "create",
       "description": "Added event “The waters rise; the survivors crown the first salt-king on Hollow Isle”",
@@ -7108,18 +7227,18 @@
         {
          "type": "event",
          "id": "event_vael_rising",
-         "hash": "b17a7d8d19f29cb9e93a1d0dfcbaa6fe7ea8f0f9d453c89c41866bae85072ae6"
+         "hash": "9488edcee7ad38eca0aa3c9859d8b72975215905ff20e7f6711afc0310a7583c"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "0d2e0c158002fd70ba520b0786b213801a2ef02e6ce1da1914ef6225b8735fa1"
+      "treeHash": "6115515a197bb407946e8c9663b42eba8f3ec95196a0614a66d7e9c90fba3365"
      },
      {
       "graphId": "graph_vael",
       "version": 2,
-      "timestamp": "2026-11-15T06:07:43.236Z",
+      "timestamp": "2026-11-15T06:23:15.370Z",
       "parentVersion": 1,
       "operation": "create",
       "description": "Added arc “The Glass Republic”",
@@ -7128,18 +7247,18 @@
         {
          "type": "arc",
          "id": "arc_vael_glass",
-         "hash": "0f77cec8c6c2df865fcd34d48f61408b1f1aa4ddbace7060c5866963ad5c3be6"
+         "hash": "3607b3003bc9dea4819372c41aa2f875237795f04b1cb774f1c54b0d8ed21678"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "d358baabadc84b04134d03f675ada266128db2682d3ca577eeb33f274bd7df1f"
+      "treeHash": "a27fe8dfa6bd73715e4205f83714b0c84a69848704d78da07fdb5464def14b41"
      },
      {
       "graphId": "graph_vael",
       "version": 1,
-      "timestamp": "2026-11-15T06:07:42.848Z",
+      "timestamp": "2026-11-15T06:23:15.222Z",
       "parentVersion": 0,
       "operation": "create",
       "description": "Added arc “The Tide War”",
@@ -7148,18 +7267,18 @@
         {
          "type": "arc",
          "id": "arc_vael_tidewar",
-         "hash": "90dfb4f23d071a632c10a97d3eca805928fafd22c0fecbdb70e25758ee26ebe6"
+         "hash": "5dae44b6b66f4899299a631848fae9596cfd04356efb65f7f08e82b6823007c9"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "9db933e55e545d546923ff1aebe1748340e47dd39253faff412d912c13bb8f94"
+      "treeHash": "5dce21422e5a0c8f4bb6a774cb65daea2c1c9fc92f259f01db5a1f5a69baf6da"
      },
      {
       "graphId": "graph_vael",
       "version": 0,
-      "timestamp": "2026-11-15T06:07:42.448Z",
+      "timestamp": "2026-11-15T06:23:15.077Z",
       "parentVersion": null,
       "operation": "create",
       "description": "Added arc “The Age of Salt”",
@@ -7168,13 +7287,13 @@
         {
          "type": "arc",
          "id": "arc_vael_salt",
-         "hash": "03170898a9cdaa6e80b9b4c836332e145ff1fa7677b6286c2928f9ea503f9316"
+         "hash": "9265348bed8362c827220638541ceb2dc33e46482e14c61500d4e375b07db9e8"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "1de021a89e720bbec4b171ae5c49b170d3db5199b4de6beceacb14d1521ddb15"
+      "treeHash": "42674d3b2695405407e3758b0bb2b5d413a825dd68f1d696bbbfc336757831d1"
      }
     ],
     "pagination": {
@@ -7183,7 +7302,7 @@
      "offset": 0,
      "hasMore": false
     },
-    "requestId": "req_50"
+    "requestId": "req_52"
    }
   },
   "GET /graphs/graph_deep_time @graph_deep_time": {
@@ -7194,14 +7313,14 @@
      "id": "graph_deep_time",
      "name": "Since the Great Dying",
      "description": "From the end-Permian extinction to the first people: 252 million years, on one axis.",
-     "createdAt": "2026-11-15T06:07:47.114Z",
-     "updatedAt": "2026-11-15T06:07:50.830Z",
-     "version": 25,
+     "createdAt": "2026-11-15T06:23:18.194Z",
+     "updatedAt": "2026-11-15T06:23:23.661Z",
+     "version": 27,
      "status": "active",
      "metadata": {
-      "eventCount": 12,
+      "eventCount": 13,
       "arcCount": 4,
-      "relationshipCount": 9,
+      "relationshipCount": 10,
       "pressureCount": 0,
       "temporalRange": {
        "start": "-252099999-01-01T00:00:00.000Z",
@@ -7213,6 +7332,7 @@
        "Archosaurs",
        "Central Atlantic Magmatic Province",
        "Volcanic warming",
+       "Dinosaurs",
        "The Chicxulub impactor",
        "Mammals",
        "A cooling climate",
@@ -7222,7 +7342,15 @@
       ]
      }
     },
-    "requestId": "req_51"
+    "requestId": "req_53"
+   }
+  },
+  "GET /graphs/graph_deep_time/branches @graph_deep_time": {
+   "status": 200,
+   "body": {
+    "success": true,
+    "data": [],
+    "requestId": "req_54"
    }
   },
   "GET /graphs/graph_deep_time/versions?limit=1 @graph_engine_age": {
@@ -7232,32 +7360,32 @@
     "data": [
      {
       "graphId": "graph_deep_time",
-      "version": 24,
-      "timestamp": "2026-11-15T06:07:50.821Z",
-      "parentVersion": 23,
+      "version": 26,
+      "timestamp": "2026-11-15T06:23:23.659Z",
+      "parentVersion": 25,
       "operation": "create",
       "description": "Added link: “The Quaternary ice ages begin” → “Homo sapiens appears in Africa”",
       "changes": {
        "added": [
         {
          "type": "relationship",
-         "id": "local_43",
-         "hash": "9b5cc0d6901197cdfe1ebd76f2d460baf68e25a1a944e84fd82cfa48d23d80b0"
+         "id": "local_44",
+         "hash": "9f0077bee88da22f026274b01bba05f2d4e4b129f5d0d1521e6886439fdc02a0"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "addc3dfacf15e54f14aea9d44d8f6292de40af2858d9ec9a5d5df6c79cd729c5"
+      "treeHash": "446841cc07cda964195ce8872b43134a004fa4353e91ce3005bf47a2b8a907f8"
      }
     ],
     "pagination": {
-     "total": 25,
+     "total": 27,
      "limit": 1,
      "offset": 0,
      "hasMore": true
     },
-    "requestId": "req_52"
+    "requestId": "req_55"
    }
   },
   "GET /graphs/graph_deep_time/versions?limit=1 @graph_clerks_prevail": {
@@ -7267,32 +7395,32 @@
     "data": [
      {
       "graphId": "graph_deep_time",
-      "version": 24,
-      "timestamp": "2026-11-15T06:07:50.821Z",
-      "parentVersion": 23,
+      "version": 26,
+      "timestamp": "2026-11-15T06:23:23.659Z",
+      "parentVersion": 25,
       "operation": "create",
       "description": "Added link: “The Quaternary ice ages begin” → “Homo sapiens appears in Africa”",
       "changes": {
        "added": [
         {
          "type": "relationship",
-         "id": "local_43",
-         "hash": "9b5cc0d6901197cdfe1ebd76f2d460baf68e25a1a944e84fd82cfa48d23d80b0"
+         "id": "local_44",
+         "hash": "9f0077bee88da22f026274b01bba05f2d4e4b129f5d0d1521e6886439fdc02a0"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "addc3dfacf15e54f14aea9d44d8f6292de40af2858d9ec9a5d5df6c79cd729c5"
+      "treeHash": "446841cc07cda964195ce8872b43134a004fa4353e91ce3005bf47a2b8a907f8"
      }
     ],
     "pagination": {
-     "total": 25,
+     "total": 27,
      "limit": 1,
      "offset": 0,
      "hasMore": true
     },
-    "requestId": "req_53"
+    "requestId": "req_56"
    }
   },
   "GET /graphs/graph_deep_time/versions?limit=1 @graph_vael": {
@@ -7302,32 +7430,32 @@
     "data": [
      {
       "graphId": "graph_deep_time",
-      "version": 24,
-      "timestamp": "2026-11-15T06:07:50.821Z",
-      "parentVersion": 23,
+      "version": 26,
+      "timestamp": "2026-11-15T06:23:23.659Z",
+      "parentVersion": 25,
       "operation": "create",
       "description": "Added link: “The Quaternary ice ages begin” → “Homo sapiens appears in Africa”",
       "changes": {
        "added": [
         {
          "type": "relationship",
-         "id": "local_43",
-         "hash": "9b5cc0d6901197cdfe1ebd76f2d460baf68e25a1a944e84fd82cfa48d23d80b0"
+         "id": "local_44",
+         "hash": "9f0077bee88da22f026274b01bba05f2d4e4b129f5d0d1521e6886439fdc02a0"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "addc3dfacf15e54f14aea9d44d8f6292de40af2858d9ec9a5d5df6c79cd729c5"
+      "treeHash": "446841cc07cda964195ce8872b43134a004fa4353e91ce3005bf47a2b8a907f8"
      }
     ],
     "pagination": {
-     "total": 25,
+     "total": 27,
      "limit": 1,
      "offset": 0,
      "hasMore": true
     },
-    "requestId": "req_54"
+    "requestId": "req_57"
    }
   },
   "GET /graphs/graph_deep_time/versions?limit=1 @graph_deep_time": {
@@ -7337,32 +7465,32 @@
     "data": [
      {
       "graphId": "graph_deep_time",
-      "version": 24,
-      "timestamp": "2026-11-15T06:07:50.821Z",
-      "parentVersion": 23,
+      "version": 26,
+      "timestamp": "2026-11-15T06:23:23.659Z",
+      "parentVersion": 25,
       "operation": "create",
       "description": "Added link: “The Quaternary ice ages begin” → “Homo sapiens appears in Africa”",
       "changes": {
        "added": [
         {
          "type": "relationship",
-         "id": "local_43",
-         "hash": "9b5cc0d6901197cdfe1ebd76f2d460baf68e25a1a944e84fd82cfa48d23d80b0"
+         "id": "local_44",
+         "hash": "9f0077bee88da22f026274b01bba05f2d4e4b129f5d0d1521e6886439fdc02a0"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "addc3dfacf15e54f14aea9d44d8f6292de40af2858d9ec9a5d5df6c79cd729c5"
+      "treeHash": "446841cc07cda964195ce8872b43134a004fa4353e91ce3005bf47a2b8a907f8"
      }
     ],
     "pagination": {
-     "total": 25,
+     "total": 27,
      "limit": 1,
      "offset": 0,
      "hasMore": true
     },
-    "requestId": "req_55"
+    "requestId": "req_58"
    }
   },
   "GET /graphs/graph_deep_time/versions?limit=100 @graph_deep_time": {
@@ -7372,129 +7500,149 @@
     "data": [
      {
       "graphId": "graph_deep_time",
-      "version": 24,
-      "timestamp": "2026-11-15T06:07:50.821Z",
-      "parentVersion": 23,
+      "version": 26,
+      "timestamp": "2026-11-15T06:23:23.659Z",
+      "parentVersion": 25,
       "operation": "create",
       "description": "Added link: “The Quaternary ice ages begin” → “Homo sapiens appears in Africa”",
       "changes": {
        "added": [
         {
          "type": "relationship",
-         "id": "local_43",
-         "hash": "9b5cc0d6901197cdfe1ebd76f2d460baf68e25a1a944e84fd82cfa48d23d80b0"
+         "id": "local_44",
+         "hash": "9f0077bee88da22f026274b01bba05f2d4e4b129f5d0d1521e6886439fdc02a0"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "addc3dfacf15e54f14aea9d44d8f6292de40af2858d9ec9a5d5df6c79cd729c5"
+      "treeHash": "446841cc07cda964195ce8872b43134a004fa4353e91ce3005bf47a2b8a907f8"
      },
      {
       "graphId": "graph_deep_time",
-      "version": 23,
-      "timestamp": "2026-11-15T06:07:50.667Z",
-      "parentVersion": 22,
+      "version": 25,
+      "timestamp": "2026-11-15T06:23:23.499Z",
+      "parentVersion": 24,
       "operation": "create",
-      "description": "Added link: “Sahelanthropus lives in what is now Chad, among the earliest known hominins” → “Homo sapiens appears in Africa”",
+      "description": "Added link: “Sahelanthropus lives in what is now Chad, possibly among the earliest hominins” → “Homo sapiens appears in Africa”",
       "changes": {
        "added": [
         {
          "type": "relationship",
-         "id": "local_42",
-         "hash": "ccb7805356d3d607b5671ab2cb47af447f17e7e529075ceb14c3f48f6d5ea1a2"
+         "id": "local_43",
+         "hash": "36201a32c00ed01b1a6ca62513b700c3d749ee9a570824d7513692980ae4b7b1"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "42b7e159b71c4605e329cf3fb93e5f6762b7077acc4b523c02adf610a7bee758"
+      "treeHash": "74eecd62b3afa53554bc18f2b0d8ed87e164af4cee599c1cd07956f02b375a12"
      },
      {
       "graphId": "graph_deep_time",
-      "version": 22,
-      "timestamp": "2026-11-15T06:07:50.514Z",
-      "parentVersion": 21,
+      "version": 24,
+      "timestamp": "2026-11-15T06:23:23.306Z",
+      "parentVersion": 23,
       "operation": "create",
       "description": "Added link: “Antarctica's ice sheet forms as the world cools” → “The Quaternary ice ages begin”",
       "changes": {
        "added": [
         {
          "type": "relationship",
-         "id": "local_41",
-         "hash": "35e1ca42c1cada48ea89c0cbef92262991827771aec3e06febba11e79e6f70dd"
+         "id": "local_42",
+         "hash": "d05477b2e8f5da5aa88a44d80da019634584975e9d905620240fb6c601d5b33e"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "7664ca706dda4785bb40f33ef54e33e3cf6239b6fe3727279ad9e130baca7454"
+      "treeHash": "ee6a59fcae12ab5241249e8b5729aaa8e634214a8ab1d742f87bbfd9a76c511d"
      },
      {
       "graphId": "graph_deep_time",
-      "version": 21,
-      "timestamp": "2026-11-15T06:07:50.366Z",
-      "parentVersion": 20,
+      "version": 23,
+      "timestamp": "2026-11-15T06:23:23.102Z",
+      "parentVersion": 22,
       "operation": "create",
-      "description": "Added link: “Mammals spread into the niches the dinosaurs left” → “Sahelanthropus lives in what is now Chad, among the earliest known hominins”",
+      "description": "Added link: “Mammals spread into the niches the dinosaurs left” → “Sahelanthropus lives in what is now Chad, possibly among the earliest hominins”",
       "changes": {
        "added": [
         {
          "type": "relationship",
-         "id": "local_40",
-         "hash": "f3f0440e25151a94bf6ccdeb258b46c615ed8140dac06ecbd1fb5c3d0cfd3681"
+         "id": "local_41",
+         "hash": "4d7e786f9d88909324c05bb17bd3df731f2ba63f7369893e79a90468e4b163ba"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "391270414638a4fad7cf883d4f556868561ed918e624ce9e48f5c89b6e035984"
+      "treeHash": "115e3ac8cfd300077ab0c16c45628f62411e0ffa2074f4bbfcd333e883295b33"
      },
      {
       "graphId": "graph_deep_time",
-      "version": 20,
-      "timestamp": "2026-11-15T06:07:50.216Z",
-      "parentVersion": 19,
+      "version": 22,
+      "timestamp": "2026-11-15T06:23:22.919Z",
+      "parentVersion": 21,
       "operation": "create",
       "description": "Added link: “An asteroid strikes Chicxulub, and the non-avian dinosaurs die out” → “Mammals spread into the niches the dinosaurs left”",
       "changes": {
        "added": [
         {
          "type": "relationship",
-         "id": "local_39",
-         "hash": "e8aed1ff9a6835b68fca1d2bd6dbefe75844c8913fffc185d6a61b8e39277c99"
+         "id": "local_40",
+         "hash": "8745f11094ad631e0195931eed61783c2c0fbcbc76bd5c524d07f511bb1ab5d0"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "abaa902c88ccc47c0ce2de304f9e0467ccfd3085ed35c220d98648c2ed1832ee"
+      "treeHash": "b8d6f0258197a4529c49a283fbbcd8f687ccab2ea4abef10c8fb6d00559c10fa"
      },
      {
       "graphId": "graph_deep_time",
-      "version": 19,
-      "timestamp": "2026-11-15T06:07:50.064Z",
-      "parentVersion": 18,
+      "version": 21,
+      "timestamp": "2026-11-15T06:23:22.762Z",
+      "parentVersion": 20,
       "operation": "create",
-      "description": "Added link: “The first dinosaurs appear” → “The end-Triassic extinction clears the way for the dinosaurs”",
+      "description": "Added link: “The first dinosaurs appear” → “Dinosaurs come to dominate the land in the Early Jurassic”",
+      "changes": {
+       "added": [
+        {
+         "type": "relationship",
+         "id": "local_39",
+         "hash": "55409b55749f06b653ea89cc45db44b34ae327852bc28997d2d4e5d4e64d5c6f"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "0ec7fb481af67e15d17d873762201e8f7f2a0152c7307c9c790f550d99da0bdb"
+     },
+     {
+      "graphId": "graph_deep_time",
+      "version": 20,
+      "timestamp": "2026-11-15T06:23:22.521Z",
+      "parentVersion": 19,
+      "operation": "create",
+      "description": "Added link: “The end-Triassic extinction clears the way for the dinosaurs” → “Dinosaurs come to dominate the land in the Early Jurassic”",
       "changes": {
        "added": [
         {
          "type": "relationship",
          "id": "local_38",
-         "hash": "efec4b8abea9e4ae538e9169d02d6c5a4b45cd3c24f7127ae11646cc4d48c08d"
+         "hash": "a9566026c43a7cdc5b0e6a04dd035ca518ab28a32f7d8e45f1232abf87217e44"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "2d8111ef9a5b3a85ad82938311f832ae4b19423ab45d504ae5296efd43c8a2b8"
+      "treeHash": "78f6c47752d840c88ed48716107855ebe6ce787de669474e3bb7ec482d2ed367"
      },
      {
       "graphId": "graph_deep_time",
-      "version": 18,
-      "timestamp": "2026-11-15T06:07:49.915Z",
-      "parentVersion": 17,
+      "version": 19,
+      "timestamp": "2026-11-15T06:23:22.203Z",
+      "parentVersion": 18,
       "operation": "create",
       "description": "Added link: “The Central Atlantic Magmatic Province erupts as Pangaea begins to split” → “The end-Triassic extinction clears the way for the dinosaurs”",
       "changes": {
@@ -7502,19 +7650,19 @@
         {
          "type": "relationship",
          "id": "local_37",
-         "hash": "13b0e35652b294e2599cb3b450555e2971ff2b790f570e8b8c892c6592571c88"
+         "hash": "9a6754de825f29bf6ffd03abed59a28cf6d0cef5ea9c8ec2d7fab52811f90f96"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "ac5dc83d29abb177cf558bc7f334837634beb8c8e5bb79384198ab479162be10"
+      "treeHash": "7105340c218a50adc7e3f7caa0f82a76b984b46409548e08c9366509672b44ba"
      },
      {
       "graphId": "graph_deep_time",
-      "version": 17,
-      "timestamp": "2026-11-15T06:07:49.769Z",
-      "parentVersion": 16,
+      "version": 18,
+      "timestamp": "2026-11-15T06:23:21.906Z",
+      "parentVersion": 17,
       "operation": "create",
       "description": "Added link: “The end-Permian extinction kills most species in the sea and many on land” → “The first dinosaurs appear”",
       "changes": {
@@ -7522,59 +7670,59 @@
         {
          "type": "relationship",
          "id": "local_36",
-         "hash": "259f93f10b2b83e74f048dea7f58590bd851f8d42fcb2d99c16dddb7b2430aed"
+         "hash": "71f1e7fccc6bac9403535f6587a7ea5e3128de51c35bb516ac0a58bb8dcf37f3"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "fcd324bff2947eb53b14a7f4b53b9b31c0a2431ce5f6d89370ed1476609dd1c4"
+      "treeHash": "56f8da7629e8d8e9dd65bdf1addd184e6a0d5a8c53a2a8a94f5d449f3db5a8c8"
      },
      {
       "graphId": "graph_deep_time",
-      "version": 16,
-      "timestamp": "2026-11-15T06:07:49.618Z",
-      "parentVersion": 15,
+      "version": 17,
+      "timestamp": "2026-11-15T06:23:21.476Z",
+      "parentVersion": 16,
       "operation": "create",
-      "description": "Added link: “The Siberian Traps erupt, pouring out lava and carbon for hundreds of thousands…” → “The end-Permian extinction kills most species in the sea and many on land”",
+      "description": "Added link: “The Siberian Traps reach their main eruptions, pouring out lava and carbon” → “The end-Permian extinction kills most species in the sea and many on land”",
       "changes": {
        "added": [
         {
          "type": "relationship",
          "id": "local_35",
-         "hash": "49da61f3a09abc98d655ebb115d5f7cd5604bf48c979f898dff8ed743d441d58"
+         "hash": "156cdf28963c30db6ff94db8730e44922b9128101539ea5fa0f986c092b8139b"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "db6f50d9c80782e6d98a8e510c1c3fa04129205e2b56cc7af8eeecf13ec03c45"
+      "treeHash": "640901584858ef9c5494cfc6b55cb4e50872c441bd4ecb620971e1dbd18ab7e0"
      },
      {
       "graphId": "graph_deep_time",
-      "version": 15,
-      "timestamp": "2026-11-15T06:07:49.469Z",
-      "parentVersion": 14,
+      "version": 16,
+      "timestamp": "2026-11-15T06:23:21.075Z",
+      "parentVersion": 15,
       "operation": "create",
-      "description": "Added event “Toba erupts in Sumatra, the largest eruption of the last two million years”",
+      "description": "Added event “Toba erupts in Sumatra, the largest explosive eruption of the last two million…”",
       "changes": {
        "added": [
         {
          "type": "event",
          "id": "event_deep_toba",
-         "hash": "5fa52c7e7946ffe7574299691f236a6f305531574e3263e1ba13e300550576be"
+         "hash": "8fd0bc3e11d094040f0ef085e20606a73390b15c7055188c50b30d355d9d10aa"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "f6fb11b2f4e5cafecc7b443dcc87f08d1ba281cfa967a3444a23e01641a8fc32"
+      "treeHash": "0983d227ef4d509a4fd3b83d659b424f2fb4e97e042395c72959c006fd5be684"
      },
      {
       "graphId": "graph_deep_time",
-      "version": 14,
-      "timestamp": "2026-11-15T06:07:49.323Z",
-      "parentVersion": 13,
+      "version": 15,
+      "timestamp": "2026-11-15T06:23:20.825Z",
+      "parentVersion": 14,
       "operation": "create",
       "description": "Added event “Homo sapiens appears in Africa”",
       "changes": {
@@ -7582,19 +7730,19 @@
         {
          "type": "event",
          "id": "event_deep_sapiens",
-         "hash": "7b996a0f094d84df389a927534627a1b9f284eebde8fa34aa4778fc3c3ffa6de"
+         "hash": "5ab0d016a6a1860aa0eb2d0be82ce0be5bda3b90b995ee32909ea78b13229659"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "51a3548a94da9228df77e408ec8602a1d37cbf714430c66f1bcd7838381f8065"
+      "treeHash": "ee545f4e5ace044873ba0d121cd8613a2f1c6bf70477023db09ec9ba2563708a"
      },
      {
       "graphId": "graph_deep_time",
-      "version": 13,
-      "timestamp": "2026-11-15T06:07:49.176Z",
-      "parentVersion": 12,
+      "version": 14,
+      "timestamp": "2026-11-15T06:23:20.624Z",
+      "parentVersion": 13,
       "operation": "create",
       "description": "Added event “The Quaternary ice ages begin”",
       "changes": {
@@ -7602,39 +7750,39 @@
         {
          "type": "event",
          "id": "event_deep_iceages",
-         "hash": "d69116d3078cad24ac3b6a415213c53cb99018425b5fd9f113a7b771cda24156"
+         "hash": "e1aac129706185fcb3e691e5de2e840138b8123b16c0e4d29d5947f3ee7fe04e"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "f1f2ab2acf22ee353293b7d8301670b59821ffa11976f037b45bc5921b910759"
+      "treeHash": "0110db0c196a0f89efe365f84ce8ca1e258c8b67e3590a048ce388f814624961"
      },
      {
       "graphId": "graph_deep_time",
-      "version": 12,
-      "timestamp": "2026-11-15T06:07:49.028Z",
-      "parentVersion": 11,
+      "version": 13,
+      "timestamp": "2026-11-15T06:23:20.404Z",
+      "parentVersion": 12,
       "operation": "create",
-      "description": "Added event “Sahelanthropus lives in what is now Chad, among the earliest known hominins”",
+      "description": "Added event “Sahelanthropus lives in what is now Chad, possibly among the earliest hominins”",
       "changes": {
        "added": [
         {
          "type": "event",
          "id": "event_deep_hominins",
-         "hash": "e910f8a3b646a12921a2ff60f6bac19ae3a3c36f73a504c4564fa7c3bf151997"
+         "hash": "f4d220561a56a6040187e81b7265588939c84651d1277cf8c400ade53c063cf9"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "20aef054c4fa93007044b7cc5a4c080b92ca52928b5161ce9239218495a18262"
+      "treeHash": "7b04f5d58a5d73f2d26ef287305cf64360cf89263c3ba02167eae7683b52b89a"
      },
      {
       "graphId": "graph_deep_time",
-      "version": 11,
-      "timestamp": "2026-11-15T06:07:48.883Z",
-      "parentVersion": 10,
+      "version": 12,
+      "timestamp": "2026-11-15T06:23:20.236Z",
+      "parentVersion": 11,
       "operation": "create",
       "description": "Added event “Antarctica's ice sheet forms as the world cools”",
       "changes": {
@@ -7642,19 +7790,19 @@
         {
          "type": "event",
          "id": "event_deep_antarctica",
-         "hash": "ade98e3b7e67c54579b414866b5b812cb3b333e0ace01f6ab3bef1172b74119f"
+         "hash": "3709851528dd74161bdb3361ff5ca4169447ad6bb52ba1c562594df78e10ad48"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "0825d0bc02f18218c14c69c53e395783fc4c9e47fd139715317c7dd7a98f154a"
+      "treeHash": "cdad235bab40e63582a3c2d9a72785ef5f07be1f72fbf3b7d499f1c2060092f2"
      },
      {
       "graphId": "graph_deep_time",
-      "version": 10,
-      "timestamp": "2026-11-15T06:07:48.737Z",
-      "parentVersion": 9,
+      "version": 11,
+      "timestamp": "2026-11-15T06:23:20.072Z",
+      "parentVersion": 10,
       "operation": "create",
       "description": "Added event “Mammals spread into the niches the dinosaurs left”",
       "changes": {
@@ -7662,19 +7810,19 @@
         {
          "type": "event",
          "id": "event_deep_mammals",
-         "hash": "fc47a1985b17a9bbaa5e2c1a6ac3e52b69d7fdffd9565a15946177711a34d59f"
+         "hash": "74f33d9c9198f0be2cf445faf9c8f24451c9a292a30078e6374b5f1a2d444dc0"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "7f173eadebadb11ca364e0bf7feaf69b56c407eab0d1bf1ee11e9b3216f9f559"
+      "treeHash": "0e4f0e63c3f6bc89d17b8d5c3258ac1b831c62f01039dacbc7e83c98d7f4116b"
      },
      {
       "graphId": "graph_deep_time",
-      "version": 9,
-      "timestamp": "2026-11-15T06:07:48.591Z",
-      "parentVersion": 8,
+      "version": 10,
+      "timestamp": "2026-11-15T06:23:19.855Z",
+      "parentVersion": 9,
       "operation": "create",
       "description": "Added event “An asteroid strikes Chicxulub, and the non-avian dinosaurs die out”",
       "changes": {
@@ -7682,18 +7830,38 @@
         {
          "type": "event",
          "id": "event_deep_impact",
-         "hash": "f5c74c8fd73f422808e986116be8aba72f18db56c9df965b9b814533adc4ea60"
+         "hash": "ec930bfbe47f000cf02fabd351d317db8b5bec305814f6b5d506252e14d84db2"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "bba757641eba8bff9d2497c5bc6ad03ff554ea46cb809df969568e1effd02f39"
+      "treeHash": "e9958a8e6877a3bfa1bceebc81fe03a191ff69d49daac95ee0b99db8d09b30b8"
+     },
+     {
+      "graphId": "graph_deep_time",
+      "version": 9,
+      "timestamp": "2026-11-15T06:23:19.677Z",
+      "parentVersion": 8,
+      "operation": "create",
+      "description": "Added event “Dinosaurs come to dominate the land in the Early Jurassic”",
+      "changes": {
+       "added": [
+        {
+         "type": "event",
+         "id": "event_deep_dominance",
+         "hash": "4bf71d2126f678b39ecccad43f8eb259cc50622cf71fe5e53685b333f1d8f803"
+        }
+       ],
+       "modified": [],
+       "deleted": []
+      },
+      "treeHash": "5d3fc5b044673b2e35023389dddda4b0280e85a89f4ca9b0beb269077c8b23ff"
      },
      {
       "graphId": "graph_deep_time",
       "version": 8,
-      "timestamp": "2026-11-15T06:07:48.446Z",
+      "timestamp": "2026-11-15T06:23:19.517Z",
       "parentVersion": 7,
       "operation": "create",
       "description": "Added event “The end-Triassic extinction clears the way for the dinosaurs”",
@@ -7702,18 +7870,18 @@
         {
          "type": "event",
          "id": "event_deep_triassic",
-         "hash": "f8fdab63d9332d96b2df5c08e5713e46a2037b0e0a8b359bfd038ad35ceb25e7"
+         "hash": "4511ad87c319532d6290aa95a4b942ebb7a2cecb527862bda4e02328beec8c83"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "4b9e8622eb2f83f5dad53db7a0396803fe2fde4fa1f194862e6a4551875abb94"
+      "treeHash": "909a2fa15a2c98c2ba246fccd0605d9d3ce4d5b1b039a4ead1ddea223e1b45d5"
      },
      {
       "graphId": "graph_deep_time",
       "version": 7,
-      "timestamp": "2026-11-15T06:07:48.298Z",
+      "timestamp": "2026-11-15T06:23:19.373Z",
       "parentVersion": 6,
       "operation": "create",
       "description": "Added event “The Central Atlantic Magmatic Province erupts as Pangaea begins to split”",
@@ -7722,18 +7890,18 @@
         {
          "type": "event",
          "id": "event_deep_camp",
-         "hash": "c81e8f34dad619ec2ba994b9c2e1b46ad5e4d2f406a72a122b9702d1b63f11bd"
+         "hash": "1a51b1f37c70939198704ad7d19a5d36dba1c348bfb09ace2afb6367012210ef"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "e316e3ff62127721acfe9d127e1568dd4d92d312136e48b7beaadd347c34f408"
+      "treeHash": "8e3adaac04feb2f30b726f7dbfbbfce23ade84985e8bb5f0f7ab87788f80a5d1"
      },
      {
       "graphId": "graph_deep_time",
       "version": 6,
-      "timestamp": "2026-11-15T06:07:48.149Z",
+      "timestamp": "2026-11-15T06:23:19.228Z",
       "parentVersion": 5,
       "operation": "create",
       "description": "Added event “The first dinosaurs appear”",
@@ -7742,18 +7910,18 @@
         {
          "type": "event",
          "id": "event_deep_dinosaurs",
-         "hash": "5787fb8d9b5666d1772d4c8ef82a15022b3d0ba97b16b119cb418df1bc67dd3e"
+         "hash": "422fdeb7a78fc2865ed9c0c62d7fcfd8096353129e03966514275535a7e9164b"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "d84381576165fad595d45503af0572b33e85b89625b497b1091d049d1f986a11"
+      "treeHash": "81166ba9b8a52c1602ec29ffb8baaca4da0d3b3fd615cd7f5c907b32a5192435"
      },
      {
       "graphId": "graph_deep_time",
       "version": 5,
-      "timestamp": "2026-11-15T06:07:48.000Z",
+      "timestamp": "2026-11-15T06:23:19.079Z",
       "parentVersion": 4,
       "operation": "create",
       "description": "Added event “The end-Permian extinction kills most species in the sea and many on land”",
@@ -7762,38 +7930,38 @@
         {
          "type": "event",
          "id": "event_deep_extinction",
-         "hash": "df7c6bb3bc91f3e98f002274741e919bd1e2b0cd7c965ac3d041b956cab80132"
+         "hash": "17da46721b3d7571fa706896e592b35fad9e2463f9a63132b3b2b374b1af8012"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "803cae41e17555f15270c48542d587962dc885dca5137e9236ac3b1d99ffe971"
+      "treeHash": "1c76119bb22462f29aaed62003d5b4cfe02a27fe520cc17280b79852e58e9fd5"
      },
      {
       "graphId": "graph_deep_time",
       "version": 4,
-      "timestamp": "2026-11-15T06:07:47.852Z",
+      "timestamp": "2026-11-15T06:23:18.931Z",
       "parentVersion": 3,
       "operation": "create",
-      "description": "Added event “The Siberian Traps erupt, pouring out lava and carbon for hundreds of thousands…”",
+      "description": "Added event “The Siberian Traps reach their main eruptions, pouring out lava and carbon”",
       "changes": {
        "added": [
         {
          "type": "event",
          "id": "event_deep_traps",
-         "hash": "fe83419209e2c4b3293b65d340728694b830692734e68157df138a69e6e6747f"
+         "hash": "44e22cd10445facb025d6e5cac9a473b95aa8b89735246a8130f70d7b2b5a75a"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "84cf63ceb9c0306f27cacc1955e214cbde126e0f1ddef4c2767fe9e13ad1991f"
+      "treeHash": "ff5cc44f86abd793f9d5d53918c0582099c62e3f2b1349397698f6a3fc153bbf"
      },
      {
       "graphId": "graph_deep_time",
       "version": 3,
-      "timestamp": "2026-11-15T06:07:47.706Z",
+      "timestamp": "2026-11-15T06:23:18.785Z",
       "parentVersion": 2,
       "operation": "create",
       "description": "Added arc “The Quaternary”",
@@ -7802,18 +7970,18 @@
         {
          "type": "arc",
          "id": "arc_deep_quaternary",
-         "hash": "772d9fbc07335e5300025be29640c110c0b96e5530dc548c6201ab7e06b1b519"
+         "hash": "186d541f3f686d84cc9634b83eee7f0f49fb309b901840eec6c7e8eea50c5738"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "2f89e84206ee1a946779be9da461d5b1b944bffd0a1e3d57d4b150d16b031e84"
+      "treeHash": "b1d6dfb02d10dc0c3f14c106433a88c7ec9c3cb3eb19346b8490bcb664e0efb3"
      },
      {
       "graphId": "graph_deep_time",
       "version": 2,
-      "timestamp": "2026-11-15T06:07:47.559Z",
+      "timestamp": "2026-11-15T06:23:18.637Z",
       "parentVersion": 1,
       "operation": "create",
       "description": "Added arc “The Cenozoic”",
@@ -7822,18 +7990,18 @@
         {
          "type": "arc",
          "id": "arc_deep_cenozoic",
-         "hash": "cf9af8d23f930b1eb6e36c32e9a2e516c7e064175daede0556087351b4b89382"
+         "hash": "91e684481e473b4ff40173e0fe90d9e50fe0df8b4bee3bb0168c19316082d7c9"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "bb311b353fb689550ecf25b688521a2d4dc9d8ab45b14d0db763eb694a9da84e"
+      "treeHash": "87093c5bb20c816da54cd2e7e18c7df305828c09ed8c8c4c9a0b175e345fbdc4"
      },
      {
       "graphId": "graph_deep_time",
       "version": 1,
-      "timestamp": "2026-11-15T06:07:47.411Z",
+      "timestamp": "2026-11-15T06:23:18.490Z",
       "parentVersion": 0,
       "operation": "create",
       "description": "Added arc “The Mesozoic”",
@@ -7842,18 +8010,18 @@
         {
          "type": "arc",
          "id": "arc_deep_mesozoic",
-         "hash": "15059bffeb8ebc3c4a7c7225e19aaed330adf54b30b9acbe026fc42d6c7ea58d"
+         "hash": "86684f89ba275aeeac04da7baa886a2909b5cdd925b7c98fe3bb9a98093d8d4e"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "7e54c00a0a440cff9e8d64e3d2bfa313f60b177eca04001f5130aa6247af2631"
+      "treeHash": "ce35e5b107fd27a81f89ca49d54f1c3e4ac866a5a46fb39e3255d2506743ebb9"
      },
      {
       "graphId": "graph_deep_time",
       "version": 0,
-      "timestamp": "2026-11-15T06:07:47.264Z",
+      "timestamp": "2026-11-15T06:23:18.342Z",
       "parentVersion": null,
       "operation": "create",
       "description": "Added arc “The Great Dying”",
@@ -7862,22 +8030,22 @@
         {
          "type": "arc",
          "id": "arc_deep_dying",
-         "hash": "2bd8a5a25d4a2a9655dacd3b9d3fd7f69eff9917d8a1dee1486cc24aacc7086f"
+         "hash": "27fe2954cf885e981e85b2c4dcdb9d16304b3ef6ba194802fbfaec9283b45ef3"
         }
        ],
        "modified": [],
        "deleted": []
       },
-      "treeHash": "bf343183083ecdb9a6ad9eb5ff6529ca71ce03cd9016d1d5f4a5a81f6b1ee2d6"
+      "treeHash": "35f4d65b7dfd7386dc3da5739cf0362668856524a0c716c8236fea2dd6ab72c1"
      }
     ],
     "pagination": {
-     "total": 25,
+     "total": 27,
      "limit": 100,
      "offset": 0,
      "hasMore": false
     },
-    "requestId": "req_56"
+    "requestId": "req_59"
    }
   },
   "GET /inference/pressures?limit=500 @graph_engine_age": {
@@ -7950,7 +8118,7 @@
      "minStrength": 0.1,
      "minConfidence": 0.3
     },
-    "requestId": "req_57"
+    "requestId": "req_60"
    }
   },
   "GET /inference/pressures?limit=500 @graph_clerks_prevail": {
@@ -8023,7 +8191,7 @@
      "minStrength": 0.1,
      "minConfidence": 0.3
     },
-    "requestId": "req_58"
+    "requestId": "req_61"
    }
   },
   "GET /inference/pressures?limit=500 @graph_vael": {
@@ -8041,7 +8209,7 @@
      "minStrength": 0.1,
      "minConfidence": 0.3
     },
-    "requestId": "req_59"
+    "requestId": "req_62"
    }
   },
   "GET /inference/pressures?limit=500 @graph_deep_time": {
@@ -8059,7 +8227,7 @@
      "minStrength": 0.1,
      "minConfidence": 0.3
     },
-    "requestId": "req_60"
+    "requestId": "req_63"
    }
   }
  }

@@ -27,12 +27,16 @@ Rerun it whenever the interface changes, look at the diff of
    build of the frontend into `media/.build/frontend` (never `frontend/dist`).
 2. **Start** both on free ports: the backend in local mode on a fresh
    temporary data directory with a one-off admin key, and `vite preview`
-   proxying `/api` to it. The process environment overrides
+   proxying `/api` to it. With that key the run mints a second one with the
+   same permissions and no practical rate limit, and seeds and browses with
+   it: a key's default is 60 requests a minute on the graph routes, which a
+   capture that reloads page after page soon spends. The process environment overrides
    `timeline/.env.local`, so your own settings cannot leak in. In particular,
    `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` are blanked, which keeps ingestion
    on the deterministic pattern reader and means a run costs nothing.
-3. **Seed** the demo graph, its branch and Vael, an invented world with its
-   own calendar ([`src/seed/scenario.ts`](src/seed/scenario.ts)), through the
+3. **Seed** the demo graph, its branch, Vael, an invented world with its
+   own calendar, and Since the Great Dying, 252 million years of deep time
+   ([`src/seed/scenario.ts`](src/seed/scenario.ts)), through the
    public HTTP API, the same routes the UI and CLI use. The main history is
    left active.
 4. **Capture** the tour ([`src/capture/tour.ts`](src/capture/tour.ts)) with
