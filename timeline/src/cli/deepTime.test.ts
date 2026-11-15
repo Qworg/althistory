@@ -333,6 +333,18 @@ describe('deep time', () => {
       expect(moments[moments.length - 1]! > 8_640_000_000_000_000n).toBe(true);
     });
 
+    it("expands a chronicle of one event over a year of the world's either side of it", async () => {
+      const graph = await engine.createGraph('One event', 'A single moment', WORLD);
+      created.push(graph.id);
+      const event = await engine.createEvent(graph.id, { description: 'The Thaw', timestamp: 'Ash 9, 250000 AF', actor: 'Folk', target: 'Land' });
+      const expanded = await engine.generateExpand({ graphId: graph.id, eventCount: 2, dryRun: false });
+      const at = toAxisTime(event.timestamp)!;
+      // The world's average year: 84.1 thirty-hour days.
+      const year = BigInt(Math.round(84.1 * 30 * 3600 * 1000));
+      expect(toAxisTime(expanded.arcs[0]!.startTime)).toBe(at - year);
+      expect(toAxisTime(expanded.arcs[0]!.endTime)).toBe(at + year);
+    });
+
     it('dates a template chronicle 500 million of its years on at the start of its days, exactly', async () => {
       // There a double holds only every 512th millisecond: a day start computed in one
       // lands hundreds of milliseconds before or after midnight.
