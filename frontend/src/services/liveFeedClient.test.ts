@@ -72,6 +72,9 @@ interface Harness {
   resyncs: Array<[string, string]>
   statuses: LiveFeedStatus[]
   revoked: string[]
+  /** Each report: the channel and why (the key lost it, or the graph is gone). */
+  reports: Array<[string, string]>
+  watching: string[]
   getToken: ReturnType<typeof vi.fn>
 }
 
@@ -80,6 +83,8 @@ function harness(overrides: Partial<ConstructorParameters<typeof LiveFeedClient>
   const resyncs: Array<[string, string]> = []
   const statuses: LiveFeedStatus[] = []
   const revoked: string[] = []
+  const reports: Array<[string, string]> = []
+  const watching: string[] = []
   const getToken = vi.fn(async () => token())
   const client = new LiveFeedClient({
     getToken,
@@ -88,13 +93,17 @@ function harness(overrides: Partial<ConstructorParameters<typeof LiveFeedClient>
     onChange: (c) => changes.push(c),
     onResync: (graphId, reason) => resyncs.push([graphId, reason]),
     onStatus: (status) => statuses.push(status),
-    onAccessRevoked: (graphId) => revoked.push(graphId),
+    onAccessRevoked: (graphId, reason) => {
+      revoked.push(graphId)
+      reports.push([graphId, reason])
+    },
+    onWatching: (graphId) => watching.push(graphId),
     baseDelayMs: 1000,
     maxDelayMs: 8000,
     pingIntervalMs: 60000,
     ...overrides,
   })
-  return { client, changes, resyncs, statuses, revoked, getToken }
+  return { client, changes, resyncs, statuses, revoked, reports, watching, getToken }
 }
 
 /** Let the token request and the socket creation run. */
@@ -185,6 +194,8 @@ describe('LiveFeedClient', () => {
       expect(h.client.currentStatus).toBe('error')
       // The graph's token, then one for the graph list alone; then nothing more.
       expect(getToken.mock.calls).toEqual([['g1'], ['*']])
+      // The key reads nothing: no graph was revoked, so none is reported as if it were.
+      expect(h.revoked).toEqual([])
       await vi.advanceTimersByTimeAsync(60000)
       expect(getToken).toHaveBeenCalledTimes(2)
       expect(FakeSocket.all).toHaveLength(0)
@@ -435,12 +446,21 @@ describe('LiveFeedClient', () => {
       socket.say({ type: 'error', code: 'PERMISSION_DENIED', message: 'no', graphId: '*' })
       expect(h.client.currentStatus).toBe('live')
       expect(socket.closed).toBe(false)
-      // A refusal of the graph being watched costs that graph, and keeps the list.
+      // The graph refused too, nothing is left to watch: the feed stops, and says so.
+      socket.say({ type: 'error', code: 'GRAPH_ACCESS_DENIED', message: 'no', graphId: 'g1' })
+      expect(h.client.currentStatus).toBe('error')
+      expect(h.revoked).toEqual(['g1'])
+      expect(socket.closed).toBe(true)
+    })
+
+    it('keeps the list when only the open graph is refused, and ends the feed for a refusal of the key', async () => {
+      const h = harness()
+      const socket = await connected(h)
+      socket.say({ type: 'subscribed', graphId: '*', epoch: 'E1', seq: 1, replayed: 0 })
       socket.say({ type: 'error', code: 'GRAPH_ACCESS_DENIED', message: 'no', graphId: 'g1' })
       expect(h.client.currentStatus).toBe('revoked')
       expect(h.revoked).toEqual(['g1'])
       expect(socket.closed).toBe(false)
-      // A refusal of the key ends it.
       socket.say({ type: 'error', code: 'PERMISSION_DENIED', message: 'no', graphId: 'g1' })
       expect(h.client.currentStatus).toBe('error')
       expect(socket.closed).toBe(true)
@@ -525,6 +545,110 @@ describe('LiveFeedClient', () => {
   })
 
   describe('access revoked', () => {
+    it('reports a refused graph only once a token for the graph list is granted', async () => {
+      let grant!: (value: StreamTokenResponse) => void
+      const getToken = vi.fn((channel: string) =>
+        channel === 'g1'
+          ? Promise.reject(Object.assign(new Error('no'), { status: 403 }))
+          : new Promise<StreamTokenResponse>((resolve) => (grant = resolve))
+      )
+      const h = harness({ getToken })
+      h.client.setGraph('g1')
+      h.client.start()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(getToken.mock.calls).toEqual([['g1'], ['*']])
+      expect(h.revoked).toEqual([])
+      grant(token('list'))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(h.reports).toEqual([['g1', 'access']])
+    })
+
+    it('says a graph that is gone is gone, not that the key lost it', async () => {
+      const getToken = vi.fn(async (channel: string) => {
+        if (channel === 'g1') throw Object.assign(new Error("Graph 'g1' not found"), { status: 404 })
+        return token('list')
+      })
+      const h = harness({ getToken })
+      h.client.setGraph('g1')
+      h.client.start()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(h.reports).toEqual([['g1', 'missing']])
+
+      const other = harness()
+      const socket = await connected(other, 'g2')
+      socket.say({ type: 'error', code: 'GRAPH_NOT_FOUND', message: "Graph 'g2' not found", graphId: 'g2' })
+      expect(other.reports).toEqual([['g2', 'missing']])
+      expect(other.client.currentStatus).toBe('revoked')
+    })
+
+    it('says live, with no graph open, only once the list-only socket has authenticated', async () => {
+      const getToken = vi.fn(async (channel: string) => {
+        if (channel === 'g1') throw Object.assign(new Error('no'), { status: 403 })
+        return token('list')
+      })
+      const h = harness({ getToken })
+      h.client.setGraph('g1')
+      h.client.start()
+      await vi.advanceTimersByTimeAsync(0)
+      const socket = lastSocket()
+      // The socket is open; the server has not answered yet.
+      h.client.setGraph(null)
+      expect(h.client.currentStatus).not.toBe('live')
+      socket.say({ type: 'auth_result', success: true, mode: 'feed' })
+      expect(h.client.currentStatus).toBe('live')
+      expect(socket.sent.filter((message) => message.type === 'subscribe')).toEqual([{ type: 'subscribe', graphId: '*' }])
+    })
+
+    it('stops, saying so, when the graph list is refused on a socket that watches nothing else', async () => {
+      const getToken = vi.fn(async (channel: string) => {
+        if (channel === 'g1') throw Object.assign(new Error('no'), { status: 403 })
+        return token('list')
+      })
+      const h = harness({ getToken })
+      h.client.setGraph('g1')
+      h.client.start()
+      await vi.advanceTimersByTimeAsync(0)
+      const socket = lastSocket()
+      socket.say({ type: 'auth_result', success: true, mode: 'feed' })
+      expect(h.client.currentStatus).toBe('revoked')
+      socket.say({ type: 'error', code: 'PERMISSION_DENIED', message: "The API key no longer has the 'read:graphs' permission", graphId: '*' })
+      expect(h.client.currentStatus).toBe('error')
+      expect(socket.closed).toBe(true)
+      await vi.advanceTimersByTimeAsync(60000)
+      expect(FakeSocket.all).toHaveLength(1)
+    })
+
+    it('stops when the graph list is revoked on a socket whose graph already was', async () => {
+      const h = harness()
+      const socket = await connected(h)
+      socket.say({ type: 'subscribed', graphId: 'g1', epoch: 'E1', seq: 1, replayed: 0 })
+      socket.say({ type: 'subscribed', graphId: '*', epoch: 'E1', seq: 1, replayed: 0 })
+      socket.say({ type: 'unsubscribed', graphId: 'g1', reason: 'access_revoked' })
+      expect(h.client.currentStatus).toBe('revoked')
+      socket.say({ type: 'unsubscribed', graphId: '*', reason: 'access_revoked' })
+      expect(h.client.currentStatus).toBe('error')
+      expect(socket.closed).toBe(true)
+    })
+
+    it('never says live in between when a graph waiting on a retry is then refused', async () => {
+      const h = harness()
+      const socket = await connected(h)
+      socket.say({ type: 'subscribed', graphId: '*', epoch: 'E1', seq: 1, replayed: 0 })
+      socket.say({ type: 'error', code: 'RATE_LIMITED', message: 'slow down', graphId: 'g1', retryAfter: 5 })
+      expect(h.client.currentStatus).toBe('reconnecting')
+      h.statuses.length = 0
+      socket.say({ type: 'error', code: 'GRAPH_ACCESS_DENIED', message: 'no', graphId: 'g1' })
+      expect(h.statuses).toEqual(['revoked'])
+    })
+
+    it('tells the caller when the open graph is watched again', async () => {
+      const h = harness()
+      const socket = await connected(h)
+      socket.say({ type: 'subscribed', graphId: 'g1', epoch: 'E1', seq: 1, replayed: 0 })
+      socket.say({ type: 'subscribed', graphId: '*', epoch: 'E1', seq: 1, replayed: 0 })
+      expect(h.watching).toEqual(['g1', '*'])
+    })
+
     it('stops saying live when the open graph is revoked, and says live again for a graph that is watched', async () => {
       const h = harness()
       const socket = await connected(h)

@@ -125,8 +125,9 @@ describe('useLiveChanges', () => {
     expect(useLiveChangesStore.getState().notices.map((notice) => notice.message)).toEqual([
       'Live sync stopped for the graph list: this key may no longer read graphs.',
     ])
+    // Then the graph too: nothing is left to watch, so the feed stops and says so.
     socket.say({ type: 'unsubscribed', graphId: 'g1', reason: 'access_revoked' })
-    expect(useLiveChangesStore.getState().status).toBe('revoked')
+    expect(useLiveChangesStore.getState().status).toBe('error')
     expect(useLiveChangesStore.getState().notices.map((notice) => notice.message)).toContain(
       'Live sync stopped for this graph: this key may no longer read it.'
     )
@@ -156,6 +157,55 @@ describe('useLiveChanges', () => {
     second.say({ type: 'auth_result', success: true, mode: 'feed', graphId: '*' })
     expect(second.sent).toEqual([{ type: 'subscribe', graphId: '*' }])
     expect(useLiveChangesStore.getState().status).toBe('revoked')
+  })
+
+  it('reports a revoked graph once, however often Retry is pressed, and again only after it was watched in between', async () => {
+    const revokedNotices = () =>
+      useLiveChangesStore.getState().notices.filter((notice) => notice.message === 'Live sync stopped for this graph: this key may no longer read it.').length
+    vi.mocked(apiClient.stream.getToken).mockRejectedValue(Object.assign(new Error("Access to graph 'g1' is not allowed"), { status: 403 }))
+    vi.spyOn(apiClient.stream, 'getGraphListToken').mockResolvedValue({
+      token: 'list-token',
+      expiresIn: 300,
+      graphId: '*',
+      permissions: [],
+      mode: 'feed',
+      concurrentStreams: 5,
+    })
+    renderHook(() => useLiveChanges(), { wrapper })
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1))
+    expect(revokedNotices()).toBe(1)
+
+    act(() => useLiveChangesStore.getState().retry())
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
+    expect(revokedNotices()).toBe(1)
+
+    // Access comes back: the graph is watched again, then lost again.
+    vi.mocked(apiClient.stream.getToken).mockResolvedValue({ token: 'feed-token', expiresIn: 300, graphId: 'g1', permissions: [], mode: 'feed', concurrentStreams: 5 })
+    act(() => useLiveChangesStore.getState().retry())
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(3))
+    const third = latest()
+    third.say({ type: 'auth_result', success: true, mode: 'feed' })
+    third.say({ type: 'subscribed', graphId: 'g1', epoch: 'E1', seq: 0, replayed: 0 })
+    third.say({ type: 'unsubscribed', graphId: 'g1', reason: 'access_revoked' })
+    expect(revokedNotices()).toBe(2)
+  })
+
+  it('says a graph that is gone no longer exists, not that the key lost it', async () => {
+    vi.mocked(apiClient.stream.getToken).mockRejectedValue(Object.assign(new Error("Graph 'g1' not found"), { status: 404 }))
+    vi.spyOn(apiClient.stream, 'getGraphListToken').mockResolvedValue({
+      token: 'list-token',
+      expiresIn: 300,
+      graphId: '*',
+      permissions: [],
+      mode: 'feed',
+      concurrentStreams: 5,
+    })
+    renderHook(() => useLiveChanges(), { wrapper })
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1))
+    latest().say({ type: 'auth_result', success: true, mode: 'feed' })
+    expect(useLiveChangesStore.getState().status).toBe('revoked')
+    expect(useLiveChangesStore.getState().revokedReason).toBe('missing')
+    expect(useLiveChangesStore.getState().notices.map((notice) => notice.message)).toEqual(['Live sync stopped for this graph: it no longer exists.'])
   })
 
   it('does not connect when the person turned it off', async () => {
