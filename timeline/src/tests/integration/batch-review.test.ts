@@ -312,6 +312,59 @@ describe('batch writes after the first review', () => {
       expect((await container.graphRepository.checkout(graphId)).events['evt-a']).toMatchObject({ description: 'Cause', sourceRef: 'doc-1#a' });
     });
 
+    /**
+     * An arc as the CLI, MCP and the generator make it: its parent recorded
+     * only in the live metadata (`metadata.parentArcId`), which the export
+     * falls back to for `parent_arc_id`.
+     */
+    async function cliGraph(name: string): Promise<{ graphId: string; parentId: string; childId: string }> {
+      const graphId = await newGraph(name);
+      const { arcRepository } = await container.graphScopedRepositories(graphId);
+      const parent = await arcRepository.create({ name: 'Age', description: 'Outer', start_time: new Date('1800-01-01T00:00:00.000Z'), end_time: new Date('1900-01-01T00:00:00.000Z'), level: 0 });
+      await container.graphWriteVersioningService.recordArc(graphId, parent, 'create');
+      const child = await arcRepository.create({ name: 'Reign', description: 'Inner', start_time: new Date('1810-01-01T00:00:00.000Z'), end_time: new Date('1820-01-01T00:00:00.000Z'), level: 1, metadata: { parentArcId: parent.id, note: 'kept' } });
+      await container.graphWriteVersioningService.recordArc(graphId, child, 'create');
+      return { graphId, parentId: parent.id, childId: child.id };
+    }
+
+    async function parentRecords(graphId: string, arcId: string): Promise<{ live: unknown; head: unknown; note: unknown }> {
+      const { arcRepository } = await container.graphScopedRepositories(graphId);
+      const live = (await arcRepository.findById(arcId))?.metadata ?? {};
+      const head = ((await container.graphRepository.checkout(graphId)).arcs[arcId]?.metadata ?? {}) as Record<string, unknown>;
+      return { live: live.parentArcId, head: head.parentArcId, note: live.note };
+    }
+
+    // Second review, the open item: the stale parent of a CLI-made arc lives
+    // in its metadata, where the overlay cannot see it; the export fell back
+    // to it and failed the hierarchy check.
+    it("clears a CLI arc's recorded parent when a PUT promotes it, in the live store and the head, and the export validates", async () => {
+      const { graphId, parentId, childId } = await cliGraph('CLI arc promoted by PUT');
+      expect(await exportValidates(graphId)).toEqual({ valid: true, codes: [] });
+      expect(await parentRecords(graphId, childId)).toEqual({ live: parentId, head: parentId, note: 'kept' });
+
+      await request(app).put(`/api/arcs/${childId}`).set('X-API-Key', key).set('X-Graph-Id', graphId).send({ level: 0 }).expect(200);
+
+      expect(await exportValidates(graphId)).toEqual({ valid: true, codes: [] });
+      expect(await parentRecords(graphId, childId)).toEqual({ live: undefined, head: undefined, note: 'kept' });
+    });
+
+    it("clears a CLI arc's recorded parent when a batch moves it to a level that no longer fits, and the export validates", async () => {
+      const { graphId, childId } = await cliGraph('CLI arc moved by a batch');
+      await batch(graphId, 'transaction', {
+        operations: [{ type: 'update_arc', data: { id: childId, level: 0 } }],
+      }).expect(200);
+
+      expect(await parentRecords(graphId, childId)).toEqual({ live: undefined, head: undefined, note: 'kept' });
+      expect(await exportValidates(graphId)).toEqual({ valid: true, codes: [] });
+    });
+
+    it("keeps a CLI arc's recorded parent through an edit that leaves its level alone, or one that still fits", async () => {
+      const { graphId, parentId, childId } = await cliGraph('CLI arc renamed');
+      await request(app).put(`/api/arcs/${childId}`).set('X-API-Key', key).set('X-Graph-Id', graphId).send({ name: 'Reign, renamed', level: 1 }).expect(200);
+      expect(await parentRecords(graphId, childId)).toEqual({ live: parentId, head: parentId, note: 'kept' });
+      expect(await exportValidates(graphId)).toEqual({ valid: true, codes: [] });
+    });
+
     it('leaves a link alone that a batch only passed by', async () => {
       const { graphId } = await importedGraph('Passed by');
       const res = await batch(graphId, 'relationships', {
