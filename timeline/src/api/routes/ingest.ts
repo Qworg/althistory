@@ -38,6 +38,7 @@ import {
 } from '../middleware';
 import { type GraphCalendar, type WorldCalendarSet, calendarSetInstructions, storedCalendarSet } from '@althistory/calendar';
 import { ValidationError, NotFoundError, UpstreamServiceError } from '../../utils/errors';
+import { readTimeRange } from '../../services/ingestion/timeRange';
 import { ImportService } from '../../services/ImportService';
 import type { HeadReplacedHook } from '../../services/LiveStoreSyncService';
 import {
@@ -157,11 +158,23 @@ function parseTimeRange(value: unknown): { start: string; end: string } | undefi
   return { start: value.start, end: value.end };
 }
 
-function parseExtractionContext(value: unknown): ExtractionContext | undefined {
+/**
+ * The request's extraction context. Its time range is text entering for the
+ * first time, read by the one rule with the graph's calendars (`calendar`,
+ * when the request names a graph that has them): a range it cannot read is
+ * refused with the reason (400), not dropped or read leniently.
+ */
+function parseExtractionContext(value: unknown, calendar?: WorldCalendarSet): ExtractionContext | undefined {
   if (!isRecord(value)) return undefined;
   const context: ExtractionContext = {};
-  const range = parseTimeRange(value.defaultTimeRange);
-  if (range) context.defaultTimeRange = range;
+  if (value.defaultTimeRange !== undefined && value.defaultTimeRange !== null) {
+    const range = parseTimeRange(value.defaultTimeRange);
+    if (!range) {
+      throw new ValidationError('context.defaultTimeRange must be { start, end }, two dates as text', 'context.defaultTimeRange', value.defaultTimeRange);
+    }
+    readTimeRange(range, calendar);
+    context.defaultTimeRange = range;
+  }
   const actors = stringArray(value.defaultActors);
   if (actors) context.defaultActors = actors;
   const known = stringArray(value.knownEntities);
@@ -336,7 +349,7 @@ export function createIngestRouter(config: IngestRouterConfig): Router {
       const calendar = req.graphId ? (storedCalendarSet(await graphCalendar(req.graphId)) ?? undefined) : undefined;
       const preview = await orchestrator.ingest(
         { source: 'text', text: input },
-        withCalendar(parseExtractionContext(body.context), calendar),
+        withCalendar(parseExtractionContext(body.context, calendar), calendar),
         ownerKeyId(req)
       );
       res.status(200).json(preview);

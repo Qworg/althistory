@@ -27,10 +27,11 @@
  * start, not its conclusion.
  */
 
-import { toInstant } from '@althistory/calendar';
+import { compareAxisTime, toAxisTime } from '@althistory/calendar';
 import { DataSource } from '../ExportService';
 import { HttpClient, JsonValue, parseJsonBody, wikimediaUserAgent } from './http';
 import { newTempId } from './ids';
+import { readTimeRange } from './timeRange';
 import {
   ExtractedEvent,
   ExtractionContext,
@@ -238,7 +239,7 @@ export class WikidataExtractor implements Extractor<WikidataExtractionInput> {
 
     const payload = parseJsonBody(response.body, 'Wikidata');
     const facts = parseWikidataResponse(payload, entityType);
-    const filtered = this.applyTimeRange(facts, context?.defaultTimeRange);
+    const filtered = this.applyTimeRange(facts, context);
     const extractedAt = this.now().toISOString();
 
     const events = filtered.map((fact) => this.toEvent(fact, extractedAt));
@@ -260,17 +261,19 @@ export class WikidataExtractor implements Extractor<WikidataExtractionInput> {
     };
   }
 
-  private applyTimeRange(
-    facts: WikidataFact[],
-    range?: { start: string; end: string }
-  ): WikidataFact[] {
+  /**
+   * The facts inside the context's range, compared exactly (deep-time.md
+   * Req 3). A bound it cannot read is refused with the reason (a
+   * ValidationError, which the API answers 400), not dropped: dropping it
+   * would return every fact as if no range had been asked for.
+   */
+  private applyTimeRange(facts: WikidataFact[], context?: ExtractionContext): WikidataFact[] {
+    const range = context?.defaultTimeRange;
     if (!range) return facts;
-    const start = toInstant(range.start).getTime();
-    const end = toInstant(range.end).getTime();
-    if (Number.isNaN(start) || Number.isNaN(end)) return facts;
+    const { start, end } = readTimeRange(range, context?.calendar);
     return facts.filter((fact) => {
-      const time = toInstant(fact.date).getTime();
-      return !Number.isNaN(time) && time >= start && time <= end;
+      const time = toAxisTime(fact.date);
+      return time !== null && compareAxisTime(time, start) >= 0 && compareAxisTime(time, end) <= 0;
     });
   }
 

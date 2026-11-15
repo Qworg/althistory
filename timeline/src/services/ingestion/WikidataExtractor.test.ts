@@ -196,6 +196,29 @@ describe('WikidataExtractor', () => {
     expect(result.events[0].timestamp).toBe('1846-04-24T00:00:00Z');
   });
 
+  it('reads the time range by the one rule: year-first text, an end to its last moment', async () => {
+    const http = new SingleResponseHttpClient(historicalEvents);
+    const extractor = new WikidataExtractor({ httpClient: http });
+
+    // "1846-04" as an end is the whole of April; the 24th is inside it.
+    const result = await extractor.extract({ queryType: 'historical-events' }, { defaultTimeRange: { start: '1846', end: '1846-04' } });
+    expect(result.events.map((event) => event.timestamp)).toEqual(['1846-04-24T00:00:00Z']);
+  });
+
+  it('refuses a bound it cannot read, with the reason, rather than dropping it and returning every fact', async () => {
+    const extractor = new WikidataExtractor({ httpClient: new SingleResponseHttpClient(historicalEvents) });
+    // Prose the lenient stored-text reader would have read in the server's zone, and a date that does not exist.
+    await expect(
+      extractor.extract({ queryType: 'historical-events' }, { defaultTimeRange: { start: 'April 1846', end: '1846-04-30' } })
+    ).rejects.toMatchObject({ statusCode: 400, field: 'context.defaultTimeRange.start', message: expect.stringContaining('"April 1846" is not a date') });
+    await expect(
+      extractor.extract({ queryType: 'historical-events' }, { defaultTimeRange: { start: '1846-04-01', end: '1846-02-30' } })
+    ).rejects.toMatchObject({ field: 'context.defaultTimeRange.end', message: expect.stringContaining('That month has no day 30') });
+    await expect(
+      extractor.extract({ queryType: 'historical-events' }, { defaultTimeRange: { start: '1847', end: '1846' } })
+    ).rejects.toThrow(/ends before it starts/);
+  });
+
   it('sends the shipped historical-events query, not a subclass-of-war query', async () => {
     const http = new SingleResponseHttpClient(historicalEvents);
     const extractor = new WikidataExtractor({ httpClient: http });
