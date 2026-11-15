@@ -25,7 +25,6 @@ import type { ArcRepository } from '@/repositories/ArcRepository';
 import { CausalService, StoredCausalRelationship } from '@/services/CausalService';
 import { createLogger } from '@/utils/logger';
 import type { BatchLiveState, BatchStep } from '@/services/GraphWriteVersioningService';
-import { checkNamedParent } from '../arcParent';
 
 const logger = createLogger('BatchRoutes');
 
@@ -807,7 +806,6 @@ batchRoutes.post(
 
           case 'update_arc': {
             const { id: arcId, ...arcUpdates } = op.data as { id: string } & Record<string, unknown>;
-            await checkNamedParent(arcId, arcUpdates, { arcRepository, head: () => req.container.graphRepository.checkout(requireGraphId(req)) });
             const updatedArc = await arcRepository.update(arcId, await readStepDates(arcUpdates, calendarOf, 'arc'));
             if (updatedArc) touched.arcs.add(arcId);
             opResult = { success: !!updatedArc, id: arcId };

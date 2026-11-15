@@ -396,31 +396,6 @@ describe("an arc's parent when a subtree moves", () => {
       expect((await exported(graphId)).arcs.C).toEqual([1, 'B']);
     });
 
-    // 3. Nothing checked the arc metadata names as a parent.
-    const badParents: Array<[string, string]> = [['itself', 'B'], ['its own child', 'C'], ['an arc that does not exist', 'missing-arc']];
-    for (const kind of ['cli', 'imported'] as const) {
-      for (const [what, parent] of badParents) {
-        it(`refuses to give ${kind} arc B ${what} as its parent, by PUT and in a batch`, async () => {
-          const graphId = await graphOf(kind, [
-            G,
-            ['A', 0, '1800-01-01T00:00:00.000Z', '1900-01-01T00:00:00.000Z'],
-            ['B', 1, '1805-01-01T00:00:00.000Z', '1850-01-01T00:00:00.000Z', 'A'],
-            ['C', 2, '1810-01-01T00:00:00.000Z', '1820-01-01T00:00:00.000Z', 'B'],
-          ]);
-          const before = await exported(graphId);
-          expect(before.valid).toBe(true);
-
-          const refused = await put(graphId, 'B', { metadata: { parentArcId: parent } }).expect(400);
-          expect(refused.body.error.message).toContain('parentArcId');
-          const step = await transaction(graphId, [{ type: 'update_arc', data: { id: 'B', metadata: { parentArcId: parent } } }]).expect(400);
-          expect(step.body.result.results[0]).toMatchObject({ success: false });
-          expect(String(step.body.result.results[0].error)).toContain('parentArcId');
-
-          expect(await exported(graphId)).toEqual(before);
-        });
-      }
-    }
-
     // 2. Any batch that touched a link read every link strictly, so one lost
     // link object failed every link batch on the graph.
     it('versions a batch that creates links, though an unrelated link object is lost', async () => {
@@ -515,35 +490,31 @@ describe("an arc's parent when a subtree moves", () => {
         expect((await arcRepository.findById('B'))?.metadata?.parentArcId).toBe(kind === 'cli' ? 'A' : undefined);
       });
 
-      it(`${kind} arcs: a move to the top level is not refused for the parent it names, which is cleared`, async () => {
-        const graphId = await graphOf(kind, demoteArcs);
-        await put(graphId, 'C', { level: 0, metadata: { parentArcId: 'no-such-arc' } }).expect(200);
-        expect((await exported(graphId)).arcs.C).toEqual([0, null]);
+      // Sixth review: the parent check (since removed) refused this swap in a
+      // batch, judging step two against the head from before step one.
+      const swapArcs: ArcSpec[] = [
+        ['A', 0, '1800-01-01T00:00:00.000Z', '1900-01-01T00:00:00.000Z'],
+        ['B', 1, '1805-01-01T00:00:00.000Z', '1850-01-01T00:00:00.000Z', 'A'],
+      ];
+      const promoteB = { level: 0, start_time: '1790-01-01T00:00:00.000Z', end_time: '1910-01-01T00:00:00.000Z' };
+      const underB = { level: 1, metadata: { parentArcId: 'B' } };
+
+      it(`${kind} arcs: one batch promotes B to the top, then puts its old parent A under it`, async () => {
+        const graphId = await graphOf(kind, swapArcs);
+        await transaction(graphId, [
+          { type: 'update_arc', data: { id: 'B', ...promoteB } },
+          { type: 'update_arc', data: { id: 'A', ...underB } },
+        ]).expect(200);
+        expect(await exported(graphId)).toEqual({ valid: true, errors: [], arcs: { A: [1, 'B'], B: [0, null] } });
       });
 
-      it(`${kind} arcs: a batch cannot close a loop over two steps`, async () => {
-        const graphId = await graphOf(kind, [
-          ['X', 1, '1800-01-01T00:00:00.000Z', '1900-01-01T00:00:00.000Z', 'G'],
-          ['Y', 1, '1801-01-01T00:00:00.000Z', '1899-01-01T00:00:00.000Z', 'G'],
-          G,
-        ]);
-        const res = await transaction(graphId, [
-          { type: 'update_arc', data: { id: 'X', metadata: { parentArcId: 'Y' } } },
-          { type: 'update_arc', data: { id: 'Y', metadata: { parentArcId: 'X' } } },
-        ]).expect(400);
-        expect(String(res.body.result.results[1].error)).toContain('is inside this arc');
+      it(`${kind} arcs: two PUTs make the same swap`, async () => {
+        const graphId = await graphOf(kind, swapArcs);
+        await put(graphId, 'B', promoteB).expect(200);
+        await put(graphId, 'A', underB).expect(200);
+        expect(await exported(graphId)).toEqual({ valid: true, errors: [], arcs: { A: [1, 'B'], B: [0, null] } });
       });
     }
-
-    it("does not refuse an edit that resends a CLI arc's recorded parent as it is, even a parent since deleted", async () => {
-      const graphId = await graphOf('cli', fourDeep);
-      const { arcRepository } = await container.graphScopedRepositories(graphId);
-      await arcRepository.delete('A');
-      const metadata = (await arcRepository.findById('B'))?.metadata;
-      expect(metadata?.parentArcId).toBe('A');
-      await put(graphId, 'B', { name: 'B renamed', metadata }).expect(200);
-      await transaction(graphId, [{ type: 'update_arc', data: { id: 'B', description: 'Edited', metadata } }]).expect(200);
-    });
 
     it('keeps the parents of a graph re-imported over itself (overwrite) through a rename', async () => {
       const graphId = await graphOf('cli', fourDeep);
