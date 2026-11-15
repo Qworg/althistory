@@ -62,7 +62,8 @@ arcRoutes.post('/', ...entityPermission('write:arcs'), async (req: RequestWithCo
     // Mirror the write into the active graph's version store so version history
     // and ExportService see UI-created arcs (not only imported ones).
     try {
-      await req.container.graphWriteVersioningService.recordArc(requireGraphId(req), arc, 'create');
+      // Undone below if it cannot be versioned, so not announced then.
+      await req.container.graphWriteVersioningService.recordArc(requireGraphId(req), arc, 'create', { undoneOnFailure: true });
     } catch (versionError) {
       try {
         await repository.delete(arc.id);
@@ -71,6 +72,7 @@ arcRoutes.post('/', ...entityPermission('write:arcs'), async (req: RequestWithCo
           arcId: arc.id,
           rollbackError,
         });
+        req.container.graphWriteVersioningService.announceNotVersioned(requireGraphId(req), 'create', 'arc', arc.id, { name: arc.name });
       }
       throw versionError;
     }
@@ -332,7 +334,8 @@ arcRoutes.put('/:id', ...entityPermission('write:arcs'), async (req: RequestWith
     }
 
     try {
-      await req.container.graphWriteVersioningService.recordArc(requireGraphId(req), updatedArc, 'update');
+      // Undone below if it cannot be versioned, so not announced then.
+      await req.container.graphWriteVersioningService.recordArc(requireGraphId(req), updatedArc, 'update', { undoneOnFailure: true });
     } catch (versionError) {
       try {
         await repository.update(id, existingArc);
@@ -341,6 +344,7 @@ arcRoutes.put('/:id', ...entityPermission('write:arcs'), async (req: RequestWith
           arcId: id,
           rollbackError,
         });
+        req.container.graphWriteVersioningService.announceNotVersioned(requireGraphId(req), 'update', 'arc', id, { name: updatedArc.name });
       }
       throw versionError;
     }

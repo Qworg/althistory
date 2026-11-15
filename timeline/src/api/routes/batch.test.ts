@@ -232,8 +232,8 @@ describe('Batch Routes', () => {
         .expect(500);
 
       expect(mockEventRepository.delete.mock.calls.map((call: unknown[]) => call[0])).toEqual(['evt-b', 'evt-a']);
-      expect(publish).toHaveBeenCalledTimes(1);
-      expect(publish.mock.calls[0]![1].summary).toBe('Added 2 events in a batch (not versioned)');
+      // Undone, so not announced: a watcher would be told of events that are gone.
+      expect(publish).not.toHaveBeenCalled();
     });
 
     it('should abort on validation error with strict mode and rollback created events', async () => {

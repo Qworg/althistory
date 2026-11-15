@@ -351,6 +351,54 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
       expect(await neo4jGraphOf('Event', doomed)).toBeNull();
     });
 
+    it("undoes only the link a failed batch made, never the user's older link between the same events", async () => {
+      const add = async (description: string, timestamp: string): Promise<string> => {
+        const res = await http('POST', '/api/events', agentKey, graphA, { description, actor: 'A', target: 'B', timestamp });
+        expect(res.status).toBe(201);
+        return (res.body.data as { id: string }).id;
+      };
+      const a = await add('Undo A', '1260-01-01T00:00:00.000Z');
+      const b = await add('Undo B', '1261-01-01T00:00:00.000Z');
+      const original = await http('POST', '/api/causal/link', agentKey, graphA, {
+        causeEventId: a,
+        effectEventId: b,
+        relationship: { type: 'direct', strength: 0.5, confidence: 0.5, evidence: 'ORIGINAL' },
+      });
+      expect(original.status).toBe(201);
+
+      const transaction = await http('POST', '/api/batch/transaction', agentKey, graphA, {
+        graphId: graphA,
+        atomic: true,
+        operations: [
+          { type: 'create_relationship', data: { cause_event_id: a, effect_event_id: b, evidence: 'FROM-TX' } },
+          { type: 'create_relationship', data: { cause_event_id: a, effect_event_id: 'nope', evidence: 'FROM-TX' } },
+        ],
+      });
+      expect(transaction.status).toBe(400);
+      const aborted = await http('POST', '/api/batch/relationships', agentKey, graphA, {
+        graphId: graphA,
+        relationships: [
+          { cause_event_id: a, effect_event_id: b, evidence: 'FROM-BATCH' },
+          { cause_event_id: a, effect_event_id: 'nope', evidence: 'FROM-BATCH' },
+        ],
+      });
+      expect(aborted.status).toBe(400);
+
+      const session = getDatabaseManager().getNeo4jSession();
+      try {
+        const edges = await session.run(
+          'MATCH (:Event {id: $a})-[r:CAUSES]->(:Event {id: $b}) RETURN r.evidence AS evidence',
+          { a, b }
+        );
+        expect(edges.records.map((record) => record.get('evidence'))).toEqual(['ORIGINAL']);
+      } finally {
+        await session.close();
+      }
+      const head = await container.graphRepository.checkout(graphA);
+      const between = Object.values(head.relationships).filter((link) => link.cause_event_id === a && link.effect_event_id === b);
+      expect(between.map((link) => link.evidence)).toEqual(['ORIGINAL']);
+    });
+
     it('does not deliver another graph\'s writes', async () => {
       const client = await watcher(agentKey, graphA);
       const elsewhere = await http('POST', '/api/events', agentKey, graphB, {
