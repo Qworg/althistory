@@ -1,5 +1,5 @@
 import { ExtractedEvent, ExtractedArc, ExtractionSource } from '@/services/ingestion/types';
-import { type WorldCalendarSet, addInstantMs, calendarIn, compareInstants, dateAt, formatWorldYearOf, msApart, toAxisTime, toInstant } from '@althistory/calendar';
+import { type WorldCalendarSet, addInstantMs, calendarIn, compareInstants, dateAt, formatBoundAt, formatWorldYearOf, msApart, toAxisTime, toInstant } from '@althistory/calendar';
 
 /** How the arcs are named. */
 export interface ArcNamingOptions {
@@ -51,7 +51,8 @@ export function clusterEventsIntoArcs(
   naming: ArcNamingOptions = {}
 ): ExtractedArc[] {
   const { calendar } = naming;
-  // The UTC year without a calendar; in a world, the year its primary calendar names.
+  // Without a calendar, the UTC year as a person types it ("1066", "44 BCE");
+  // in a world, the year its primary calendar names.
   const primary = calendar ? calendarIn(calendar) : null;
   // A world's day is its own length (a 30-hour day pads an arc by 30 hours),
   // and so is its year: the gaps measured below count in them.
@@ -61,7 +62,7 @@ export function clusterEventsIntoArcs(
     const instant = toInstant(timestamp);
     const position = toAxisTime(instant);
     if (position === null) return '';
-    return primary ? formatWorldYearOf(primary.definition, dateAt(primary, position).year) : String(instant.getUTCFullYear());
+    return primary ? formatWorldYearOf(primary.definition, dateAt(primary, position).year) : formatBoundAt(instant, 'year');
   };
 
   if (events.length === 0) {

@@ -171,6 +171,24 @@ describe('CLI Arc Clustering (clusterEventsIntoArcs)', () => {
     expect(arcs[1].start_time).toBe('1969-07-20T00:00:00Z');
   });
 
+  it('names an arc with the year as a person types it, a BCE year included', () => {
+    const at = (timestamp: string): ExtractedEvent => ({
+      tempId: 'e-1',
+      description: 'An event',
+      actor: 'Rome',
+      target: 'Gaul',
+      timestamp,
+      confidence: 0.9,
+      source: mockSource,
+      selected: true,
+      edited: false,
+    });
+    expect(clusterEventsIntoArcs([at('-000043-03-15T00:00:00.000Z')], mockSource)[0]!.name).toBe('Period of Rome (44 BCE)');
+    expect(clusterEventsIntoArcs([at('0000-06-01T00:00:00.000Z')], mockSource)[0]!.name).toBe('Period of Rome (1 BCE)');
+    expect(clusterEventsIntoArcs([at('1066-10-14T00:00:00.000Z')], mockSource)[0]!.name).toBe('Period of Rome (1066)');
+    expect(clusterEventsIntoArcs([at('+300000-01-01T00:00:00.000Z')], mockSource)[0]!.name).toBe('Period of Rome (300000)');
+  });
+
   describe("in a world whose day is 30 hours and whose year is 120 of them", () => {
     const HOUR = 3600 * 1000;
     const VAEL: WorldCalendarSet = {

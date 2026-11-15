@@ -451,8 +451,9 @@ describe('the year an era is named for', () => {
     expect(eraYearLabel('0005-01-01T00:00:00.000Z')).toBe('5');
   });
 
-  it('writes a BCE year as the rest of the app does, not as its sign and zeros', () => {
-    expect(eraYearLabel('-000043-03-15T00:00:00.000Z')).toBe('44 BC');
-    expect(eraYearLabel('-200000-01-01T00:00:00.000Z')).toBe('200001 BC');
+  it('writes a BCE year as a person types it: ASCII digits and "BCE", not its sign and zeros', () => {
+    expect(eraYearLabel('-000043-03-15T00:00:00.000Z')).toBe('44 BCE');
+    expect(eraYearLabel('-200000-01-01T00:00:00.000Z')).toBe('200001 BCE');
+    expect(eraYearLabel('0000-06-01T00:00:00.000Z')).toBe('1 BCE');
   });
 });

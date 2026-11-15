@@ -36,7 +36,7 @@ import {
   dateAt,
   datePrecisionMetadata,
   formatInWorld,
-  formatHistoricalDateAt,
+  formatBoundAt,
   formatWorldYearOf,
   unreadDateReason,
   isCalendarSet,
@@ -61,11 +61,12 @@ import { GenerationRun, type GenerationHooks } from './GenerationHooks';
 
 /**
  * The year a generated era's name carries: the world's own year in a world, and
- * otherwise the year as the rest of the app writes it (a year of any size, BCE
- * years with their era), never the first four characters of the stored text.
+ * otherwise the year as a person types it -- ASCII digits of any size, "BCE"
+ * before 1 CE ("44 BCE"), nothing after -- never the first four characters of
+ * the stored text.
  */
 export function eraYearLabel(timestamp: string, calendar?: WorldCalendarSet): string {
-  if (!calendar) return formatHistoricalDateAt(timestamp, 'year', 'en', null);
+  if (!calendar) return formatBoundAt(toInstant(timestamp), 'year');
   const primary = calendarIn(calendar);
   return formatWorldYearOf(primary.definition, dateAt(primary, toAxisTime(toInstant(timestamp)) ?? 0n).year);
 }
