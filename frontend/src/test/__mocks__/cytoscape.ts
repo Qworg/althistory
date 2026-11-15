@@ -50,6 +50,9 @@ export interface MockNode {
   position: (pos?: MockPosition) => MockPosition | MockNode
   addClass: (...classNames: string[]) => MockNode
   removeClass: (...classNames: string[]) => MockNode
+  /** Adds the class when `on` is true (or, without it, when absent), else removes it. */
+  toggleClass: (className: string, on?: boolean) => MockNode
+  hasClass: (className: string) => boolean
   select: (selectee?: string) => MockNode
   unselect: (unselectee?: string) => MockNode
   renderedMidpoint: () => MockPosition
@@ -158,9 +161,12 @@ function wrapAsElement(item: MockElement, mockData?: MockData): MockNode {
     return cached
   }
 
-  // Create mock functions once per element
+  // Create mock functions once per element. The classes are kept, starting
+  // from those the element was added with, so a test can read them back.
+  const classes = new Set(typeof item.classes === 'string' ? item.classes.split(/\s+/).filter(Boolean) : [])
   const addClassFn = vi.fn()
   const removeClassFn = vi.fn()
+  const toggleClassFn = vi.fn()
   const selectFn = vi.fn()
   const unselectFn = vi.fn()
 
@@ -187,6 +193,8 @@ function wrapAsElement(item: MockElement, mockData?: MockData): MockNode {
     },
     addClass: addClassFn,
     removeClass: removeClassFn,
+    toggleClass: toggleClassFn,
+    hasClass: (className: string): boolean => classes.has(className),
     select: selectFn,
     unselect: unselectFn,
     renderedMidpoint: (): MockPosition => ({ x: 100, y: 100 }),
@@ -219,8 +227,22 @@ function wrapAsElement(item: MockElement, mockData?: MockData): MockNode {
   }
 
   // Set up chainable methods to return the same wrapped instance
-  addClassFn.mockReturnValue(wrapped)
-  removeClassFn.mockReturnValue(wrapped)
+  const names = (value: string): string[] => value.split(/\s+/).filter(Boolean)
+  addClassFn.mockImplementation((...classNames: string[]) => {
+    classNames.flatMap(names).forEach((name) => classes.add(name))
+    return wrapped
+  })
+  removeClassFn.mockImplementation((...classNames: string[]) => {
+    classNames.flatMap(names).forEach((name) => classes.delete(name))
+    return wrapped
+  })
+  toggleClassFn.mockImplementation((className: string, on?: boolean) => {
+    for (const name of names(className)) {
+      if (on ?? !classes.has(name)) classes.add(name)
+      else classes.delete(name)
+    }
+    return wrapped
+  })
   selectFn.mockReturnValue(wrapped)
   unselectFn.mockReturnValue(wrapped)
 
