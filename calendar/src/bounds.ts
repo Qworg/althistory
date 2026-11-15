@@ -222,8 +222,8 @@ export function formatBoundAt(value: Date, precision: DatePrecision): string {
 }
 
 /** How much of a date a canonical bound names: `1843` a year, `1843-11` a month, `1843-11-20` a day. */
-/** A time after a year-first date: "1843-11-20 14:30", "44-03-15 BCE 9:30". */
-const TIME_SUFFIX = /^(.+?)(?:[ T](\d{1,2}):(\d{2}))$/
+/** A time after a year-first date, to the minute, second or millisecond: "1843-11-20 14:30", "44-03-15 BCE 9:30:05.250". */
+const TIME_SUFFIX = /^(.+?)(?:[ T](\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)$/
 
 /**
  * Year-first text without a world (Req 16): a year, a month or a day, BCE
@@ -244,8 +244,11 @@ export function readHistoricalText(
   if (boundPrecision(parsed.text) !== 'day') return { ok: false, error: 'A time needs a whole date: 1843-11-20 14:30.' }
   const hours = Number(timed[2])
   const minutes = Number(timed[3])
-  if (hours > 23 || minutes > 59) return { ok: false, error: 'The time must be 00:00 to 23:59, in UTC.' }
-  const time = parsed.time + BigInt((hours * 60 + minutes) * 60_000)
+  const seconds = timed[4] === undefined ? 0 : Number(timed[4])
+  // A fraction of a second is its milliseconds: ".5" is 500.
+  const ms = timed[5] === undefined ? 0 : Number(timed[5].padEnd(3, '0'))
+  if (hours > 23 || minutes > 59 || seconds > 59) return { ok: false, error: 'The time must be 00:00 to 23:59:59, in UTC.' }
+  const time = parsed.time + BigInt(((hours * 60 + minutes) * 60 + seconds) * 1000 + ms)
   // The last day the axis holds ends before some of its times.
   if (!inAxisRange(time)) return { ok: false, error: 'That date is beyond the range the timeline holds (about 285 million years).' }
   return { ok: true, iso: isoOfAxisTime(time), time, precision: 'day' }

@@ -5,12 +5,14 @@ import {
   axisOf,
   boundPrecision,
   calendarIn,
+  civilOfAxisTime,
   dateAt,
   formatBoundAt,
   formatDateBound,
   formatHistoricalDateBound,
   formatWorldBound,
   formatWorldFields,
+  instantOfAxisTime,
   isSignedShortYear,
   parseHistoricalDate,
   parseIsoInstant,
@@ -179,6 +181,34 @@ describe('a minus sign before a year of fewer than six digits', () => {
     expect(parseHistoricalDate('-0', 'start')).toEqual({ ok: false, error: 'There is no year 0: 1 BCE is followed by 1 CE.' })
     expect(parseHistoricalDate('-44 BCE', 'start')).toEqual({ ok: false, error: 'Use a minus sign or an era, not both.' })
     expect(readDateEntry('-000043', null)).toMatchObject({ ok: true, iso: '-000043-01-01T00:00:00.000Z', precision: 'year' })
+  })
+})
+
+describe('a date with a time of day, to the second or the millisecond', () => {
+  const pad = (value: number, width = 2) => String(value).padStart(width, '0')
+  it('reads back as the moment it names, at any magnitude', () => {
+    fc.assert(
+      fc.property(arb.axisTime, fc.constantFrom('minute', 'second', 'millisecond'), (time, precision) => {
+        const civil = civilOfAxisTime(time)
+        const unit = precision === 'minute' ? 60_000n : precision === 'second' ? 1000n : 1n
+        const at = time - (((time % unit) + unit) % unit)
+        const day = formatBoundAt(instantOfAxisTime(at)!, 'day')
+        const clock = `${pad(civil.hour)}:${pad(civil.minute)}${precision === 'minute' ? '' : `:${pad(civil.second)}`}${precision === 'millisecond' ? `.${pad(civil.millisecond, 3)}` : ''}`
+        const text = `${day} ${clock}`
+        const read = readHistoricalText(text, 'start')
+        expect(read.ok && read.time, text).toBe(at)
+        expect(read.ok && read.precision, text).toBe('day')
+      }),
+      arb.runs(2000)
+    )
+  })
+
+  it('refuses a second or a millisecond out of range, and a fraction too fine', () => {
+    for (const text of ['1843-11-20 14:30:60', '1843-11-20 14:30:5', '1843-11-20 14:30:05.1234', '1843-11-20 14:30.5']) {
+      expect(readHistoricalText(text, 'start').ok, text).toBe(false)
+    }
+    expect(readHistoricalText('1843-11-20 14:30:05.5', 'start')).toMatchObject({ ok: true, iso: '1843-11-20T14:30:05.500Z' })
+    expect(readHistoricalText('44-03-15 BCE 11:59:50', 'start')).toMatchObject({ ok: true, iso: '-000043-03-15T11:59:50.000Z' })
   })
 })
 
