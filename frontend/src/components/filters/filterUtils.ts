@@ -140,7 +140,11 @@ function fromInputDate(value: string, edge: DateBoundEdge, calendar: CalendarArg
   const parsed = readDateBound(value, edge, calendar)
   // Anything else (a full timestamp from a link) by the app's one reader: UTC
   // when it has no zone, and no date rather than the day V8 rolls "1870-02-31" into.
-  return parsed.ok ? parsed.date : toInstant(value)
+  if (parsed.ok) return parsed.date
+  // A minus sign before a short year ("-44", from an old link) is refused for
+  // naming either of two years; the lenient reader would make it 2044.
+  if (/^\s*-\d{1,5}(?!\d)/.test(value)) return new Date(NaN)
+  return toInstant(value)
 }
 
 /**

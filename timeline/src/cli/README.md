@@ -99,10 +99,12 @@ A history is not limited to what a JavaScript `Date` holds (years -271821 to
 275760). Every date the CLI reads and writes may lie anywhere on the axis, about
 285 million years either side of 1970 ([docs/specs/deep-time.md](../../../docs/specs/deep-time.md)).
 Dates beyond year 9999 are ISO 8601 with a signed, six-digit year
-(`+300000-01-01T00:00:00.000Z`, `-499999-03-15`), and a year may be written
-signed or expanded wherever a year is read. Years before 1 CE are astronomical,
-as ISO 8601 has them: year 0 is 1 BCE, so `-43` is 44 BCE and `-499999` is
-500,000 BCE. `--epoch-year` takes any year on the axis, negative or six-digit.
+(`+300000-01-01T00:00:00.000Z`, `-499999-03-15`). ISO years before 1 CE are
+astronomical: year 0 is 1 BCE, so `-000043` is 44 BCE and `-499999` is
+500,000 BCE. In a date, a minus sign goes only before ISO's six digits:
+`-0043` or `-43` could be 43 BCE or 44 BCE, so it is refused with both; write
+`44 BCE` or `-000043`. `--epoch-year` takes any year on the axis, as a number
+counted the ISO way (`-43` is 44 BCE) or six-digit.
 
 Because a `Date` cannot hold such a moment, every event or arc a command prints
 also carries it as whole milliseconds from 1970, as a decimal string (JSON has

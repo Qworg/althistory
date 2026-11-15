@@ -135,7 +135,10 @@ In a graph without a world, year-first text is read too ("312", "44 BCE",
 "1871-03-04 14:30", "44-03-15 BCE 9:30"), in UTC at the precision it
 states, by every door that takes text alike: the app's event form, the API,
 the CLI, the tools, the generator, the review step and the importers (which read a document's
-dates with the calendars of the graph it goes into). Other text is refused,
+dates with the calendars of the graph it goes into). A minus sign goes only
+before ISO 8601's six-digit year ("-000043", 44 BCE): "-0043" or "-43" could
+be 43 BCE counted back or 44 BCE as ISO counts, so it is refused, naming
+both. Other text is refused,
 prose included, never read in the server's zone; only an import still reads
 prose a graph stored before.
 

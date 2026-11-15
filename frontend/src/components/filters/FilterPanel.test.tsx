@@ -120,15 +120,23 @@ describe('FilterPanel', () => {
       expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ dateRange: { start: '1843', end: '1870-03' } }))
     })
 
-    it('reads BCE and a minus sign the same way, and shows how it read them', () => {
+    it('reads BCE and ISO 8601\'s signed year, shows how it read them, and refuses a minus sign that names two years', () => {
       const onChange = vi.fn()
       renderWithRouter(<Stateful onChange={onChange} />)
       const start = screen.getByLabelText('Start date')
 
-      fireEvent.change(start, { target: { value: '-44' } })
+      fireEvent.change(start, { target: { value: '-000043' } })
       expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ dateRange: { start: '44 BCE', end: '' } }))
       fireEvent.blur(start)
       expect(start).toHaveValue('44 BCE')
+
+      // "-44" could be 44 BCE or (as ISO 8601 counts) 45 BCE: refused, saying both.
+      onChange.mockClear()
+      fireEvent.change(start, { target: { value: '-44' } })
+      expect(onChange).not.toHaveBeenCalled()
+      fireEvent.blur(start)
+      expect(start).toHaveAttribute('aria-invalid', 'true')
+      expect(screen.getByText(/could mean 44 BCE, or 45 BCE/)).toBeInTheDocument()
 
       fireEvent.change(start, { target: { value: '44-03-15 bc' } })
       expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ dateRange: { start: '44-03-15 BCE', end: '' } }))
