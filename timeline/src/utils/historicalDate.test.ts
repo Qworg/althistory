@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { type WorldCalendarSet, readWorldTimestamp } from '@althistory/calendar';
-import { formatHistoricalDate, formatHistoricalSpan } from './historicalDate';
+import { formatHistoricalDate, formatHistoricalSpan, formatTypedDate } from './historicalDate';
 
 const VAEL: WorldCalendarSet = {
   version: 2,
@@ -55,5 +55,33 @@ describe('a span in a graph with world calendars', () => {
     const end = readWorldTimestamp(VAEL, 'Gale 9, 312 AR')!.iso;
     expect(formatHistoricalSpan(start, end, VAEL)).toMatch(/^from Thaw 4, 312 AR.* to Gale 9, 312 AR/);
     expect(formatHistoricalSpan(start, end, VAEL)).not.toMatch(/CE|BCE|\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/);
+  });
+});
+
+describe('formatTypedDate', () => {
+  const at = (iso: string) => new Date(iso);
+
+  it('writes a date as it was typed, at the precision it is known to', () => {
+    expect(formatTypedDate(at('1871-01-01T00:00:00.000Z'), 'year')).toBe('1871');
+    expect(formatTypedDate(at('1871-03-01T00:00:00.000Z'), 'month')).toBe('1871-03');
+    expect(formatTypedDate(at('1871-03-01T00:00:00.000Z'))).toBe('1871-03-01');
+    expect(formatTypedDate(at('-000043-01-01T00:00:00.000Z'), 'year')).toBe('44 BCE');
+    expect(formatTypedDate(at('-000043-03-15T00:00:00.000Z'))).toBe('44-03-15 BCE');
+    expect(formatTypedDate(at('1843-11-20T14:30:00.000Z'))).toBe('1843-11-20 14:30');
+    expect(formatTypedDate(at('1843-11-20T23:59:59.999Z'), 'day', 'end')).toBe('1843-11-20');
+  });
+
+  it('adds the instant when the text cannot name it exactly', () => {
+    expect(formatTypedDate(at('1843-11-20T14:30:15.000Z'))).toBe('1843-11-20 14:30 (1843-11-20T14:30:15.000Z)');
+    // A year-precision event that is not at its year's start (a hand-edited store).
+    expect(formatTypedDate(at('1871-06-01T00:00:00.000Z'), 'year')).toBe('1871 (1871-06-01T00:00:00.000Z)');
+  });
+
+  it('reads back, by the one rule, as the instant it names, for days either side of 1 CE', () => {
+    for (let ms = Date.UTC(-1, 0, 1); ms < Date.UTC(2, 0, 1); ms += 86_400_000 * 7 + 3_600_000) {
+      const date = new Date(ms);
+      const text = formatTypedDate(date);
+      expect(readWorldTimestamp(null, text)?.iso, text).toBe(date.toISOString());
+    }
   });
 });

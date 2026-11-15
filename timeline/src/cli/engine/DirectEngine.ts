@@ -45,6 +45,7 @@ import {
 import { MS_PER_MONTH, toGenerationResultDto } from './simulationMapper';
 import type { SimulationRequest } from '@/services/SimulationService';
 import { isTemporalInversion } from '@/utils/causalOrder';
+import { formatTypedDate } from '@/utils/historicalDate';
 import { addInstantMs, calendarSetInstructions, compareInstants, type WorldCalendarSet, toInstant, dateCalendarOf, datePrecisionMetadata, datePrecisionOf, formatHistoricalDateAt } from '@althistory/calendar';
 import type { CalendarInput } from '../../models/Graph';
 import { needsCalendar, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
@@ -549,12 +550,12 @@ export class DirectEngine implements IEngine {
     if (!effect) throw new NotFoundErrorCLI(`Effect event not found: ${data.effectId}`);
 
     if (isTemporalInversion(cause.timestamp, effect.timestamp)) {
-      // In a world, each date as the world names it, its instant beside it.
+      // In a world, each date as the world names it, its instant beside it; else as it was typed ("1871", "44 BCE").
       const calendar = await this.calendarOf(graphId);
       const when = (event: { timestamp: Date; metadata?: Record<string, unknown> }) =>
         calendar
           ? `${formatHistoricalDateAt(event.timestamp, datePrecisionOf(event.metadata), 'en-US', calendar, dateCalendarOf(event.metadata))}, ${event.timestamp.toISOString()}`
-          : event.timestamp.toISOString();
+          : formatTypedDate(event.timestamp, datePrecisionOf(event.metadata));
       throw new ValidationErrorCLI(
         `Temporal ordering violation: cause timestamp (${when(cause)}) must not be after effect timestamp (${when(effect)})`
       );

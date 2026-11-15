@@ -280,7 +280,7 @@ List the graphs, with their calendars. No parameters.
 #### `althistory_export_context`
 Read a whole graph back.
 - `graphId` *(required)*
-- `format`: `"markdown"` (default: arcs, events with their arc and what they lead to, causal links with reasoning, dated in the world's calendar when there is one) | `"json"` (the [export document](export-format.md)) | `"dot"`.
+- `format`: `"markdown"` (default: arcs, events with their arc and what they lead to, causal links with reasoning; dated in the world's calendar when there is one, otherwise year first as typed, at the precision recorded: `1871`, `44-03-15 BCE`) | `"json"` (the [export document](export-format.md)) | `"dot"`.
 
 #### `althistory_query_causal_path`
 Every causal path from one event to another.

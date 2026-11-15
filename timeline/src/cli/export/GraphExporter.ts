@@ -5,6 +5,7 @@ import { Event, Arc } from '@/models';
 import { ExportFormat, ExportResultDto } from '../types';
 import { type DatePrecision, type WorldCalendarSet, compareInstants, dateCalendarOf, datePrecisionOf, describeCalendarSet, formatDateEntry } from '@althistory/calendar';
 import { exportVersionOf } from '@/utils/exportVersion';
+import { formatTypedDate } from '@/utils/historicalDate';
 
 /** The formats an export can be rendered in. */
 export type { ExportFormat };
@@ -20,10 +21,11 @@ export interface ExportRelationship {
 }
 
 /**
- * "1311-03-04", or in a world "Thaw 4, 312 AR (2358-11-19T06:00:00.000Z)":
- * the world's date at the precision the source gave (an arc's end as the day
- * it ends), then its place on the timeline, whole: a world's day need not
- * start at a UTC midnight, so the ISO date alone could name another day.
+ * "1871", "44-03-15 BCE" or "1843-11-20 14:30" as it was typed, at the
+ * precision the source gave (an arc's end as the day it ends); in a world
+ * "Thaw 4, 312 AR (2358-11-19T06:00:00.000Z)": the world's date, then its
+ * place on the timeline, whole: a world's day need not start at a UTC
+ * midnight, so the ISO date alone could name another day.
  */
 function markdownDate(
   date: Date,
@@ -32,7 +34,7 @@ function markdownDate(
   edge: 'start' | 'end' = 'start',
   calendarId?: string
 ): string {
-  if (!calendar) return date.toISOString().split('T')[0]!;
+  if (!calendar) return formatTypedDate(date, precision, edge);
   return `${formatDateEntry(date, precision, calendar, edge, calendarId)} (${date.toISOString()})`;
 }
 
@@ -380,11 +382,11 @@ export class GraphExporter {
     relationships: ExportRelationship[],
     calendar?: WorldCalendarSet
   ): string {
-    // An event's date as the graph writes it: the world's, at the precision its source gave; else the ISO date.
+    // An event's date as the graph writes it, at the precision its source gave: the world's, or as it was typed.
     const labelDate = (e: Event): string =>
       calendar
         ? formatDateEntry(e.timestamp, datePrecisionOf(e.metadata), calendar, 'start', dateCalendarOf(e.metadata))
-        : e.timestamp.toISOString().split('T')[0]!;
+        : formatTypedDate(e.timestamp, datePrecisionOf(e.metadata));
     const sanitizeLabel = (str: string): string =>
       str.replace(/"/g, '\\"').replace(/\n/g, ' ');
 
