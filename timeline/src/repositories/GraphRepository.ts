@@ -291,9 +291,10 @@ export class GraphRepository {
   async getHeadEntities(
     graphId: string,
     type: EntityType,
-    ids: string[]
+    ids: string[],
+    options: { strict?: boolean } = {}
   ): Promise<Record<string, Record<string, unknown>>> {
-    return this.versionRepository.getHeadEntities(graphId, type, ids);
+    return this.versionRepository.getHeadEntities(graphId, type, ids, options);
   }
 
   /**

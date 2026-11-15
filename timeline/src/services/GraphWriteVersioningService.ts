@@ -265,15 +265,54 @@ function sameData(head: Record<string, unknown>, written: Record<string, unknown
   return canonical(head) === canonical(written);
 }
 
+/** An arc's level as it stands once the write is made, or undefined when the head will not hold the arc. */
+type ArcLevelOf = (id: string) => number | undefined;
+
+/**
+ * An arc's head-only parent, kept only while the arc still fits under it:
+ * its level above 0 and exactly one below the parent's. An edit that promotes
+ * the arc to the top, or moves it to a level that no longer fits, leaves it
+ * with no parent (null), which is what the importer's hierarchy check reads
+ * a root arc as; carrying the old parent made the export unimportable
+ * (ARC_HIERARCHY_VIOLATION).
+ */
+function consistentParent(parent: unknown, level: unknown, levelOf: ArcLevelOf | undefined): unknown {
+  if (typeof parent !== 'string' || parent === '') return parent;
+  if (typeof level !== 'number' || level <= 0) return null;
+  const parentLevel = levelOf?.(parent);
+  return parentLevel !== undefined && level === parentLevel + 1 ? parent : null;
+}
+
 /**
  * A live entity's projection laid over the data the head holds for it. The
  * live models carry fewer fields than the version store keeps (an arc has no
  * `parent_arc_id`, an event or a link no `sourceRef`, a link no cross-graph
  * ids), so writing the projection alone would drop them; a field the live
  * model has is the live model's.
+ *
+ * A head-only field whose meaning depends on a projected one is carried only
+ * while it still agrees with it: an arc's `parent_arc_id` with its `level`
+ * (`consistentParent`), a link's `causeGraphId`/`effectGraphId` with the
+ * event ids they qualify. `sourceRef` says where the entity came from, which
+ * no edit changes, so it is always kept.
  */
-function overlay(head: Record<string, unknown> | undefined, projection: Record<string, unknown>): Record<string, unknown> {
-  return head ? { ...head, ...projection } : projection;
+function overlay(
+  type: EntityType,
+  head: Record<string, unknown> | undefined,
+  projection: Record<string, unknown>,
+  arcLevelOf?: ArcLevelOf
+): Record<string, unknown> {
+  if (!head) return projection;
+  const data: Record<string, unknown> = { ...head, ...projection };
+  if (type === 'arc' && 'parent_arc_id' in head && !('parent_arc_id' in projection)) {
+    data.parent_arc_id = consistentParent(head.parent_arc_id, data.level, arcLevelOf);
+  }
+  if (type === 'relationship') {
+    for (const [graphField, eventField] of [['causeGraphId', 'cause_event_id'], ['effectGraphId', 'effect_event_id']] as const) {
+      if (graphField in head && head[eventField] !== data[eventField]) delete data[graphField];
+    }
+  }
+  return data;
 }
 
 /** How a write treats a commit that fails. */
@@ -470,8 +509,15 @@ export class GraphWriteVersioningService {
       deleted.add(`${type}:${id}`);
       changes.deleted.push({ type, id });
     };
+    // An arc's level once the batch is done: as the live store holds it when
+    // the batch touched it, as the head holds it otherwise.
+    const arcLevelOf: ArcLevelOf = (arcId) => {
+      if (state.arcs?.has(arcId)) return state.arcs.get(arcId)?.level;
+      const level = head.arcs[arcId]?.level;
+      return typeof level === 'number' ? level : undefined;
+    };
     const write = (type: EntityType, id: string, projection: Record<string, unknown>, current: Record<string, unknown> | undefined): void => {
-      const data = overlay(current, projection);
+      const data = overlay(type, current, projection, arcLevelOf);
       if (!current) changes.added.push({ type, id, data });
       else if (!sameData(current, data)) changes.modified.push({ type, id, data });
     };
@@ -567,9 +613,29 @@ export class GraphWriteVersioningService {
   ): Promise<void> {
     // `data` is always set for create/update by the typed wrappers above.
     const projection = write.data ?? {};
-    const previous = operation === 'update' ? (await this.headEntities(graphId, write.type, [write.id]))[write.id] : undefined;
-    // An edit keeps what only the version store holds of the entity (its arc parent, its source).
-    const entity = { type: write.type, id: write.id, data: overlay(previous, projection) };
+    // An edit keeps what only the version store holds of the entity (its arc
+    // parent, its source), so the head is read for it, and a read that fails
+    // fails the version: versioning the bare projection would drop those
+    // fields and look like an ordinary edit.
+    let previous: Record<string, unknown> | undefined;
+    let arcLevelOf: ArcLevelOf | undefined;
+    if (operation === 'update') {
+      try {
+        previous = (await this.requireHeadEntities(graphId, write.type, [write.id]))[write.id];
+        const parent = write.type === 'arc' ? previous?.parent_arc_id : undefined;
+        if (typeof parent === 'string' && parent !== '') {
+          const level = (await this.requireHeadEntities(graphId, 'arc', [parent]))[parent]?.level;
+          arcLevelOf = (arcId) => (arcId === parent && typeof level === 'number' ? level : undefined);
+        }
+      } catch (error) {
+        this.logger.error(`Could not read the head to version an edit in graph ${graphId}`, error);
+        if (!options.undoneOnFailure) {
+          this.announceNotVersioned(graphId, operation, write.type, write.id, projection);
+        }
+        throw error;
+      }
+    }
+    const entity = { type: write.type, id: write.id, data: overlay(write.type, previous, projection, arcLevelOf) };
     const changes: EntityChanges = {
       added: operation === 'create' ? [entity] : [],
       modified: operation === 'update' ? [entity] : [],
@@ -598,6 +664,18 @@ export class GraphWriteVersioningService {
     if (typeof causeId !== 'string' || typeof effectId !== 'string') return {};
     const events = await this.headEntities(graphId, 'event', [causeId, effectId]);
     return { cause: events[causeId], effect: events[effectId] };
+  }
+
+  /**
+   * Entities at the graph's head, for data that is written: a read that fails,
+   * or an entity the tree names whose object is missing, throws.
+   */
+  private async requireHeadEntities(
+    graphId: string,
+    type: EntityType,
+    ids: string[]
+  ): Promise<Record<string, Record<string, unknown>>> {
+    return (await this.graphRepository.getHeadEntities?.(graphId, type, ids, { strict: true })) ?? {};
   }
 
   /**

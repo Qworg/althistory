@@ -28,6 +28,7 @@ import { initializeContainer, cleanupContainer, Container } from '@/container';
 import { apiRouter } from '@/api/routes';
 import { errorHandler, injectContainer } from '@/api/middleware';
 import type { ChangeRecord } from '@/services/ChangeFeedService';
+import { ImportService } from '@/services/ImportService';
 
 describe('batch writes after the first review', () => {
   let app: Express;
@@ -233,6 +234,82 @@ describe('batch writes after the first review', () => {
       expect(head.events['evt-a']).toMatchObject({ description: 'Cause, renamed', sourceRef: 'doc-1#a' });
       const exported = await container.exportService.exportGraph({ graphId, scope: 'full', includeProvenance: false });
       expect(exported.export.data.arcs.find((arc) => arc.id === 'arc-child')?.parent_arc_id).toBe('arc-parent');
+    });
+
+    /** Whether the graph's export is a document the importer accepts. */
+    async function exportValidates(graphId: string): Promise<{ valid: boolean; codes: string[] }> {
+      const exported = await container.exportService.exportGraph({ graphId, scope: 'full', includeProvenance: false });
+      const result = await new ImportService({ dataDir: testDataDir }).validateFormat(exported.export);
+      return { valid: result.valid, codes: result.errors.map((error) => error.code) };
+    }
+
+    // Second review: the overlay kept an arc's parent after the arc was
+    // promoted, so the head said "level 0, child of arc-parent" and the export
+    // failed the importer's hierarchy check (ARC_HIERARCHY_VIOLATION).
+    it("drops an arc's parent when an edit promotes it to the top level, and the export still validates", async () => {
+      const { graphId } = await importedGraph('Promoted by PUT');
+      expect(await exportValidates(graphId)).toEqual({ valid: true, codes: [] });
+
+      await request(app).put('/api/arcs/arc-child').set('X-API-Key', key).set('X-Graph-Id', graphId).send({ level: 0 }).expect(200);
+
+      expect((await container.graphRepository.checkout(graphId)).arcs['arc-child']).toMatchObject({ level: 0, parent_arc_id: null });
+      expect(await exportValidates(graphId)).toEqual({ valid: true, codes: [] });
+    });
+
+    it("drops an arc's parent when a batch promotes it, and the export still validates", async () => {
+      const { graphId } = await importedGraph('Promoted by a batch');
+      await batch(graphId, 'transaction', {
+        operations: [{ type: 'update_arc', data: { id: 'arc-child', level: 0 } }],
+      }).expect(200);
+
+      expect((await container.graphRepository.checkout(graphId)).arcs['arc-child']).toMatchObject({ level: 0, parent_arc_id: null });
+      expect(await exportValidates(graphId)).toEqual({ valid: true, codes: [] });
+    });
+
+    it("keeps an arc's parent while its level still fits under it, in the same batch as the parent's own edit", async () => {
+      const { graphId } = await importedGraph('Parent and child edited together');
+      await batch(graphId, 'transaction', {
+        operations: [
+          { type: 'update_arc', data: { id: 'arc-parent', name: 'Parent, renamed' } },
+          { type: 'update_arc', data: { id: 'arc-child', name: 'Child, renamed' } },
+        ],
+      }).expect(200);
+      expect((await container.graphRepository.checkout(graphId)).arcs['arc-child']).toMatchObject({ level: 1, parent_arc_id: 'arc-parent' });
+      expect(await exportValidates(graphId)).toEqual({ valid: true, codes: [] });
+    });
+
+    // Second review: the head read for the overlay swallowed its errors, so
+    // the edit was versioned as the bare live projection (parent and source
+    // gone) and announced as a normal edit.
+    it("fails an edit, rather than versioning it without what only the head holds, when the head cannot be read", async () => {
+      const { graphId } = await importedGraph('Head read fails');
+      const { heard, stop } = listen(graphId);
+      vi.spyOn(container.graphRepository, 'getHeadEntities').mockRejectedValueOnce(new Error('object missing'));
+      try {
+        await request(app).put('/api/arcs/arc-child').set('X-API-Key', key).set('X-Graph-Id', graphId).send({ name: 'Renamed' }).expect(500);
+      } finally {
+        stop();
+      }
+      // The route undid the edit, so nothing is announced and the head is as it was.
+      expect(summaries(heard)).toEqual([]);
+      expect((await container.graphRepository.checkout(graphId)).arcs['arc-child']).toMatchObject({ name: 'Child', parent_arc_id: 'arc-parent' });
+      const { arcRepository } = await container.graphScopedRepositories(graphId);
+      expect((await arcRepository.findById('arc-child'))?.name).toBe('Child');
+    });
+
+    it('announces an edit it could not version for want of the head, when the caller keeps the edit', async () => {
+      const { graphId } = await importedGraph('Head read fails, kept');
+      const { heard, stop } = listen(graphId);
+      const { eventRepository } = await container.graphScopedRepositories(graphId);
+      const updated = await eventRepository.update('evt-a', { description: 'Cause, renamed' });
+      vi.spyOn(container.graphRepository, 'getHeadEntities').mockRejectedValueOnce(new Error('object missing'));
+      try {
+        await expect(container.graphWriteVersioningService.recordEvent(graphId, updated!, 'update')).rejects.toThrow('object missing');
+      } finally {
+        stop();
+      }
+      expect(summaries(heard)).toEqual(['Edited event “Cause, renamed” (not versioned)']);
+      expect((await container.graphRepository.checkout(graphId)).events['evt-a']).toMatchObject({ description: 'Cause', sourceRef: 'doc-1#a' });
     });
 
     it('leaves a link alone that a batch only passed by', async () => {

@@ -327,6 +327,24 @@ describe('VersionRepository Unit Tests', () => {
     });
   });
 
+  describe('getHeadEntities()', () => {
+    // An edit that is versioned over the head's data must not mistake a lost
+    // object for an entity the head never had (issue 26, second review).
+    it('leaves out an entity whose object cannot be read, and throws instead when strict', async () => {
+      const spied = repository as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>;
+      vi.spyOn(spied, 'getCurrentTree').mockResolvedValue('tree-hash');
+      vi.spyOn(spied, 'getTree').mockResolvedValue({ events: {}, arcs: { a1: 'hash-a1', a2: 'hash-a2' }, relationships: {}, pressures: {} });
+      vi.spyOn(spied, 'getObject').mockImplementation(async (_graphId: unknown, hash: unknown) =>
+        hash === 'hash-a1' ? { type: 'arc', data: { id: 'a1', level: 0 } } : null
+      );
+
+      expect(await repository.getHeadEntities('graph-1', 'arc', ['a1', 'a2', 'a3'])).toEqual({ a1: { id: 'a1', level: 0 } });
+      await expect(repository.getHeadEntities('graph-1', 'arc', ['a1', 'a2'], { strict: true })).rejects.toThrow('arc a2');
+      // An id the tree does not name is simply absent, strict or not.
+      expect(await repository.getHeadEntities('graph-1', 'arc', ['a1', 'a3'], { strict: true })).toEqual({ a1: { id: 'a1', level: 0 } });
+    });
+  });
+
   describe('checkout()', () => {
     it('should retrieve data at a specific version', async () => {
       const versionRef: VersionRef = {

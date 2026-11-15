@@ -416,7 +416,9 @@ export class VersionRepository {
   async getHeadEntities(
     graphId: string,
     type: EntityType,
-    ids: string[]
+    ids: string[],
+    /** `strict`: an entity the tree names whose object cannot be read throws, rather than being left out. */
+    { strict = false }: { strict?: boolean } = {}
   ): Promise<Record<string, Record<string, unknown>>> {
     const result: Record<string, Record<string, unknown>> = {};
     const treeHash = await this.getCurrentTree(graphId);
@@ -429,6 +431,7 @@ export class VersionRepository {
       if (!hash) continue;
       const obj = await this.getObject(graphId, hash);
       if (obj) result[id] = obj.data;
+      else if (strict) throw new Error(`The head of graph ${graphId} names ${type} ${id}, whose object ${hash} cannot be read`);
     }
     return result;
   }
