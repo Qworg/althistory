@@ -1,5 +1,6 @@
 import { readRequestTime, queryInstant } from '../worldDates';
 import { Router, Response, NextFunction } from 'express';
+import { compareInstants } from '@althistory/calendar';
 import { CreateEventRequest, UpdateEventRequest, TimeRange } from '@/models/Event';
 import { ValidationError, NotFoundError, DatabaseError } from '@/utils/errors';
 import { RequestWithContainer, requireGraphId, resolveGraphContext } from '@/api/middleware';
@@ -136,7 +137,7 @@ eventRoutes.get('/', ...entityPermission('read:events'), async (req: RequestWith
         throw new ValidationError('Invalid date format for startTime or endTime', 'timeRange', { startTime, endTime });
       }
 
-      if (timeRange.start >= timeRange.end) {
+      if (compareInstants(timeRange.start, timeRange.end) >= 0) {
         throw new ValidationError('startTime must be before endTime', 'timeRange', { startTime, endTime });
       }
 

@@ -142,7 +142,7 @@ arcRoutes.get('/', ...entityPermission('read:arcs'), async (req: RequestWithCont
         throw new ValidationError('Invalid date format for startTime or endTime', 'timeRange', { startTime, endTime });
       }
 
-      if (timeRange.start >= timeRange.end) {
+      if (compareInstants(timeRange.start, timeRange.end) >= 0) {
         throw new ValidationError('startTime must be before endTime', 'timeRange', { startTime, endTime });
       }
 

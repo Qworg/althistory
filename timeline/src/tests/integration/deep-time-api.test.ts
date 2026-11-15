@@ -198,4 +198,36 @@ describe('Deep time through the API', () => {
     expect(() => walk(response.body)).not.toThrow();
     expect(event.id).toBeTruthy();
   });
+
+  describe('order checks a second apart near 200 million years BCE', () => {
+    // A second apart, and one double: getTime() calls them the same moment
+    // (docs/specs/deep-time.md, Req 3). Every check of order must tell them apart.
+    const EARLIER = '-200000001-12-31T23:59:59.500Z';
+    const LATER = '-200000000-01-01T00:00:00.500Z';
+
+    it('are a second apart that a double cannot tell apart', () => {
+      expect(toAxisTime(LATER)! - toAxisTime(EARLIER)!).toBe(1000n);
+      expect(Number(toAxisTime(LATER))).toBe(Number(toAxisTime(EARLIER)));
+    });
+
+    it('a time range of events, arcs and the temporal views is in order, or refused', async () => {
+      for (const path of ['/api/events', '/api/events/stats/count', '/api/arcs', '/api/temporal/timeline', '/api/temporal/density']) {
+        await request(app).get(path).query({ startTime: EARLIER, endTime: LATER }).expect(200);
+        if (path === '/api/events/stats/count' || path === '/api/temporal/density') continue;
+        const reversed = await request(app).get(path).query({ startTime: LATER, endTime: EARLIER });
+        expect(reversed.status, path).toBe(400);
+        expect(reversed.body.error.message, path).toMatch(/startTime must be before endTime/);
+      }
+    });
+
+    it('counts the events of a range a second long per day, not by dividing by zero', async () => {
+      await post('a moment', '-200000000-01-01T00:00:00.000Z');
+      const density = await request(app).get('/api/temporal/density').query({ startTime: EARLIER, endTime: LATER, type: 'events' }).expect(200);
+      expect(density.body.data.eventCount).toBe(1);
+      expect(density.body.data.eventDensity).toBe(86400);
+    });
+
+    // /api/validate and /api/export take an API key even in local mode: their
+    // order checks are tested in validate.test.ts and export.test.ts.
+  });
 });
