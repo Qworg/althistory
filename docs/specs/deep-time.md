@@ -111,7 +111,11 @@ time of day after a day's first moment is its UTC `HH:MM`. Every
 `gregorianTicks` tick is written so. A d3 tick set (a real history's) keeps
 d3's labels unless any of its ticks falls before 1 CE: then the whole set is
 written in the typed syntax at the format's precision ("81 BCE … 1 BCE 20 40"),
-never d3's "-0043", "0001" or "20s" beside an era. Full dates in prose (event
+never d3's "-0043", "0001" or "20s" beside an era. A set at a time of day
+labels a day's first moment with its date and the rest `HH:MM`, and if two
+labels would read the same, every tick is its date and `HH:MM`. Such a set is
+longer than d3's, so the main timeline drops a tick whose label would overprint
+the one before it; a set entirely after 1 CE is never thinned. Full dates in prose (event
 labels, the inspector, arc spans, tooltips) are the locale's (Req 11), "Mar 15,
 44 BC" in en-US: nobody types those back. The en-US "BC" of a full date beside
 the "BCE" of a year label is deliberate.
