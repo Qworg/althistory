@@ -106,16 +106,23 @@ history's axis is drawn where it always was.
 Year labels and ticks are written in the syntax a person types, so they read
 back where they are typed (`readDateBound`) in any locale: ASCII digits, `BCE`
 after a year before 1 CE, nothing after a year from 1 CE on, and at a month or
-day the bound syntax (`250000000 BCE`, `300000`, `44-03 BCE`, `1843-11-20`); a
-time of day after a day's first moment is its UTC `HH:MM`. Every
+day the bound syntax (`250000000 BCE`, `300000`, `44-03 BCE`, `1843-11-20`). Every
 `gregorianTicks` tick is written so. A d3 tick set (a real history's) keeps
 d3's labels unless any of its ticks falls before 1 CE: then the whole set is
 written in the typed syntax at the format's precision ("81 BCE … 1 BCE 20 40"),
-never d3's "-0043", "0001" or "20s" beside an era. A set at a time of day
-labels a day's first moment with its date and the rest `HH:MM`, and if two
-labels would read the same, every tick is its date and `HH:MM`. Such a set is
-longer than d3's, so the main timeline drops a tick whose label would overprint
-the one before it; a set entirely after 1 CE is never thinned. Full dates in prose (event
+never d3's "-0043", "0001" or "20s" beside an era.
+
+At a time of day, a tick is its UTC `HH:MM`, or `HH:MM:SS` when a tick in the
+set has seconds, or `HH:MM:SS.mmm` when one has milliseconds (a single event's
+default view is 20 seconds, and zoom reaches 1). A day's first moment
+(00:00:00.000) is written as its date; when no tick in the set is one, the first
+tick names its day too ("44-03-15 BCE 11:59:50"); and if two labels would read
+the same, every tick is its date and time. The reader takes a time to the
+minute, second or millisecond after a date, so every such label reads back to
+its tick. A main-timeline set before 1 CE without a world calendar is longer
+than d3's, so it is thinned to its first and last tick and a regular stride
+between, keeping two whenever two fit; a set entirely after 1 CE, and a world's,
+is never thinned there. Full dates in prose (event
 labels, the inspector, arc spans, tooltips) are the locale's (Req 11), "Mar 15,
 44 BC" in en-US: nobody types those back. The en-US "BC" of a full date beside
 the "BCE" of a year label is deliberate.
