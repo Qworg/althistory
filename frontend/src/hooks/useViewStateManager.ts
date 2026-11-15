@@ -3,6 +3,7 @@ import { useLocation } from 'react-router'
 import { useGlobalStore } from '@/stores/globalStore'
 import { ViewMode, FilterState } from '@/types'
 import { viewModeForPath } from '@/hooks/useViewShortcuts'
+import { instantOfMs, toInstant } from '@althistory/calendar'
 
 interface ViewState {
   selectedEvents: string[]
@@ -114,7 +115,7 @@ export function useViewStateManager() {
     switch (mode) {
       case 'timeline': {
         const centerTime = sessionData.viewportState.timeline.centerTime
-        return centerTime ? { x: new Date(centerTime).getTime(), y: 0 } : null
+        return centerTime ? { x: toInstant(centerTime).getTime(), y: 0 } : null
       }
       case 'causal':
         // For causal graph, center point might be different
@@ -214,7 +215,7 @@ export function useViewStateManager() {
             newViewportState.timeline = {
               ...newViewportState.timeline,
               zoomLevel: savedState.zoomLevel,
-              centerTime: savedState.centerPoint ? new Date(savedState.centerPoint.x).toISOString() : null
+              centerTime: savedState.centerPoint ? instantOfMs(savedState.centerPoint.x).toISOString() : null
             }
             break
           case 'causal':

@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState, useEffect, useCallback, useId, memo } from 'react'
 import * as d3 from 'd3'
-import { instantOfMs, instantScale, rescaleInstantX } from '@/utils/timeScale'
+import { instantScale, rescaleInstantX } from '@/utils/timeScale'
 import { Event, Arc, TimeRange } from '@/types'
 import { PressureWithContext } from '@/types/pressure'
 import { type ArcWithUIState, calculateArcHierarchy, processArcsWithUIState } from './arcHierarchyUtils'
@@ -54,7 +54,7 @@ import {
   type MarkKey,
   type NavMove,
 } from './timelineNavigation'
-import { toAxisTime, toInstant } from '@althistory/calendar'
+import { addInstantMs, compareInstants, instantOfAxisTime, msApart, toAxisTime, toInstant } from '@althistory/calendar'
 
 /**
  * A branch's baseline, drawn as a ghosted lane under the active events.
@@ -187,7 +187,9 @@ function clampInnerX(innerX: number, innerWidth: number): number {
  * branch when the copy gave it a new id.
  */
 function eventSignature(ev: Event): string {
-  return `${toInstant(ev.timestamp).getTime()}|${ev.description}`
+  // The exact axis time: past 2^53 ms a getTime() is a rounded double, and two
+  // events a second apart would share a signature.
+  return `${toAxisTime(ev.timestamp)}|${ev.description}`
 }
 
 /** How long after a keyboard-opened menu a native contextmenu event counts as its echo. */
@@ -515,8 +517,7 @@ const Timeline = memo(function Timeline({
   // same id, or the same instant and description (a copy with a new id).
   // Active events after the divergence without a counterpart are the branch's
   // own; baseline events after it without one are what the branch dropped.
-  const divergenceMs = divergence ? divergence.getTime() : null
-  // Exact, for comparing: past 2^53 ms the millisecond count is a rounded double.
+  // Exact, for comparing and as a dependency: past 2^53 ms the millisecond count is a rounded double.
   const divergenceTime = divergence ? toAxisTime(divergence) : null
   const ghostComparison = useMemo(() => {
     if (!ghostEvents) return null
@@ -564,12 +565,12 @@ const Timeline = memo(function Timeline({
     for (const arc of visibleArcs) mounted.add(arcMarkKey(arc.id))
     if (activeMarkKey && mounted.has(activeMarkKey)) return activeMarkKey
     if (selectedEventId && mounted.has(eventMarkKey(selectedEventId))) return eventMarkKey(selectedEventId)
-    let earliest: { key: MarkKey; t: number } | null = null
+    let earliest: { key: MarkKey; t: Date } | null = null
     for (const ev of visibleEvents) {
-      const x = xScale(toInstant(ev.timestamp))
+      const t = toInstant(ev.timestamp)
+      const x = xScale(t)
       if (x < 0 || x > innerWidth) continue
-      const t = toInstant(ev.timestamp).getTime()
-      if (!earliest || t < earliest.t) earliest = { key: eventMarkKey(ev.id), t }
+      if (!earliest || compareInstants(t, earliest.t) < 0) earliest = { key: eventMarkKey(ev.id), t }
     }
     if (earliest) return earliest.key
     const firstArc = visibleArcs.find(arc => {
@@ -781,7 +782,7 @@ const Timeline = memo(function Timeline({
         if (!timestamp) return
         // Move away and back lands on the original timestamp; that write would
         // change nothing, so it is skipped rather than sent to the API.
-        if (timestamp.getTime() === toInstant(drag.event.timestamp).getTime()) return
+        if (compareInstants(timestamp, toInstant(drag.event.timestamp)) === 0) return
         onEventDragRef.current?.(drag.event, timestamp)
         return
       }
@@ -851,21 +852,20 @@ const Timeline = memo(function Timeline({
     if (!selectedEventId || !svgRef.current || !zoomRef.current) return
     const selected = events.find((ev) => ev.id === selectedEventId)
     if (!selected) return
-    const t = toInstant(selected.timestamp).getTime()
-    const start = currentRange.start.getTime()
-    const end = currentRange.end.getTime()
-    if (!Number.isFinite(t) || (t >= start && t <= end)) return
-    const fullStart = originalExtent.start.getTime()
-    const fullEnd = originalExtent.end.getTime()
-    const span = end - start
-    const from = Math.min(Math.max(t - span / 2, fullStart), Math.max(fullStart, fullEnd - span))
+    // In view or not, exactly; the pan is a pixel, measured from the extent's start.
+    const t = toInstant(selected.timestamp)
+    if (Number.isNaN(t.getTime()) || (compareInstants(t, currentRange.start) >= 0 && compareInstants(t, currentRange.end) <= 0)) return
+    const span = msApart(currentRange.start, currentRange.end)
+    const fullSpan = msApart(originalExtent.start, originalExtent.end)
+    const offset = Math.min(Math.max(msApart(originalExtent.start, t) - span / 2, 0), Math.max(0, fullSpan - span))
+    const from = addInstantMs(originalExtent.start, offset)
     const base = instantScale().domain([originalExtent.start, originalExtent.end]).range([0, innerWidth])
-    const k = (fullEnd - fullStart) / span
+    const k = fullSpan / span
     const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
     d3.select(svgRef.current)
       .transition()
       .duration(reduce ? 0 : 300)
-      .call(zoomRef.current.transform, d3.zoomIdentity.translate(-base(instantOfMs(from)) * k, 0).scale(k))
+      .call(zoomRef.current.transform, d3.zoomIdentity.translate(-base(from) * k, 0).scale(k))
     // Only on a new selection: panning away afterwards is the user's choice.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedEventId])
@@ -938,15 +938,16 @@ const Timeline = memo(function Timeline({
     // Fit to View still shows it all. A branch opens on its point of
     // divergence, a third of the way in, because that is where it differs from
     // the history it came from; anything else opens at the start.
-    const extentKey = `${originalExtent.start.getTime()}-${originalExtent.end.getTime()}-${divergenceMs ?? ''}`
+    const extentKey = `${toAxisTime(originalExtent.start)}-${toAxisTime(originalExtent.end)}-${divergenceTime ?? ''}`
     if (innerWidth < NARROW_CANVAS_PX && narrowZoomAppliedRef.current !== extentKey) {
       narrowZoomAppliedRef.current = extentKey
       const k = Math.min(20, (domainEventCount * TOUCH_SPACING_PX) / innerWidth)
       if (k > 1.2) {
         let tx = 0
-        if (divergenceMs !== null) {
+        const divergenceAt = divergenceTime !== null ? instantOfAxisTime(divergenceTime) : null
+        if (divergenceAt) {
           const base = instantScale().domain([originalExtent.start, originalExtent.end]).range([0, innerWidth])
-          const wanted = -base(instantOfMs(divergenceMs)) * k + innerWidth / 3
+          const wanted = -base(divergenceAt) * k + innerWidth / 3
           tx = Math.min(0, Math.max(innerWidth - innerWidth * k, wanted))
         }
         svg.call(zoom.transform, d3.zoomIdentity.translate(tx, 0).scale(k))
@@ -956,7 +957,7 @@ const Timeline = memo(function Timeline({
     return () => {
       svg.on('.zoom', null)
     }
-  }, [originalExtent, innerWidth, width, svgHeight, domainEventCount, divergenceMs])
+  }, [originalExtent, innerWidth, width, svgHeight, domainEventCount, divergenceTime])
 
   // Pan/zoom keys of the canvas (arrow keys and PageUp/PageDown pan, +/-
   // zoom, 0 resets). Returns whether the key was one of them.
@@ -1052,14 +1053,14 @@ const Timeline = memo(function Timeline({
     if (span && svg && zoom) {
       const scale = xScaleRef.current
       const iw = innerWidthRef.current
-      const x1 = scale(instantOfMs(span.start))
-      const x2 = scale(instantOfMs(span.end))
+      const x1 = scale(instantOfAxisTime(span.start) ?? new Date(NaN))
+      const x2 = scale(instantOfAxisTime(span.end) ?? new Date(NaN))
       if (x2 < 0 || x1 > iw) {
         // translateBy works in untransformed units, so a screen shift of dx is
         // dx / k, where k is how far the view is zoomed in from the extent.
         const [d0, d1] = scale.domain() as [Date, Date]
-        const visibleSpan = d1.getTime() - d0.getTime()
-        const fullSpan = originalExtent.end.getTime() - originalExtent.start.getTime()
+        const visibleSpan = msApart(d0, d1)
+        const fullSpan = msApart(originalExtent.start, originalExtent.end)
         const k = visibleSpan > 0 ? fullSpan / visibleSpan : 1
         // Centre an event (or a short arc); a long arc brings its start in.
         const target = x2 - x1 > iw * 0.8 ? x1 - iw * 0.1 : (x1 + x2) / 2 - iw / 2
@@ -1072,7 +1073,7 @@ const Timeline = memo(function Timeline({
   // The step a keyboard retime/resize moves by, from what is on screen.
   const keyboardStep = useCallback(() => {
     const [d0, d1] = xScaleRef.current.domain() as [Date, Date]
-    return keyboardTimeStep(d1.getTime() - d0.getTime())
+    return keyboardTimeStep(msApart(d0, d1))
   }, [])
 
   // Open a mark's context menu from the keyboard, anchored under the mark.
@@ -1133,7 +1134,7 @@ const Timeline = memo(function Timeline({
     const isArc = key.startsWith('arc:')
     const move = (to: NavMove) => {
       const range = xScaleRef.current.domain() as [Date, Date]
-      const next = navigate(navModel, key, to, { start: range[0].getTime(), end: range[1].getTime() })
+      const next = navigate(navModel, key, to, { start: range[0], end: range[1] })
       if (next) focusMark(next)
     }
 
@@ -1208,7 +1209,7 @@ const Timeline = memo(function Timeline({
         if (MARK_ZOOM_KEYS.has(event.key)) {
           const span = markSpan(navModel, key)
           const scale = xScaleRef.current
-          const x = span ? scale(instantOfMs((span.start + span.end) / 2)) : undefined
+          const x = span ? scale(instantOfAxisTime((span.start + span.end) / 2n) ?? new Date(NaN)) : undefined
           handleViewportKey(event, x !== undefined ? clampInnerX(x, innerWidthRef.current) : undefined)
         }
     }
@@ -1268,9 +1269,10 @@ const Timeline = memo(function Timeline({
   const canvasLabel = useMemo(() => {
     const base = `Timeline with ${events.length} events and ${arcs.length} arcs`
     if (ghostLabel === undefined || !ghostEvents) return base
-    const diverges = divergenceMs !== null ? `, diverging ${formatHistoricalTimestamp(instantOfMs(divergenceMs))}` : ''
+    const divergenceAt = divergenceTime !== null ? instantOfAxisTime(divergenceTime) : null
+    const diverges = divergenceAt ? `, diverging ${formatHistoricalTimestamp(divergenceAt)}` : ''
     return `${base}. Branch of ${ghostLabel}${diverges}; the baseline's ${ghostEvents.length} events are drawn faintly beneath for comparison`
-  }, [events.length, arcs.length, ghostLabel, ghostEvents, divergenceMs])
+  }, [events.length, arcs.length, ghostLabel, ghostEvents, divergenceTime])
 
   return (
     <div ref={containerRef} className={`timeline-container relative ${className}`}>
@@ -1390,7 +1392,7 @@ const Timeline = memo(function Timeline({
               return (
                 <g className="timeline-branch-marks" data-testid="timeline-branch-marks" aria-hidden="true" pointerEvents="none">
                   {[...branchMarks]
-                    .sort((a, b) => a.date.getTime() - b.date.getTime())
+                    .sort((a, b) => compareInstants(a.date, b.date))
                     .map((mark) => {
                       const x = xScale(mark.date)
                       if (x < -10 || x > innerWidth + 10) return null

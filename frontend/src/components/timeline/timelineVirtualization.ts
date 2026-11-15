@@ -1,7 +1,7 @@
 import { Event, TimeRange } from '@/types'
 import { PressureWithContext } from '@/types/pressure'
-import { toInstant } from '@althistory/calendar'
-import { clampedInstantOfMs } from '@/utils/timeScale'
+import { compareInstants, msApart, toInstant } from '@althistory/calendar'
+import { clampedAddInstantMs } from '@/utils/timeScale'
 
 /**
  * Time-axis windowing for the timeline.
@@ -65,13 +65,13 @@ export function computeTimeWindow(
   range: TimeRange,
   overscanFraction: number = WINDOW_OVERSCAN_FRACTION
 ): TimeWindow {
-  const startMs = range.start.getTime()
-  const endMs = range.end.getTime()
-  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+  // The overscan is an offset from the range's exact ends.
+  const span = msApart(range.start, range.end)
+  if (!Number.isFinite(span)) {
     return { start: range.start, end: range.end }
   }
-  const overscan = Math.max(0, endMs - startMs) * Math.max(0, overscanFraction)
-  return { start: clampedInstantOfMs(startMs - overscan), end: clampedInstantOfMs(endMs + overscan) }
+  const overscan = Math.max(0, span) * Math.max(0, overscanFraction)
+  return { start: clampedAddInstantMs(range.start, -overscan), end: clampedAddInstantMs(range.end, overscan) }
 }
 
 /**
@@ -82,9 +82,10 @@ export function computeTimeWindow(
  * rendered matches the behaviour before windowing existed.
  */
 export function isEventInWindow(event: Event, window: TimeWindow): boolean {
-  const timestamp = toInstant(event.timestamp).getTime()
-  if (!Number.isFinite(timestamp)) return true
-  return timestamp >= window.start.getTime() && timestamp <= window.end.getTime()
+  // Exactly: past 2^53 ms a getTime() is a rounded double.
+  const timestamp = toInstant(event.timestamp)
+  if (Number.isNaN(timestamp.getTime())) return true
+  return compareInstants(timestamp, window.start) >= 0 && compareInstants(timestamp, window.end) <= 0
 }
 
 /**
@@ -95,10 +96,10 @@ export function isEventInWindow(event: Event, window: TimeWindow): boolean {
  * kept for the same reason as events.
  */
 export function isArcInWindow(arc: { start_time: string; end_time: string }, window: TimeWindow): boolean {
-  const start = toInstant(arc.start_time).getTime()
-  const end = toInstant(arc.end_time).getTime()
-  if (!Number.isFinite(start) || !Number.isFinite(end)) return true
-  return start <= window.end.getTime() && end >= window.start.getTime()
+  const start = toInstant(arc.start_time)
+  const end = toInstant(arc.end_time)
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return true
+  return compareInstants(start, window.end) <= 0 && compareInstants(end, window.start) >= 0
 }
 
 /** Events inside (or just outside) the window. */

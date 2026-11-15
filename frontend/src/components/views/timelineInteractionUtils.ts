@@ -1,5 +1,5 @@
 import type { Arc, Event } from '@/types'
-import { toInstant } from '@althistory/calendar'
+import { type AxisTime, toAxisTime } from '@althistory/calendar'
 
 /**
  * Temporal-constraint helpers for direct-manipulation on the timeline.
@@ -10,8 +10,19 @@ import { toInstant } from '@althistory/calendar'
  * relationship explicit so drag/resize handlers can validate before writing.
  */
 
-function toMs(value: string | Date): number {
-  return toInstant(value).getTime()
+/**
+ * The exact axis time of a moment, or null when it names none. Past 2^53 ms a
+ * getTime() is a rounded double: a drag a second past an arc's end would pass.
+ */
+function axisOfValue(value: string | Date): AxisTime | null {
+  return toAxisTime(value)
+}
+
+/** Whether `a <= b`, exactly; false when either names no moment. */
+function atOrBefore(a: string | Date, b: string | Date): boolean {
+  const x = axisOfValue(a)
+  const y = axisOfValue(b)
+  return x !== null && y !== null && x <= y
 }
 
 /** True when `value` lies inside the inclusive `[start, end]` window. */
@@ -20,8 +31,7 @@ export function isWithinBounds(
   start: string | Date,
   end: string | Date
 ): boolean {
-  const time = toMs(value)
-  return time >= toMs(start) && time <= toMs(end)
+  return atOrBefore(start, value) && atOrBefore(value, end)
 }
 
 /** True when the inclusive window `[innerStart, innerEnd]` fits inside `[outerStart, outerEnd]`. */
@@ -31,7 +41,7 @@ function windowContains(
   innerStart: string | Date,
   innerEnd: string | Date
 ): boolean {
-  return toMs(innerStart) >= toMs(outerStart) && toMs(innerEnd) <= toMs(outerEnd)
+  return atOrBefore(outerStart, innerStart) && atOrBefore(innerEnd, outerEnd)
 }
 
 /** Arcs whose window contains the event at its current timestamp. */

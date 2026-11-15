@@ -17,7 +17,7 @@ import { CreateGraphModal } from './CreateGraphModal'
 import { Portal } from '@/components/ui/Portal'
 import { branchLabel } from './graphTree'
 import { WorldCalendarFields } from './WorldCalendarFields'
-import { toInstant } from '@althistory/calendar'
+import { type AxisTime, toAxisTime } from '@althistory/calendar'
 import { useCalendarDraft, type CalendarDraftState } from './useCalendarDraft'
 
 interface GraphManagerModalProps {
@@ -612,11 +612,11 @@ export default GraphManagerModal
 
 /** The UTC year of a graph's first event, for the calendar preview; undefined when it has none. */
 /** Where a graph's history begins on the timeline, for the calendar preview. */
-function firstPosition(graph: Graph): number | undefined {
+function firstPosition(graph: Graph): AxisTime | undefined {
   const start = graph.metadata.temporalRange?.start
   if (!start) return undefined
-  const time = toInstant(start).getTime()
-  return Number.isNaN(time) ? undefined : time
+  // Exactly: a deep moment's getTime() is a rounded double, which can name the day before.
+  return toAxisTime(start) ?? undefined
 }
 
 /**

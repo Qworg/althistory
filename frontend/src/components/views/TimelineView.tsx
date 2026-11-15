@@ -1,4 +1,4 @@
-import { toInstant } from '@althistory/calendar'
+import { compareInstants, toInstant } from '@althistory/calendar'
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useSearchParams } from 'react-router'
 import { Timeline } from '@/components/timeline/Timeline'
@@ -461,7 +461,7 @@ export function TimelineView() {
   /** Why resizing `arc` to `newBounds` would be refused, or null. */
   const arcResizeViolation = useCallback(
     (arc: Arc, newBounds: { start: Date; end: Date }): { verb: 'resize' | 'shrink'; reason: string } | null => {
-      if (newBounds.start.getTime() >= newBounds.end.getTime()) {
+      if (compareInstants(newBounds.start, newBounds.end) >= 0) {
         return { verb: 'resize', reason: 'the end of the arc must be after its start' }
       }
 

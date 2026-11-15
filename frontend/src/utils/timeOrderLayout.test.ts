@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { timeOrderPositions, timeOrderPositionsForViewport } from './timeOrderLayout'
+import { toAxisTime } from '@althistory/calendar'
 
 describe('timeOrderPositions', () => {
   it('places events left to right by date, the same way every time', () => {
@@ -64,5 +65,23 @@ describe('timeOrderPositionsForViewport', () => {
     for (let i = 1; i < nodes.length; i++) {
       if (nodes[i]!.time > nodes[i - 1]!.time) expect(p.get(`e${i}`)!.x).toBeGreaterThan(p.get(`e${i - 1}`)!.x)
     }
+  })
+})
+
+// Two moments a second apart near 200 million years BCE: one double, so
+// getTime() calls them the same moment (docs/specs/deep-time.md, Req 3).
+const EARLIER = '-200000001-12-31T23:59:59.500Z'
+const LATER = '-200000000-01-01T00:00:00.500Z'
+
+describe('time order near 200 million years BCE, where a double holds no whole seconds', () => {
+  it('puts a cause a second before its effect to its left, whatever their ids', () => {
+    const p = timeOrderPositions(
+      [
+        { id: 'a-effect', time: toAxisTime(LATER)! },
+        { id: 'z-cause', time: toAxisTime(EARLIER)! },
+      ],
+      { width: 1000 }
+    )
+    expect(p.get('z-cause')!.x).toBeLessThan(p.get('a-effect')!.x)
   })
 })

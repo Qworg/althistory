@@ -1,6 +1,6 @@
 import { memo, useMemo, useState, useCallback, useRef, useLayoutEffect, useEffect } from 'react'
 import type React from 'react'
-import { clampedInstantOfMs, instantScale, usesArithmeticTicks } from '@/utils/timeScale'
+import { clampedAddInstantMs, instantExtent, instantScale, usesArithmeticTicks } from '@/utils/timeScale'
 import { Event, Arc, GraphCalendar } from '@/types'
 import { formatHistoricalDate, formatHistoricalTimestamp, formatEventDate } from '@/utils/historicalTime'
 import { axisTicks } from '@/utils/d3Calculations'
@@ -14,7 +14,7 @@ import {
   EventComparisonItem,
 } from '@/utils/divergenceAnalysis'
 import { layoutEventLabels, truncateLabel, LABEL_ROW_OFFSETS, type EventLabelPlacement, type LabelLayoutConfig } from '@/components/timeline/eventLabelLayout'
-import { toInstant } from '@althistory/calendar'
+import { msApart, toAxisTime, toInstant } from '@althistory/calendar'
 
 export interface CounterfactualTimelineCanvasProps {
   readonly baselineName: string
@@ -338,35 +338,34 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
 
   // 2. Compute unified time domain across both timelines
   const baseDomain = useMemo<[Date, Date]>(() => {
-    const allTimestamps: number[] = [
-      ...baselineEvents.map(e => toInstant(e.timestamp).getTime()),
-      ...counterfactualEvents.map(e => toInstant(e.timestamp).getTime()),
-    ].filter(t => !isNaN(t))
-    // Past a Date's range these are the nearest doubles, which place a mark to the pixel.
+    // The first and last moment of both lanes, compared exactly; the pad is measured from them.
+    const extent = instantExtent([
+      ...baselineEvents.map(e => toInstant(e.timestamp)),
+      ...counterfactualEvents.map(e => toInstant(e.timestamp)),
+    ])
 
-    if (allTimestamps.length === 0) {
+    if (!extent) {
       const now = Date.now()
       return [new Date(now - 30 * 86400000), new Date(now + 30 * 86400000)]
     }
 
-    const min = Math.min(...allTimestamps)
-    const max = Math.max(...allTimestamps)
+    const [min, max] = extent
 
     // Add padding to domain edges so boundary events aren't clipped
-    const span = Math.max(86400000, max - min)
+    const span = Math.max(86400000, msApart(min, max))
     const pad = span * 0.06
-    return [clampedInstantOfMs(min - pad), clampedInstantOfMs(max + pad)]
+    return [clampedAddInstantMs(min, -pad), clampedAddInstantMs(max, pad)]
   }, [baselineEvents, counterfactualEvents])
 
   // 3. Compute scaled domain accounting for zoom and pan
   const currentDomain = useMemo<[Date, Date]>(() => {
+    // The pan and the zoomed span are offsets from the domain's start, which stays exact.
     const [start, end] = baseDomain
-    const totalDuration = end.getTime() - start.getTime()
+    const totalDuration = msApart(start, end)
     const zoomedDuration = totalDuration / zoomFactor
 
-    const currentStartMs = start.getTime() + panOffset
-    const currentEndMs = currentStartMs + zoomedDuration
-    return [clampedInstantOfMs(currentStartMs), clampedInstantOfMs(currentEndMs)]
+    const currentStart = clampedAddInstantMs(start, panOffset)
+    return [currentStart, clampedAddInstantMs(currentStart, zoomedDuration)]
   }, [baseDomain, zoomFactor, panOffset])
 
   // 4. D3 Scale calculation. UTC, so ticks fall on UTC day boundaries and
@@ -419,12 +418,14 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
   const divergenceFocus = useMemo(() => {
     const pod = metrics.pointOfDivergence
     if (!focusDivergence || !pod) return null
+    // Offsets from the domain's start, from exact differences.
     const [start, end] = baseDomain
-    const total = end.getTime() - start.getTime()
-    const podMs = toInstant(pod.timestamp).getTime()
-    if (!(total > 0) || (podMs - start.getTime()) / total < 0.35) return null
-    const from = Math.max(start.getTime(), podMs - (end.getTime() - podMs) * 0.25)
-    return { zoom: total / (end.getTime() - from), pan: from - start.getTime(), key: `${podMs}:${total}` }
+    const podTime = toInstant(pod.timestamp)
+    const total = msApart(start, end)
+    const podOffset = msApart(start, podTime)
+    if (!(total > 0) || podOffset / total < 0.35) return null
+    const from = Math.max(0, podOffset - msApart(podTime, end) * 0.25)
+    return { zoom: total / (total - from), pan: from, key: `${toAxisTime(podTime)}:${total}` }
   }, [focusDivergence, metrics.pointOfDivergence, baseDomain])
 
   const focusedFor = useRef<string | null>(null)
@@ -442,12 +443,12 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
   }, [divergenceFocus])
 
   const handlePanLeft = useCallback(() => {
-    const span = currentDomain[1].getTime() - currentDomain[0].getTime()
+    const span = msApart(currentDomain[0], currentDomain[1])
     setPanOffset(p => p - span * 0.2)
   }, [currentDomain])
 
   const handlePanRight = useCallback(() => {
-    const span = currentDomain[1].getTime() - currentDomain[0].getTime()
+    const span = msApart(currentDomain[0], currentDomain[1])
     setPanOffset(p => p + span * 0.2)
   }, [currentDomain])
 

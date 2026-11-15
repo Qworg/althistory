@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { MAX_AXIS_MS, MIN_AXIS_MS, axisOf, instantOfMs, isoOfAxisTime } from '@althistory/calendar'
+import { MAX_AXIS_MS, MIN_AXIS_MS, axisOf, instantOfMs, isoOfAxisTime, toInstant } from '@althistory/calendar'
 import type { Event, TimeRange } from '@/types'
 import type { PressureWithContext } from '@/types/pressure'
 import {
@@ -226,5 +226,30 @@ describe('filterPressuresInWindow', () => {
     const input = [inView]
     // Same reference, so a memoised caller does not re-render on fit-to-view.
     expect(filterPressuresInWindow(input, window)).toBe(input)
+  })
+})
+
+// Two moments a second apart near 200 million years BCE: one double, so
+// getTime() calls them the same moment (docs/specs/deep-time.md, Req 3).
+const EARLIER = '-200000001-12-31T23:59:59.500Z'
+const LATER = '-200000000-01-01T00:00:00.500Z'
+
+describe('windowing near 200 million years BCE, where a double holds no whole seconds', () => {
+  const window = { start: toInstant('-200000002-01-01T00:00:00.000Z'), end: toInstant(EARLIER) }
+
+  it('leaves out an event a second past the window', () => {
+    expect(isEventInWindow(event('in', EARLIER), window)).toBe(true)
+    expect(isEventInWindow(event('out', LATER), window)).toBe(false)
+  })
+
+  it('leaves out an arc that starts a second past the window', () => {
+    expect(isArcInWindow({ start_time: LATER, end_time: '-199999999-01-01T00:00:00.000Z' }, window)).toBe(false)
+    expect(isArcInWindow({ start_time: EARLIER, end_time: '-199999999-01-01T00:00:00.000Z' }, window)).toBe(true)
+  })
+
+  it('overscans from the exact ends of the range', () => {
+    const overscanned = computeTimeWindow({ start: toInstant(EARLIER), end: toInstant(LATER) }, 1)
+    expect(overscanned.start.toISOString()).toBe('-200000001-12-31T23:59:58.500Z')
+    expect(overscanned.end.toISOString()).toBe('-200000000-01-01T00:00:01.500Z')
   })
 })

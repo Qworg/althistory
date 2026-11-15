@@ -1,13 +1,13 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import * as d3 from 'd3'
-import { clampedInstantOfMs, instantScale, rescaleInstantX, usesArithmeticTicks } from '@/utils/timeScale'
+import { clampedAddInstantMs, instantExtent, instantScale, rescaleInstantX, usesArithmeticTicks } from '@/utils/timeScale'
 import { Event, Arc, TimeRange } from '@/types'
 import { axisTicks, formatTimeAxisTick, getTimeAxisInterval } from '@/utils/d3Calculations'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import { formatEventDate } from '@/utils/historicalTime'
 import { truncateToWidth } from '@/utils'
 import { layoutEventLabels, type EventLabelPlacement, type LabelLayoutConfig } from './eventLabelLayout'
-import { compareInstants, toInstant } from '@althistory/calendar'
+import { compareInstants, msApart, toAxisTime, toInstant } from '@althistory/calendar'
 
 /** Two rows of 12px labels (the 12px floor); the pitch is the font plus leading. */
 const ACTOR_LABEL_CONFIG: LabelLayoutConfig = { rowOffsets: [-16, -30], fontSize: 12 }
@@ -112,15 +112,16 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
         end: new Date()
       }
     }
-    const times = events.map(e => toInstant(e.timestamp).getTime())
-    const first = Math.min(...times)
-    const last = Math.max(...times)
+    // The first and last event, compared exactly; the pad is measured from them.
+    const extent = instantExtent(events.map(e => toInstant(e.timestamp)))
+    if (!extent) return { start: new Date(NaN), end: new Date(NaN) }
+    const [first, last] = extent
     // Pad by a share of the span, not a fixed day: on a span of years one day
     // put the first and last events on the chart's edges.
-    const padding = Math.max(86400000, (last - first) * 0.03)
+    const padding = Math.max(86400000, msApart(first, last) * 0.03)
     return {
-      start: clampedInstantOfMs(first - padding),
-      end: clampedInstantOfMs(last + padding)
+      start: clampedAddInstantMs(first, -padding),
+      end: clampedAddInstantMs(last, padding)
     }
   }, [events])
 
@@ -215,7 +216,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
   // axis did: scale.ticks(interval) is exactly what axisBottom computed.
   const worldCalendar = useWorldCalendar()
   const xTicks = useMemo(() => {
-    const timeSpanMs = state.visibleTimeRange.end.getTime() - state.visibleTimeRange.start.getTime()
+    const timeSpanMs = msApart(state.visibleTimeRange.start, state.visibleTimeRange.end)
     // In a world calendar, its own years, months, days and hours; otherwise
     // UTC ticks and labels, as the event labels read every date (the
     // positions are the same linear scale either way).
@@ -226,7 +227,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     const [start = 0, end = 0] = timeScale.range()
     const maxTicks = Math.max(2, Math.floor(Math.abs(end - start) / 96))
     const countTicks = () => axisTicks(timeScale.domain(), maxTicks, worldCalendar).map(({ date, label }) => ({
-      key: date.getTime(),
+      key: String(toAxisTime(date)),
       x: timeScale(date),
       label,
     }))
@@ -239,7 +240,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     // The slack keeps a narrow chart's crowded, turned labels as they were.
     if (dates.length === 0 || dates.length > Math.max(maxTicks * 3, 24)) return countTicks()
     return dates.map(date => ({
-      key: date.getTime(),
+      key: String(toAxisTime(date)),
       x: timeScale(date),
       label: formatTimeAxisTick(date, timeSpanMs, true)
     }))
