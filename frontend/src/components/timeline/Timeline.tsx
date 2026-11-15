@@ -4,7 +4,7 @@ import { instantScale, rescaleInstantX } from '@/utils/timeScale'
 import { Event, Arc, TimeRange } from '@/types'
 import { PressureWithContext } from '@/types/pressure'
 import { type ArcWithUIState, calculateArcHierarchy, processArcsWithUIState } from './arcHierarchyUtils'
-import { axisTicks, formatDuration } from '@/utils/d3Calculations'
+import { axisTicks, fitAxisLabels, formatDuration } from '@/utils/d3Calculations'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import EventArcAssignment from './EventArcAssignment'
 import PressureIndicators from './PressureIndicators'
@@ -1725,9 +1725,13 @@ const Timeline = memo(function Timeline({
               // of the "1843" tick west of Greenwich); in a world calendar, on
               // its own years, months, days and hours. Labelled as a set, so
               // two ticks never share a label.
-              const ticks = axisTicks(xScale.domain(), maxTicks > 0 ? maxTicks : 5, worldCalendar)
-              return ticks.map(({ date: tick, label }, i) => (
-                <g key={i} transform={`translate(${xScale(tick)},0)`}>
+              // A set before 1 CE writes long labels ("9000-03-01 BCE"): drop the
+              // ticks that would overprint. Any other set is drawn whole.
+              const ticks = fitAxisLabels(
+                axisTicks(xScale.domain(), maxTicks > 0 ? maxTicks : 5, worldCalendar).map((tick) => ({ ...tick, x: xScale(tick.date) }))
+              )
+              return ticks.map(({ x, label }, i) => (
+                <g key={i} transform={`translate(${x},0)`}>
                   <line y1={0} y2={6} style={{ stroke: 'var(--text-muted)' }} strokeWidth={1} />
                   <text
                     y={20}

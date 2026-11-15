@@ -88,3 +88,24 @@ describe('CounterfactualTimelineCanvas before 1 CE', () => {
     expect(labels).not.toMatch(/\d BC\b/)
   })
 })
+
+describe('CounterfactualTimelineCanvas over two days before 1 CE', () => {
+  it('names each sub-day tick once, adding the time where the day alone would repeat', () => {
+    const ides = [event('i1', 'The Ides', '-000043-03-15T00:00:00Z'), event('i2', 'The funeral', '-000043-03-17T00:00:00Z')]
+    const { container } = render(
+      <CounterfactualTimelineCanvas
+        baselineName="Rome"
+        counterfactualName="Branch"
+        baselineEvents={ides}
+        counterfactualEvents={ides}
+        baselineCalendar={null}
+        counterfactualCalendar={null}
+      />
+    )
+    const ticks = Array.from(container.querySelectorAll('svg text'))
+      .map((node) => node.textContent ?? '')
+      .filter((text) => / BCE( \d{2}:\d{2})?$/.test(text))
+    expect(ticks.length).toBeGreaterThan(1)
+    expect(new Set(ticks).size, JSON.stringify(ticks)).toBe(ticks.length)
+  })
+})

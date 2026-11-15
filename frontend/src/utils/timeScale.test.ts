@@ -95,7 +95,7 @@ describe('the timeline scale over a million years', () => {
     expect(moments[0]! >= toAxisTime(start)!).toBe(true)
     expect(moments[moments.length - 1]! <= toAxisTime(end)!).toBe(true)
     expect(new Set(ticks.map((tick) => tick.label)).size).toBe(ticks.length)
-    // As the locale writes a year and its era (en-US here): "500000 BC", and "300000" after 1 CE.
+    // As a person types a year: "500000 BCE", and "300000" after 1 CE.
     expect(ticks.some((tick) => /^\d+ BCE$/.test(tick.label))).toBe(true)
     expect(ticks.some((tick) => /^\d+$/.test(tick.label))).toBe(true)
     // The scale's own ticks are those moments.

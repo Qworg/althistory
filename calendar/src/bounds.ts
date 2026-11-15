@@ -91,6 +91,21 @@ function signedYearError(year: number, monthText: string | undefined, dayText: s
  * that says what is wrong.
  */
 export function parseHistoricalDate(input: string, edge: DateBoundEdge): HistoricalDateParse {
+  const read = readHistoricalFields(input, edge)
+  if (!read.ok) return read
+  const date = instantOfAxisTime(read.time)
+  if (!date) {
+    return { ok: false, error: 'That date is out of range.' }
+  }
+  return { ok: true, date, time: read.time, text: read.text }
+}
+
+/**
+ * {@link parseHistoricalDate} without the range check: the moment a typed
+ * bound names, which may lie past the axis's bound (the start of the axis's
+ * first day does, though its later hours do not).
+ */
+function readHistoricalFields(input: string, edge: DateBoundEdge): { ok: true; time: AxisTime; text: string } | { ok: false; error: string } {
   const trimmed = input.trim().replace(/\s+/g, ' ')
   // ISO 8601's own spelling of a year outside 1-9999 (a signed six-digit
   // year, or 0000) counts astronomically, as toISOString writes it and every
@@ -147,11 +162,7 @@ export function parseHistoricalDate(input: string, edge: DateBoundEdge): Histori
           : utcTime(astronomicalYear + 1, 0, 1)
     time = next - 1n
   }
-  const date = instantOfAxisTime(time)
-  if (!date) {
-    return { ok: false, error: 'That date is out of range.' }
-  }
-  return { ok: true, date, time, text: formatBound(astronomicalYear, month, day) }
+  return { ok: true, time, text: formatBound(astronomicalYear, month, day) }
 }
 
 /**
@@ -225,7 +236,9 @@ export function readHistoricalText(
 ): { ok: true; iso: string; time: AxisTime; precision: DatePrecision } | { ok: false; error: string } {
   const trimmed = String(text).trim()
   const timed = TIME_SUFFIX.exec(trimmed)
-  const parsed = parseHistoricalDate(timed ? timed[1]! : trimmed, timed ? 'start' : edge)
+  // A date with a time is range-checked once the time is added: the axis's
+  // first day starts before its bound, and its later hours are inside it.
+  const parsed = timed ? readHistoricalFields(timed[1]!, 'start') : parseHistoricalDate(trimmed, edge)
   if (!parsed.ok) return { ok: false, error: parsed.error }
   if (!timed) return { ok: true, iso: isoOfAxisTime(parsed.time), time: parsed.time, precision: boundPrecision(parsed.text) }
   if (boundPrecision(parsed.text) !== 'day') return { ok: false, error: 'A time needs a whole date: 1843-11-20 14:30.' }

@@ -112,9 +112,14 @@ function formatTicks(dates: readonly Date[]): string[] {
   )
   // A set with any tick before 1 CE names its days as a person types them ("44-03-15 BCE"), as its years.
   const beforeCommonEra = dates.some(d => d.getUTCFullYear() <= 0)
-  return dates.map(d =>
+  const labels = dates.map(d =>
     allYearStarts ? historicalYear(d, null) : beforeCommonEra ? formatBoundAt(d, 'day') : formatHistoricalDate(d, undefined, null)
   )
+  // Ticks within a day would read the same: each names its UTC time too ("44-03-15 BCE 12:00").
+  if (beforeCommonEra && new Set(labels).size !== labels.length) {
+    return dates.map(d => `${formatBoundAt(d, 'day')} ${d.toISOString().slice(-13, -8)}`)
+  }
+  return labels
 }
 
 /**
