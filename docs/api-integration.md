@@ -615,6 +615,12 @@ with no evidence, and it must still import. `POST /api/import` and
 evidence, and report it (a `MISSING_EVIDENCE` warning on `/api/import`, a line
 in the CLI's `warnings`). Edit the link to replace the placeholder.
 
+An export made in cloud mode before links had ids of their own can hold two
+links between one pair of events under one `cause->effect` id. It still
+imports: the first keeps the id, each later one is given `<id>~2`, `<id>~3`, ...,
+and `/api/import` reports each as a `RENAMED_ID` warning. (An id shared with an
+event or an arc is still refused as `DUPLICATE_ID`.)
+
 **Every link has an id of its own**, in local and cloud mode alike, so two
 links between the same two events are two links: each is versioned, announced
 on the live feed and deletable under its own id. `GET /api/causal/relationships`

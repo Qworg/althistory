@@ -604,6 +604,54 @@ describe('ImportService', () => {
       expect(result.warnings.filter((w) => w.code === 'MISSING_EVIDENCE')).toEqual([]);
     });
 
+    describe('an old cloud export: two links under one cause->effect id', () => {
+      const oldCloudExport = () => {
+        const doc = createValidExport();
+        const link = doc.data.causalRelationships[0]!;
+        doc.data.causalRelationships = [
+          { ...link, id: 'event-1->event-2', evidence: 'first' },
+          { ...link, id: 'event-1->event-2', evidence: 'second' },
+          { ...link, id: 'event-1->event-2', evidence: 'third' },
+        ];
+        return doc;
+      };
+
+      it('validates, warning that the later links are given fresh ids', async () => {
+        const result = await importService.validateFormat(oldCloudExport());
+
+        expect(result.errors).toEqual([]);
+        expect(result.valid).toBe(true);
+        expect(result.warnings.filter((w) => w.code === 'RENAMED_ID').map((w) => w.path)).toEqual([
+          '$.data.causalRelationships[1].id',
+          '$.data.causalRelationships[2].id',
+        ]);
+      });
+
+      it('imports every one of them, each under its own id', async () => {
+        const result = await importService.executeImport(oldCloudExport(), { mode: 'create-new', conflictResolution: 'skip' });
+
+        expect(result.success).toBe(true);
+        expect(result.imported.relationships).toBe(3);
+        const repository = new GraphRepository({ dataDir: testDataDir });
+        await repository.initialize();
+        const links = Object.entries((await repository.checkout(result.graphId)).relationships);
+        expect(links.map(([id]) => id).sort()).toEqual(['event-1->event-2', 'event-1->event-2~2', 'event-1->event-2~3']);
+        expect(Object.fromEntries(links.map(([id, l]) => [id, l.evidence]))).toEqual({
+          'event-1->event-2': 'first',
+          'event-1->event-2~2': 'second',
+          'event-1->event-2~3': 'third',
+        });
+      });
+
+      it('still refuses an id that an event or an arc already has', async () => {
+        const doc = oldCloudExport();
+        doc.data.causalRelationships[1]!.id = 'event-1';
+        const result = await importService.validateFormat(doc);
+        expect(result.valid).toBe(false);
+        expect(result.errors).toContainEqual(expect.objectContaining({ code: 'DUPLICATE_ID' }));
+      });
+    });
+
     it('should warn about missing provenance', async () => {
       const exportWithoutProvenance = createValidExport();
       delete exportWithoutProvenance.provenance;
