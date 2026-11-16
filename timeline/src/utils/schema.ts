@@ -106,6 +106,9 @@ export class SchemaManager {
       // queries filter the relationship, not only its endpoints.
       'CREATE INDEX causal_graph IF NOT EXISTS FOR ()-[r:CAUSES]-() ON (r.graphId)',
 
+      // A link's own id (#30): delete and undo find it by this.
+      'CREATE INDEX causal_id IF NOT EXISTS FOR ()-[r:CAUSES]-() ON (r.id)',
+
       // InferredPressure indexes
       'CREATE INDEX pressure_confidence IF NOT EXISTS FOR (p:InferredPressure) ON (p.confidence_score)',
       'CREATE INDEX pressure_type IF NOT EXISTS FOR (p:InferredPressure) ON (p.pressure_type)'

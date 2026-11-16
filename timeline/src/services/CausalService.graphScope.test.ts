@@ -82,6 +82,9 @@ function recordingSession(recorded: RecordedQuery[]) {
       // The assertions are about the Cypher, not the rows. Reads answer with an
       // empty result set so no mapper has to invent data; the create answers with
       // one row because the service treats an empty result as "endpoints missing".
+      if (query.includes('deletedId')) {
+        return { records: [{ get: () => 'link_1' }] };
+      }
       if (query.includes('deletedCount')) {
         return { records: [{ get: () => 1 }] };
       }
@@ -105,6 +108,7 @@ function event(id: string, timestamp: string): Event {
 }
 
 const relationship = {
+  id: 'link_1',
   weight: 0.8,
   confidence: 0.9,
   evidence: 'because',
@@ -134,9 +138,13 @@ describe('graph-scoped causal queries (#59)', () => {
 
     await service.getAllRelationships();
 
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0]!.query).toContain('r.graphId = $graphId');
-    expect(recorded[0]!.parameters.graphId).toBe(GRAPH_ID);
+    // The adoption of links without an id, then the read: both in this graph.
+    expect(recorded).toHaveLength(2);
+    expect(recorded[0]!.query).toContain('r.id IS NULL');
+    for (const entry of recorded) {
+      expect(entry.query).toContain('r.graphId = $graphId');
+      expect(entry.parameters.graphId).toBe(GRAPH_ID);
+    }
   });
 
   it('finds cycles only in its own graph', async () => {
@@ -184,8 +192,13 @@ describe('graph-scoped causal queries (#59)', () => {
     await service.updateCausalLink('cause-1', 'effect-1', { weight: 0.5 });
     await service.deleteCausalLink('cause-1', 'effect-1');
 
-    expect(recorded).toHaveLength(2);
+    // Each is an adoption of id-less links, then the write itself.
+    expect(recorded).toHaveLength(4);
     for (const entry of recorded) {
+      expect(entry.query).toContain('r.graphId = $graphId');
+      expect(entry.parameters.graphId).toBe(GRAPH_ID);
+    }
+    for (const entry of recorded.filter((q) => !q.query.includes('r.id IS NULL'))) {
       expect(entry.query).toContain('cause.graphId = $graphId');
       expect(entry.query).toContain('effect.graphId = $graphId');
       expect(entry.query).toContain('r.graphId = $graphId');
