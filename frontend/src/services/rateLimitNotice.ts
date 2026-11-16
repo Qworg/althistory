@@ -92,6 +92,8 @@ export function rateLimitedMessage(request: RefusedRequest, retryAfter: number |
 const EXPIRY_GRACE_MS = 3000
 const DEFAULT_EXPIRY_MS = 8000
 const expiry = new Map<string, ReturnType<typeof setTimeout>>()
+/** The message this module last set for a notice: a caller may have merged fuller text in, which a new wait must not erase. */
+const lastShown = new Map<string, string>()
 
 /**
  * Show a 429 to the person. Returns the message, or null when the response is
@@ -114,9 +116,13 @@ export function noticeRateLimited(response: RefusedResponse | undefined, request
 
   const existing = store.errors.find((e) => e.refusal === stem)
   if (existing) {
-    if (existing.message !== message) store.updateError(existing.id, { message })
+    if (existing.message !== message && existing.message === lastShown.get(stem)) {
+      store.updateError(existing.id, { message })
+      lastShown.set(stem, message)
+    }
   } else {
     store.addError({ type: 'general', message, refusal: stem })
+    lastShown.set(stem, message)
   }
 
   const id = (existing ?? useGlobalStore.getState().errors.find((e) => e.refusal === stem))?.id
@@ -127,6 +133,7 @@ export function noticeRateLimited(response: RefusedResponse | undefined, request
       stem,
       setTimeout(() => {
         expiry.delete(stem)
+        lastShown.delete(stem)
         useGlobalStore.getState().removeError(id)
       }, wait === null ? DEFAULT_EXPIRY_MS : wait * 1000 + EXPIRY_GRACE_MS)
     )

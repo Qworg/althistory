@@ -326,7 +326,10 @@ function createRateLimiter(maxRequests: number, pollMaxRequests: number = DEFAUL
     // Status polling (GET /jobs/:id) counts against its own bucket.
     const polling = req.method === 'GET' && /^\/jobs\/[^/]+\/?$/.test(req.path);
     const limit = polling ? pollMaxRequests : maxRequests;
-    const ip = `${polling ? 'poll:' : ''}${req.ip || req.socket.remoteAddress || 'unknown'}`;
+    // Per key once authenticated (so users behind one NAT or proxy do not share
+    // one budget), per IP when there is no key.
+    const keyId = (req as AuthenticatedRequest).apiKey?.id;
+    const ip = `${polling ? 'poll:' : ''}${keyId ? `key:${keyId}` : req.ip || req.socket.remoteAddress || 'unknown'}`;
     const now = Date.now();
 
     const entry = rateLimitMap.get(ip);

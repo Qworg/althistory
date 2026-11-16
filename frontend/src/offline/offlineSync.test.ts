@@ -350,6 +350,26 @@ describe('replaying a queued write that the server rate limits', () => {
     vi.unstubAllGlobals()
   })
 
+  it('waits at least as long as the server asked before the next try', async () => {
+    mockedIsOnline.mockReturnValue(true)
+    enqueueMutation({ method: 'POST', url: '/events', body: { id: 'e1' } })
+    const sentAt: number[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async () => {
+        sentAt.push(Date.now())
+        return sentAt.length === 1
+          ? new Response('{}', { status: 429, headers: { 'Retry-After': '1' } })
+          : new Response('{}', { status: 201 })
+      }),
+    )
+    // The plain backoff would retry after 5 ms.
+    const stop = startOfflineSync({ retryBaseDelayMs: 5, retryMaxDelayMs: 20 })
+    await vi.waitFor(() => expect(sentAt).toHaveLength(2), { timeout: 4000 })
+    expect(sentAt[1]! - sentAt[0]!).toBeGreaterThanOrEqual(900)
+    stop()
+  })
+
   it('shows the refusal to the person and keeps the write retryable', async () => {
     useGlobalStore.setState({ errors: [] })
     vi.stubGlobal(

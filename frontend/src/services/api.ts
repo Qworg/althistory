@@ -1,7 +1,7 @@
 import axios from 'axios'
 import type { AxiosInstance, AxiosResponse, AxiosError } from 'axios'
 import { toGraphVersion, type ServerVersionRef } from './graphVersions'
-import { noticeRateLimited, rateLimitedMessage, retryAfterSeconds } from './rateLimitNotice'
+import { noticeRateLimited, rateLimitedMessage, refusalStem, retryAfterSeconds } from './rateLimitNotice'
 import { CLIENT_ID, CLIENT_ID_HEADER, CLIENT_KIND_HEADER } from './clientIdentity'
 
 /** One entity a version added, changed or deleted, by kind and id. */
@@ -185,7 +185,10 @@ export class APIError extends Error {
     message: string,
     public status: number,
     public code?: string,
-    public details?: unknown
+    public details?: unknown,
+    /** Set on a 429: what was refused (see `refusalStem`), and how long to wait. */
+    public refusal?: string,
+    public retryAfter?: number | null
   ) {
     super(message)
     this.name = 'APIError'
@@ -209,6 +212,16 @@ function handleAPIError(error: AxiosError): never {
     if (status === 429) message = rateLimitedMessage(error.config ?? {}, retryAfterSeconds(error.response))
     const code = payload?.error?.code || payload?.code
     const details = payload?.error?.details ?? payload?.details
+    if (status === 429) {
+      throw new APIError(
+        message,
+        status,
+        code,
+        details,
+        refusalStem(error.config ?? {}),
+        retryAfterSeconds(error.response)
+      )
+    }
     throw new APIError(message, status, code, details)
   } else if (error.request) {
     // Network error

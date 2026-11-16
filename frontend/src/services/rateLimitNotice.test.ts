@@ -65,10 +65,19 @@ describe('noticeRateLimited', () => {
     expect(describeRefusedRequest({ method: 'get', url: '/import/jobs/job_1' })).toBe('Checking on the job')
   })
 
-  it("drops a caller's own report of a refusal the client already showed", () => {
+  it("merges a caller's fuller report into the notice instead of dropping it or stacking a second", () => {
     const shown = noticeRateLimited(refused({}, { error: { retryAfter: 12 } }), { method: 'post', url: '/events' })
-    // What a caller writes: its own prefix plus the thrown APIError's message.
-    useGlobalStore.getState().addError({ type: 'network', message: `Failed to create event: ${shown}` })
+    const id = useGlobalStore.getState().errors[0]!.id
+    // What a caller writes: its own context plus the thrown APIError's message.
+    const fuller = `"Battle of X" could not be restored: ${shown}. It is still in Version history.`
+    useGlobalStore.getState().addError({ type: 'network', message: fuller })
+    const notices = useGlobalStore.getState().errors
+    expect(notices).toHaveLength(1)
+    expect(notices[0]?.id).toBe(id)
+    expect(notices[0]?.message).toContain('Version history')
+    // A later refusal of the same kind does not erase that context.
+    noticeRateLimited(refused({}, { error: { retryAfter: 9 } }), { method: 'post', url: '/events' })
+    expect(useGlobalStore.getState().errors[0]?.message).toContain('Version history')
     expect(useGlobalStore.getState().errors).toHaveLength(1)
     useGlobalStore.getState().addError({ type: 'network', message: 'Failed to create event: disk full' })
     expect(useGlobalStore.getState().errors).toHaveLength(2)

@@ -53,6 +53,9 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
             }
             const restoredId = created.value.id
             let lostLinks = 0
+            // Links the server refused for load (429): not lost, just not made yet.
+            let refusedLinks = 0
+            let refusal: string | undefined
             for (const link of links) {
               try {
                 await createLink({
@@ -65,12 +68,23 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
                     relationship_type: link.relationship_type,
                   },
                 })
-              } catch {
-                // The other end may have been deleted since.
-                lostLinks++
+              } catch (linkError) {
+                if ((linkError as { status?: number } | null)?.status === 429) {
+                  refusedLinks++
+                  refusal ??= linkError instanceof Error ? linkError.message : undefined
+                } else {
+                  // The other end may have been deleted since.
+                  lostLinks++
+                }
               }
             }
             currentId = restoredId
+            if (refusedLinks > 0) {
+              addError({
+                type: 'general',
+                message: `"${event.description}" is back, but ${refusedLinks} of its causal links were not restored. ${refusal ?? 'The server asked for a pause; try again shortly.'}`,
+              })
+            }
             if (lostLinks > 0) {
               addError({
                 type: 'general',

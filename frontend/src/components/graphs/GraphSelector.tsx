@@ -116,6 +116,28 @@ export const GraphSelector = memo(function GraphSelector({
   const headVersion = useGraphHeadVersion(activeGraphId, activeGraph?.version)
   const accessProblem = useApiAccess()
 
+  // A refusal belongs to the moment it happened. Once the open graph changes
+  // by any route (the Graph Manager, another tab, going back), "still on X"
+  // is no longer true, and must not return if the graph changes again.
+  useEffect(() => {
+    if (switchError) clearSwitchError()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeGraphId])
+
+  // ... and it goes once the wait it named has passed, as the notices do.
+  useEffect(() => {
+    if (!switchError) return
+    const wait = (switchError as { retryAfter?: number | null }).retryAfter
+    const timer = setTimeout(clearSwitchError, ((wait ?? 5) + 3) * 1000)
+    // On a phone the alert is the one message: the notice would say it twice.
+    if (sheet) {
+      const { errors, removeError } = useGlobalStore.getState()
+      for (const e of errors) if (e.refusal?.startsWith('Switching graphs')) removeError(e.id)
+    }
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [switchError])
+
   // Close dropdown on outside click
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -463,7 +485,7 @@ export const GraphSelector = memo(function GraphSelector({
           data-testid="graph-switch-error"
           className={`z-40 flex items-start gap-2 rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink shadow-lg ${
             sheet
-              ? 'fixed inset-x-4 top-[calc(env(safe-area-inset-top,0px)+4rem)]'
+              ? 'fixed inset-x-4 top-[calc(env(safe-area-inset-top,0px)+7rem)]'
               : 'absolute top-full right-0 mt-1 w-80 max-w-[calc(100vw-2rem)]'
           }`}
         >

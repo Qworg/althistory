@@ -369,8 +369,17 @@ export const useGlobalStore = create<GlobalState>()(
       // Error handling actions
       addError: (error) => set((state) => {
         // A caller reporting a refusal the API client already showed (its
-        // message carries the client's wording) would stack a second notice.
-        if (state.errors.some((e) => e.refusal && error.message.includes(e.refusal))) return state
+        // message carries the client's wording, or it names the same
+        // `refusal`) is the same refusal told with more context: merge its
+        // fuller text into that notice rather than stacking a second one or
+        // dropping what the caller knows about what failed.
+        const known = state.errors.find(
+          (e) => e.refusal && (e.refusal === error.refusal || error.message.includes(e.refusal))
+        )
+        if (known) {
+          if (known.message === error.message) return state
+          return { errors: state.errors.map((e) => (e.id === known.id ? { ...e, message: error.message } : e)) }
+        }
         return {
           errors: [...state.errors, {
             ...error,
@@ -445,4 +454,4 @@ export const useGlobalStore = create<GlobalState>()(
       name: 'global-store',
     }
   )
-)
+)

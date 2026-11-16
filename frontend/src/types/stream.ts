@@ -211,5 +211,6 @@ export interface StreamTokenResponse {
   graphId: string
   permissions: string[]
   mode?: 'write' | 'feed'
-  concurrentStreams: number
+  /** The key's stream cap; null for the app's own key, which has none. */
+  concurrentStreams: number | null
 }

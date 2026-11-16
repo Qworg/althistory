@@ -231,6 +231,18 @@ describe('Import routes (real auth)', () => {
       await limitedRouter?.cleanup?.();
     });
 
+    it('counts each key separately, not everyone behind one IP together', async () => {
+      const make = async (name: string) =>
+        (await container.authService.createApiKey({ name, permissions: ['import'] })).key;
+      const [first, second] = [await make('NAT user one'), await make('NAT user two')];
+      const post = (key: string) =>
+        request(limited).post('/api/import/validate').set('X-API-Key', key).send(exportDocument());
+      const firstStatuses = [(await post(first)).status, (await post(first)).status, (await post(first)).status];
+      expect(firstStatuses).toEqual([200, 200, 429]);
+      // Same IP, different key: its own budget.
+      expect((await post(second)).status).toBe(200);
+    });
+
     it('never refuses the app key, and refuses a minted admin key with Retry-After', async () => {
       for (let i = 0; i < 6; i++) {
         const response = await request(limited)

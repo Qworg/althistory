@@ -52,11 +52,15 @@ anything that writes should use a key held by the client, not the bundle.
 
 The browser key is a minted key, so it is **not** exempt from rate limits (only
 the key configured as `ADMIN_API_KEY` is; see
-[api-integration.md](api-integration.md#rate-limits)). It has the default 60
-requests a minute and 5 live streams. A person with several tabs open, or one
-who reloads and switches graphs quickly, can reach them; the UI then shows a
-message saying what was refused and when to retry. Raise the limits when you
-create it, e.g. `"rateLimit":{"requestsPerMinute":300,"concurrentStreams":10}`.
+[api-integration.md](api-integration.md#rate-limits)). And it is **one key shared
+by every visitor**: the same `VITE_API_KEY` is in everyone's bundle, so its
+budgets are shared too. With the defaults (60 requests a minute, 1 000 an hour,
+10 000 a day, 5 live streams) about six visitors loading the page at once, at
+about 10 requests per load, use up the minute; sustained use by a few people
+reaches the hourly cap within minutes. The UI then shows a message saying what
+was refused and when to retry. Raise **all three** request limits, and the
+streams, when you create it, for the number of visitors you expect, e.g.
+`"rateLimit":{"requestsPerMinute":600,"requestsPerHour":20000,"requestsPerDay":200000,"concurrentStreams":20}`.
 
 If no key is configured the UI still loads, but every entity request answers
 `401`, the interceptor discards the stored key, and each view shows its own

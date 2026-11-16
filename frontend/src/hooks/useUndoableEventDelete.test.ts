@@ -86,4 +86,17 @@ describe('useUndoableEventDelete', () => {
     await expect(record.mock.calls[0]![0].undo()).resolves.toBe(true)
     expect(addError).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringMatching(/1 of its causal links/) }))
   })
+
+  it('reports a link the server refused as a refusal, not as a missing event', async () => {
+    createLink.mockRejectedValueOnce(
+      Object.assign(new Error('Saving the link was refused because too many requests were sent. Try again in 9 seconds.'), { status: 429 }),
+    )
+    const record = vi.fn<(entry: EditHistoryEntry) => void>()
+    const { result } = renderHook(() => useUndoableEventDelete(record))
+    await act(() => result.current(event, [link('l1', 'e0', 'e1')]))
+    await expect(record.mock.calls[0]![0].undo()).resolves.toBe(true)
+    const message = addError.mock.calls.map((c) => (c[0] as { message: string }).message).join('\n')
+    expect(message).toContain('Try again in 9 seconds')
+    expect(message).not.toContain('no longer exists')
+  })
 })

@@ -27,12 +27,14 @@ const graphs = [graph('g1', 'Main Timeline'), graph('g2', 'Alternative Branch')]
 
 describe('GraphSelector when a switch is refused with 429', () => {
   let activateCalls = 0
+  let retryAfterSeconds = 12
 
   beforeEach(() => {
     vi.resetModules()
     localStorage.clear()
     localStorage.setItem('active_graph_id', 'g1')
     activateCalls = 0
+    retryAfterSeconds = 12
 
     let onRejected: ((error: unknown) => unknown) | undefined
     const refuse = (url: string) => {
@@ -43,8 +45,8 @@ describe('GraphSelector when a switch is refused with 429', () => {
         config: { url, method: 'post' },
         response: {
           status: 429,
-          data: { error: { message: 'Rate limit exceeded: 60/minute', retryAfter: 12 } },
-          headers: { 'retry-after': '12' },
+          data: { error: { message: 'Rate limit exceeded: 60/minute', retryAfter: retryAfterSeconds } },
+          headers: { 'retry-after': String(retryAfterSeconds) },
         },
       }
       return onRejected ? onRejected(error) : Promise.reject(error)
@@ -145,6 +147,34 @@ describe('GraphSelector when a switch is refused with 429', () => {
       window.dispatchEvent(new CustomEvent('graph-switched', { detail: { graphId: 'g2' } }))
     })
     await waitFor(() => expect(screen.queryByTestId('graph-switch-error')).not.toBeInTheDocument())
+  })
+
+  it('does not bring a stale alert back after the person returns to the original graph', async () => {
+    await refuseASwitch()
+    const go = (id: string) =>
+      act(() => {
+        localStorage.setItem('active_graph_id', id)
+        window.dispatchEvent(new CustomEvent('graph-switched', { detail: { graphId: id } }))
+      })
+    go('g2')
+    await waitFor(() => expect(screen.queryByTestId('graph-switch-error')).not.toBeInTheDocument())
+    go('g1')
+    await new Promise((r) => setTimeout(r, 300))
+    expect(screen.queryByTestId('graph-switch-error')).not.toBeInTheDocument()
+  })
+
+  it('takes the alert away once the wait it named has passed', async () => {
+    retryAfterSeconds = 1
+    await refuseASwitch()
+    // 1 s wait plus the 3 s grace the notices use.
+    await waitFor(() => expect(screen.queryByTestId('graph-switch-error')).not.toBeInTheDocument(), { timeout: 6000 })
+  }, 10000)
+
+  it('on a phone shows the alert alone, below the header, not also the notice', async () => {
+    const alert = await refuseASwitch(true)
+    expect(alert.className).toContain('7rem')
+    const { useGlobalStore } = await import('@/stores/globalStore')
+    expect(useGlobalStore.getState().errors.filter((e) => /Switching graphs/.test(e.message))).toHaveLength(0)
   })
 
   it("pins the alert to the screen with a gutter on a phone, not to the selector's edge", async () => {
