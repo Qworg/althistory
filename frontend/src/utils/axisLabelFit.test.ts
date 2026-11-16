@@ -63,3 +63,32 @@ describe('thinning tick labels that would overprint', () => {
     expect(kept.includes(ticks[0]!) && kept.includes(ticks[1]!)).toBe(false)
   })
 })
+
+describe('thinning with other starting ticks', () => {
+  const gap12 = { charPx: 7.2, gapPx: 12 }
+  const widths = [9, 12, 11, 9, 12, 8, 9, 12, 8, 7]
+  const ticks = widths.map((width, i) => ({ x: (i * 400) / 9, label: 'x'.repeat(width), anchor: 'middle' as const }))
+
+  it('keeps more where a stride from another tick fits and the first does not', () => {
+    const fromFirst = thinTickLabels(ticks, gap12)
+    const best = thinTickLabels(ticks, gap12, undefined, { tryOffsets: true })
+    expect(fromFirst).toHaveLength(4)
+    expect(best).toHaveLength(5)
+    expect(new Set(stepsOf(ticks, best)).size).toBe(1)
+    expect(best.every((tick, i) => i === 0 || labelExtent(tick, 7.2)[0] - labelExtent(best[i - 1]!, 7.2)[1] >= 12)).toBe(true)
+  })
+
+  it('never keeps fewer, and leaves a set that fits from the first tick as it was', () => {
+    let seed = 11
+    const next = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff
+    for (let run = 0; run < 3000; run++) {
+      const n = 3 + Math.floor(next() * 10)
+      const set = Array.from({ length: n }, (_, i) => ({ x: (i * 400) / (n - 1), label: 'x'.repeat(5 + Math.floor(next() * 8)), anchor: 'middle' as const }))
+      const plain = thinTickLabels(set, gap12)
+      const tried = thinTickLabels(set, gap12, undefined, { tryOffsets: true })
+      expect(tried.length).toBeGreaterThanOrEqual(plain.length)
+      expect(new Set(stepsOf(set, tried)).size).toBeLessThanOrEqual(1)
+      if (tried.length === plain.length) expect(tried).toEqual(plain)
+    }
+  })
+})

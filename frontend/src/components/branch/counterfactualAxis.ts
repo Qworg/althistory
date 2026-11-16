@@ -5,6 +5,21 @@ import { type InstantScale, usesArithmeticTicks } from '@/utils/timeScale'
 import { type LabelAnchor, anchorInward, thinTickLabels } from '@/utils/axisLabelFit'
 import { formatBoundAt } from '@althistory/calendar'
 
+const DEFAULT_MARGIN = { top: 32, right: 32, bottom: 48, left: 140 }
+/** Below COMPACT_WIDTH (a phone's full-screen sheet) the margins give the plot more room. */
+const COMPACT_MARGIN = { top: 32, right: 16, bottom: 36, left: 96 }
+const COMPACT_WIDTH = 560
+
+/** The canvas's margins at a width: what it draws with, and what its axis is fitted to. */
+export function counterfactualMargin(width: number): { top: number; right: number; bottom: number; left: number } {
+  return width < COMPACT_WIDTH ? COMPACT_MARGIN : DEFAULT_MARGIN
+}
+
+/** How many ticks the canvas's axis asks for over a plot `innerWidth` px wide. */
+export function counterfactualTickCount(innerWidth: number): number {
+  return Math.max(2, Math.min(6, Math.floor(innerWidth / 110)))
+}
+
 /** Advance of one character of the 12px monospace axis dates (0.6em). */
 const TICK_CHAR_PX = 7.2
 /** Clear space kept between two axis dates. */
@@ -52,7 +67,7 @@ export function counterfactualAxisTicks(
   margin: { left: number; right: number },
   worldCalendar: GraphCalendar | null
 ): Array<{ date: Date; x: number; label: string; anchor: LabelAnchor }> {
-  const count = Math.max(2, Math.min(6, Math.floor(innerWidth / 110)))
+  const count = counterfactualTickCount(innerWidth)
   const domain = xScale.domain()
   const ticks = worldCalendar || usesArithmeticTicks(domain[0]!, domain[domain.length - 1]!)
     ? axisTicks(domain, count, worldCalendar).map(({ date, label }) => ({
@@ -69,5 +84,5 @@ export function counterfactualAxisTicks(
     TICK_CHAR_PX,
     { left: -margin.left, right: innerWidth + margin.right }
   )
-  return thinTickLabels(placed, { charPx: TICK_CHAR_PX, gapPx: TICK_GAP_PX })
+  return thinTickLabels(placed, { charPx: TICK_CHAR_PX, gapPx: TICK_GAP_PX }, undefined, { tryOffsets: true })
 }
