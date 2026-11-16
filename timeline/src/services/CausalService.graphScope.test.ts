@@ -138,13 +138,11 @@ describe('graph-scoped causal queries (#59)', () => {
 
     await service.getAllRelationships();
 
-    // The adoption of links without an id, then the read: both in this graph.
-    expect(recorded).toHaveLength(2);
-    expect(recorded[0]!.query).toContain('r.id IS NULL');
-    for (const entry of recorded) {
-      expect(entry.query).toContain('r.graphId = $graphId');
-      expect(entry.parameters.graphId).toBe(GRAPH_ID);
-    }
+    // One read, in this graph, and no write: naming links is the startup migration's job.
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]!.query).toContain('r.graphId = $graphId');
+    expect(recorded[0]!.query).not.toMatch(/\bSET\b/);
+    expect(recorded[0]!.parameters.graphId).toBe(GRAPH_ID);
   });
 
   it('finds cycles only in its own graph', async () => {
@@ -192,13 +190,8 @@ describe('graph-scoped causal queries (#59)', () => {
     await service.updateCausalLink('cause-1', 'effect-1', { weight: 0.5 });
     await service.deleteCausalLink('cause-1', 'effect-1');
 
-    // Each is an adoption of id-less links, then the write itself.
-    expect(recorded).toHaveLength(4);
+    expect(recorded).toHaveLength(2);
     for (const entry of recorded) {
-      expect(entry.query).toContain('r.graphId = $graphId');
-      expect(entry.parameters.graphId).toBe(GRAPH_ID);
-    }
-    for (const entry of recorded.filter((q) => !q.query.includes('r.id IS NULL'))) {
       expect(entry.query).toContain('cause.graphId = $graphId');
       expect(entry.query).toContain('effect.graphId = $graphId');
       expect(entry.query).toContain('r.graphId = $graphId');

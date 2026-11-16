@@ -442,7 +442,11 @@ function causal(method: string, path: string, params: URLSearchParams, body: Jso
     const cause = graph.events.find((e) => e.id === causeEventId)
     const effect = graph.events.find((e) => e.id === effectEventId)
     if (!cause || !effect) return notFound('Event')
-    const index = graph.relationships.findIndex((r) => r.cause_event_id === causeEventId && r.effect_event_id === effectEventId)
+    const named = (body as { id?: string }).id
+    // POST refuses a pair that is linked already; PUT and DELETE name the link by id when they have one.
+    const index = graph.relationships.findIndex(
+      (r) => r.cause_event_id === causeEventId && r.effect_event_id === effectEventId && (method === 'POST' || !named || r.id === named)
+    )
     const now = new Date().toISOString()
     if (method === 'POST') {
       // The real server refuses a link without evidence; so does the demo.

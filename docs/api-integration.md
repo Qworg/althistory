@@ -618,9 +618,21 @@ in the CLI's `warnings`). Edit the link to replace the placeholder.
 **Every link has an id of its own**, in local and cloud mode alike, so two
 links between the same two events are two links: each is versioned, announced
 on the live feed and deletable under its own id. `GET /api/causal/relationships`
-returns the ids. `PUT` and `DELETE /api/causal/link` name a link by its two
-events, and when a pair has several they act on the oldest. In cloud mode a link
-stored before ids existed is given one the first time it is read, and keeps it.
+returns the ids, and `POST /api/causal/link` answers with the id of the link it
+made (`data.relationship.id`).
+
+`PUT` and `DELETE /api/causal/link` take an optional **`id`** in the body (next
+to `causeEventId` and `effectEventId`). With it, exactly that link is changed or
+removed, and a link that is not between those two events in this graph is a
+`404`. Without it they act on the oldest link of the pair. `DELETE` answers with
+the id it removed (`data.id`).
+
+In cloud mode, links stored before ids existed are named once, when the server
+starts (never by a read): for each pair of events the oldest such edge takes
+`cause->effect`, the id older versions already used in the version history and on
+the live feed, and any further edge between the same two events takes a new
+`link_<uuid>`; the version history is then updated so it holds each of them
+under its own id. Both id forms are accepted wherever an id is.
 
 ## What this API does not offer
 

@@ -69,6 +69,18 @@ function toScore(value: unknown, fallback: number): number {
 }
 
 /**
+ * The optional `id` of the link a PUT or DELETE names: absent means the oldest
+ * link between the two events; present, it must be a non-empty string.
+ */
+function readLinkId(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new ValidationError('id must be the id of a link, as a non-empty string', 'id', value);
+  }
+  return value;
+}
+
+/**
  * POST /causal/link - Create a causal link between two events
  */
 causalRoutes.post('/link', ...entityPermission('write:relationships'), async (req: Request, res: Response, next: NextFunction) => {
@@ -161,8 +173,16 @@ causalRoutes.post('/link', ...entityPermission('write:relationships'), async (re
       data: {
         cause: causeEvent.toJSON(),
         effect: effectEvent.toJSON(),
-        // What was stored, with the id the link goes by.
-        relationship: { ...relationship, id: storedRelationship.id },
+        // What was stored, with the id the link goes by (the request's own
+        // spellings stay, for clients that read them).
+        relationship: {
+          ...relationship,
+          id: storedRelationship.id,
+          evidence: storedRelationship.evidence,
+          weight: storedRelationship.weight,
+          confidence: storedRelationship.confidence,
+          relationship_type: storedRelationship.relationship_type,
+        },
       },
       message: 'Causal link created successfully',
       requestId: req.requestId
@@ -442,6 +462,7 @@ causalRoutes.get('/relationships/:eventId', ...entityPermission('read:relationsh
 causalRoutes.put('/link', ...entityPermission('write:relationships'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { causeEventId, effectEventId, relationship } = req.body;
+    const linkId = readLinkId(req.body.id);
 
     // Validate required fields
     if (!causeEventId || !effectEventId) {
@@ -485,7 +506,7 @@ causalRoutes.put('/link', ...entityPermission('write:relationships'), async (req
       confidence: relationship.confidence,
       evidence: readLinkEvidence(relationship.evidence),
       relationship_type: relationship.type || relationship.relationship_type
-    });
+    }, linkId);
 
     await req.container.graphWriteVersioningService.recordRelationship(requireGraphId(req), updatedRelationship, 'update');
 
@@ -510,6 +531,7 @@ causalRoutes.put('/link', ...entityPermission('write:relationships'), async (req
 causalRoutes.delete('/link', ...entityPermission('write:relationships'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { causeEventId, effectEventId } = req.body;
+    const linkId = readLinkId(req.body.id);
 
     // Validate required fields
     if (!causeEventId || !effectEventId) {
@@ -535,7 +557,7 @@ causalRoutes.delete('/link', ...entityPermission('write:relationships'), async (
 
     // Delete the causal link from the request's graph.
     const causalService = await graphScopedCausalService(req);
-    const deletedRelationshipId = await causalService.deleteCausalLink(causeEventId, effectEventId);
+    const deletedRelationshipId = await causalService.deleteCausalLink(causeEventId, effectEventId, linkId);
 
     await req.container.graphWriteVersioningService.recordDeletion(requireGraphId(req), 'relationship', deletedRelationshipId);
 
@@ -543,6 +565,8 @@ causalRoutes.delete('/link', ...entityPermission('write:relationships'), async (
       success: true,
       message: 'Causal link removed successfully',
       data: {
+        // The link that was removed.
+        id: deletedRelationshipId,
         cause: causeEvent.toJSON(),
         effect: effectEvent.toJSON()
       },

@@ -767,36 +767,20 @@ export class RemoteEngine implements IEngine {
       const echoed = isRecord(res.data) && isRecord(res.data.data) ? res.data.data.relationship : undefined;
       const echoedRecord = isRecord(echoed) ? echoed : undefined;
 
-      // The route echoes the relationship it was given, which carries no id, so
-      // the stored link is looked up to report the id the CLI's contract
-      // promises.
-      const stored = await this.findStoredRelationship(graphId, data.causeId, data.effectId);
-
+      // The route answers with the link it stored, id included. A lookup by
+      // the pair would find the oldest link of the two events, which is not
+      // this one when the pair already has another.
       return {
-        id: stored?.id ?? readString(echoedRecord?.id, ''),
+        id: readString(echoedRecord?.id, ''),
         graphId,
         causeId: data.causeId,
         effectId: data.effectId,
-        weight: stored?.weight ?? data.weight,
-        type: stored?.type ?? readRelationshipType(data.type),
-        reasoning: stored?.reasoning ?? data.reasoning,
+        weight: typeof echoedRecord?.weight === 'number' ? echoedRecord.weight : data.weight,
+        type: readOptionalString(echoedRecord?.relationship_type) ?? readRelationshipType(data.type),
+        reasoning: readOptionalString(echoedRecord?.evidence) ?? evidence,
       };
     } catch (err) {
       return this.handleError(err, 'creating causal link');
-    }
-  }
-
-  /** The stored relationship between two events, if the daemon has one. */
-  private async findStoredRelationship(
-    graphId: string,
-    causeId: string,
-    effectId: string
-  ): Promise<{ id: string; weight?: number; type?: string; reasoning?: string } | undefined> {
-    try {
-      const relationships = await this.listCausalLinks(graphId);
-      return relationships.find((r) => r.causeId === causeId && r.effectId === effectId);
-    } catch {
-      return undefined;
     }
   }
 

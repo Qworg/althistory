@@ -497,6 +497,11 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: {
       causeEventId: { type: 'string' },
       effectEventId: { type: 'string' },
+      id: {
+        type: 'string',
+        description:
+          'Optional. The id of the link to change (from `GET /api/causal/relationships`). Without it the oldest link between the two events is changed. A link that is not between these two events in this graph is a 404.',
+      },
       relationship: {
         type: 'object',
         description:
@@ -517,6 +522,11 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: {
       causeEventId: { type: 'string' },
       effectEventId: { type: 'string' },
+      id: {
+        type: 'string',
+        description:
+          'Optional. The id of the link to remove. Without it the oldest link between the two events is removed. A link that is not between these two events in this graph is a 404.',
+      },
     },
     required: ['causeEventId', 'effectEventId'],
   },

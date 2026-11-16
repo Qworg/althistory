@@ -193,7 +193,8 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
         const updatedRelationship = await apiClient.causal.updateLink(
           relationship.cause_event_id,
           relationship.effect_event_id,
-          payload
+          payload,
+          relationship.id
         )
 
         // Update global state
@@ -226,7 +227,7 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
       setIsLoading(true)
 
       // Delete via API
-      await apiClient.causal.deleteLink(relationship.cause_event_id, relationship.effect_event_id)
+      await apiClient.causal.deleteLink(relationship.cause_event_id, relationship.effect_event_id, relationship.id)
       
       // Update global state
       deleteCausalRelationship(relationship.id)

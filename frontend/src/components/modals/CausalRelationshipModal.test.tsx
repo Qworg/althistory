@@ -281,7 +281,7 @@ describe('CausalRelationshipModal', () => {
         evidence: 'Strong evidence for this relationship',
         confidence: 0.9,
         relationship_type: 'direct'
-      })
+      }, 'rel1')
     })
     
     expect(mockGlobalStore.updateCausalRelationship).toHaveBeenCalledWith('rel1', {
@@ -451,7 +451,7 @@ describe('CausalRelationshipModal', () => {
     await user.click(deleteButton)
     
     await waitFor(() => {
-      expect(apiClient.causal.deleteLink).toHaveBeenCalledWith('event1', 'event2')
+      expect(apiClient.causal.deleteLink).toHaveBeenCalledWith('event1', 'event2', 'rel1')
     })
     
     expect(mockGlobalStore.deleteCausalRelationship).toHaveBeenCalledWith('rel1')
@@ -617,7 +617,7 @@ describe('CausalRelationshipModal', () => {
           relationship_type: 'direct',
           isCrossGraph: true,
           effectGraphId: 'foreign-graph-1'
-        })
+        }, 'rel1')
       })
     })
 

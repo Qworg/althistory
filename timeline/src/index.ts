@@ -6,6 +6,7 @@ import type { Server } from 'http';
 import { loadConfig, initializeDatabaseManager, getDatabaseManager } from '@/utils';
 import { initializeSchema } from '@/utils/schema';
 import { adoptUnattributedCloudData } from '@/utils/graphAttribution';
+import { migrateCausalLinkIds } from '@/services/CausalLinkIdMigration';
 import { initializeContainer, cleanupContainer, getContainer } from '@/container';
 import { apiRouter } from '@/api/routes';
 import { StreamHandler, StreamSessionManager, getStreamTokenStore, STREAM_PATH } from '@/websocket';
@@ -173,6 +174,11 @@ class Application {
       if (!this.config.localExecution.enabled) {
         await initializeSchema();
         await this.adoptLegacyCloudData(container);
+        // Name the links that predate link ids, once, before any request.
+        await migrateCausalLinkIds({
+          openSession: () => getDatabaseManager().getNeo4jSession(),
+          versioning: container.graphWriteVersioningService,
+        });
       }
 
       // Setup middleware
