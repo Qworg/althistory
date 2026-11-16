@@ -891,9 +891,17 @@ class APIClient {
         },
 
         // Switch active graph
-        switch: async (id: string): Promise<void> => {
+        /**
+         * `quiet`: the caller tells a refusal itself (the graph picker's own alert),
+         * so the client does not also raise a notice for a 429.
+         */
+        switch: async (id: string, options?: { quiet?: boolean }): Promise<void> => {
             try {
-                await this.client.post(`/graphs/${id}/activate`)
+                await this.client.post(
+                    `/graphs/${id}/activate`,
+                    undefined,
+                    options?.quiet ? ({ toldByCaller: true } as object) : undefined
+                )
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }

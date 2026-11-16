@@ -37,12 +37,12 @@ describe('GraphSelector when a switch is refused with 429', () => {
     retryAfterSeconds = 12
 
     let onRejected: ((error: unknown) => unknown) | undefined
-    const refuse = (url: string) => {
+    const refuse = (url: string, cfg: object = {}) => {
       const error = {
         isAxiosError: true,
         message: 'Request failed with status code 429',
         request: {},
-        config: { url, method: 'post' },
+        config: { url, method: 'post', ...cfg },
         response: {
           status: 429,
           data: { error: { message: 'Rate limit exceeded: 60/minute', retryAfter: retryAfterSeconds } },
@@ -61,10 +61,10 @@ describe('GraphSelector when a switch is refused with 429', () => {
         if (url === '/graphs') return Promise.resolve({ data: { success: true, data: graphs, pagination: { total: 2 } } })
         return ok(null)
       }),
-      post: vi.fn((url: string) => {
+      post: vi.fn((url: string, _data?: unknown, cfg?: object) => {
         if (url.endsWith('/activate')) {
           activateCalls += 1
-          return refuse(url)
+          return refuse(url, cfg)
         }
         return ok(null)
       }),
@@ -148,6 +148,50 @@ describe('GraphSelector when a switch is refused with 429', () => {
     // Hidden from the alert's live region, which still carries the spoken sentence.
     expect(screen.getByTestId('retry-countdown')).toHaveAttribute('aria-hidden', 'true')
     expect(screen.getByTestId('retry-spoken').textContent).toBe('Try again in about 12 seconds.')
+  })
+
+  it('shows the notice for a refused switch from anywhere else, such as the Graph Manager', async () => {
+    const { useGraphManagement } = await import('@/hooks/useGraphs')
+    const { NotificationCenter } = await import('@/components/notifications/NotificationCenter')
+    const { useGlobalStore } = await import('@/stores/globalStore')
+    useGlobalStore.setState({ errors: [] })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    // What the Graph Manager's "Switch to Graph" runs: the same hook, not quiet.
+    function ManagerButton() {
+      const { switchGraph } = useGraphManagement()
+      return <button onClick={() => switchGraph('g2')}>Switch to Graph</button>
+    }
+    render(
+      <QueryClientProvider client={client}>
+        <ManagerButton />
+        <NotificationCenter />
+      </QueryClientProvider>
+    )
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Switch to Graph' }))
+    expect(await screen.findByText(/Switching graphs was refused/)).toBeInTheDocument()
+    expect(screen.getByTestId('retry-countdown')).toHaveTextContent('Try again in 12 seconds.')
+    expect(localStorage.getItem('active_graph_id')).toBe('g1')
+  })
+
+  it('shows the notice for a refused switch from a bare useSwitchGraph button', async () => {
+    const { useSwitchGraph } = await import('@/hooks/useGraphs')
+    const { NotificationCenter } = await import('@/components/notifications/NotificationCenter')
+    const { useGlobalStore } = await import('@/stores/globalStore')
+    useGlobalStore.setState({ errors: [] })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    function OpenButton() {
+      const { mutate } = useSwitchGraph()
+      return <button onClick={() => mutate('g2')}>Open</button>
+    }
+    render(
+      <QueryClientProvider client={client}>
+        <OpenButton />
+        <NotificationCenter />
+      </QueryClientProvider>
+    )
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Open' }))
+    expect(await screen.findByText(/Switching graphs was refused/)).toBeInTheDocument()
+    expect(screen.getByTestId('retry-countdown')).toHaveTextContent('Try again in 12 seconds.')
   })
 
   it('hides the alert once the graph it could not open is the open one', async () => {

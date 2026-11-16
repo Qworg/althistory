@@ -6,6 +6,9 @@
  * arc or link edit, batch, import, ingest, generate or stream-token request is
  * shown to the person as a notice in the app's `NotificationCenter` instead of
  * failing without a word. The message says what was refused and when to retry.
+ * The one exception is a request its caller marked `toldByCaller`: the graph
+ * picker shows its own refused switch as an alert, and a notice as well would
+ * say it twice.
  */
 
 import { useGlobalStore } from '@/stores/globalStore'
@@ -21,6 +24,8 @@ export interface RefusedResponse {
 export interface RefusedRequest {
   method?: string
   url?: string
+  /** Set by a caller that shows the refusal itself. */
+  toldByCaller?: boolean
 }
 
 /** Seconds to wait, from the error body's `retryAfter` or the `Retry-After` header. */
@@ -81,12 +86,6 @@ export function isStatusPoll(request: RefusedRequest): boolean {
   return (request.method ?? 'get').toUpperCase() === 'GET' && /\/jobs\/[^/]+\/?$/.test(path)
 }
 
-/** Whether a request is a graph switch (`POST /graphs/:id/activate`). */
-export function isGraphSwitch(request: RefusedRequest): boolean {
-  const path = (request.url ?? '').split('?')[0] ?? ''
-  return /\/graphs\/[^/]+\/activate$/.test(path)
-}
-
 /** What was refused, without the wait: the identity of a notice. */
 export function refusalStem(request: RefusedRequest): string {
   return `${describeRefusedRequest(request)} was refused because too many requests were sent.`
@@ -141,9 +140,9 @@ export function noticeRateLimited(response: RefusedResponse | undefined, request
   if (response?.status !== 429) return null
   const req = request ?? {}
   if (isStatusPoll(req)) return null
-  // A refused graph switch is told by the picker's own alert; a notice here
-  // would flash up (and be announced) before the picker could replace it.
-  if (isGraphSwitch(req)) return null
+  // The picker's own switch says so itself (its alert); every other switch,
+  // from the Graph Manager, a branch dialog, a copy and so on, gets the notice.
+  if (req.toldByCaller) return null
 
   const stem = refusalStem(req)
   const wait = retryAfterSeconds(response)

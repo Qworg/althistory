@@ -42,7 +42,6 @@ describe('noticeRateLimited', () => {
     ['delete', '/causal/r1', 'Deleting the link'],
   ])('says what a refused %s %s was', async (method, url, what) => {
     expect(describeRefusedRequest({ method, url })).toBe(what)
-    if (url.endsWith('/activate')) return // told by the picker's alert; see below
     const message = noticeRateLimited(refused({}, { error: { retryAfter: 3 } }), { method, url })
     expect(message).toContain(`${what} was refused`)
     // No number in the text: the notice centre counts the wait down from retryAt.
@@ -75,8 +74,15 @@ describe('noticeRateLimited', () => {
     expect(notices[0]!.retryAt! - first.retryAt!).toBeGreaterThan(20000)
   })
 
-  it('adds no notice for a refused graph switch: the picker\'s own alert is the message', () => {
-    expect(noticeRateLimited(refused({}, { error: { retryAfter: 12 } }), { method: 'post', url: '/graphs/g2/activate' })).toBeNull()
+  it('gives a refused graph switch its notice, unless its caller says it tells the person itself', () => {
+    const message = noticeRateLimited(refused({}, { error: { retryAfter: 12 } }), { method: 'post', url: '/graphs/g2/activate' })
+    expect(message).toContain('Switching graphs was refused')
+    expect(useGlobalStore.getState().errors).toHaveLength(1)
+    useGlobalStore.setState({ errors: [] })
+    // The picker's own request.
+    expect(
+      noticeRateLimited(refused({}, { error: { retryAfter: 12 } }), { method: 'post', url: '/graphs/g2/activate', toldByCaller: true })
+    ).toBeNull()
     expect(useGlobalStore.getState().errors).toHaveLength(0)
   })
 

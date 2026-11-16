@@ -259,4 +259,71 @@ describe('useUndoableEventDelete', () => {
     expect(message).toContain('could not be restored: disk full. It is still')
     expect(message).not.toContain('..')
   })
+
+  describe('lasting notices and the graph they belong to', () => {
+    beforeEach(() => localStorage.setItem('active_graph_id', 'g1'))
+
+    it('gives each history entry its own notice, even when two events read the same', async () => {
+      createLink.mockRejectedValue(busy())
+      const record = vi.fn<(entry: EditHistoryEntry) => void>()
+      const { result } = renderHook(() => useUndoableEventDelete(record))
+      await act(() => result.current(event, [link('l1', 'e1', 'e2')]))
+      await act(() => result.current({ ...event, id: 'e5' }, [link('l5', 'e5', 'e2')]))
+      const [first, second] = [record.mock.calls[0]![0], record.mock.calls[1]![0]]
+      await first.undo()
+      await second.undo()
+      // Same description, same text; still two notices, one per entry.
+      expect(messages()).toHaveLength(2)
+      createLink.mockResolvedValue({})
+      await first.redo()
+      // The first entry's step took down only its own.
+      expect(messages()).toHaveLength(1)
+    })
+
+    it('takes down every kind of notice the entry left when its next step goes through', async () => {
+      createEvent.mockRejectedValueOnce(new Error('Internal error'))
+      const record = vi.fn<(entry: EditHistoryEntry) => void>()
+      const { result } = renderHook(() => useUndoableEventDelete(record))
+      await act(() => result.current(event, [link('l1', 'e1', 'e2')]))
+      const entry = record.mock.calls[0]![0]
+      await entry.undo()
+      expect(messages()[0]).toContain('could not be restored: Internal error')
+      createLink.mockRejectedValueOnce(new Error('not found'))
+      await entry.undo()
+      // The failure notice is gone; the "other end no longer exists" one stands.
+      expect(messages()).toHaveLength(1)
+      expect(messages()[0]).toContain('no longer exists')
+      await entry.redo()
+      expect(messages()).toHaveLength(0)
+    })
+
+    it('removes them when another graph is opened, even with no undo hook mounted', async () => {
+      createLink.mockRejectedValue(busy())
+      const record = vi.fn<(entry: EditHistoryEntry) => void>()
+      const { result, unmount } = renderHook(() => useUndoableEventDelete(record))
+      await act(() => result.current(event, [link('l1', 'e1', 'e2')]))
+      await record.mock.calls[0]![0].undo()
+      expect(messages()).toHaveLength(1)
+      unmount()
+      localStorage.setItem('active_graph_id', 'g2')
+      act(() => {
+        window.dispatchEvent(new CustomEvent('graph-switched', { detail: { graphId: 'g2' } }))
+      })
+      expect(messages()).toHaveLength(0)
+    })
+
+    it('does not post a notice for an undo that finishes after another graph was opened', async () => {
+      let release: (value: unknown) => void = () => undefined
+      createEvent.mockReturnValue(new Promise((resolve) => (release = resolve)))
+      const record = vi.fn<(entry: EditHistoryEntry) => void>()
+      const { result } = renderHook(() => useUndoableEventDelete(record))
+      await act(() => result.current(event, []))
+      createLink.mockRejectedValue(busy())
+      const pending = record.mock.calls[0]![0].undo()
+      localStorage.setItem('active_graph_id', 'g2')
+      release({ delivery: 'sent', value: { ...event, id: 'e1-restored' } })
+      await pending
+      expect(messages()).toHaveLength(0)
+    })
+  })
 })

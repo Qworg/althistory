@@ -113,7 +113,7 @@ export const GraphSelector = memo(function GraphSelector({
     switchError,
     switchTargetId,
     clearSwitchError,
-  } = useGraphManagement()
+  } = useGraphManagement({ quiet: true })
   const headVersion = useGraphHeadVersion(activeGraphId, activeGraph?.version)
   const accessProblem = useApiAccess()
 

@@ -346,11 +346,11 @@ export function useRollbackGraph() {
 /**
  * Hook to switch active graph
  */
-export function useSwitchGraph() {
+export function useSwitchGraph(options?: { quiet?: boolean }) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (id: string) => apiClient.graphs.switch(id),
+    mutationFn: (id: string) => apiClient.graphs.switch(id, { quiet: options?.quiet }),
     onSuccess: (_, id) => {
       // The server's active graph is now `id`; record that, so the reconciler
       // (useActiveGraphReconciler) does not read the old answer as a mismatch.
@@ -380,7 +380,7 @@ export function useSwitchGraph() {
 /**
  * Combined hook for graph management with common operations
  */
-export function useGraphManagement() {
+export function useGraphManagement(options?: { quiet?: boolean }) {
   const activeGraphId = useActiveGraphId()
   const { data: graphs, isLoading: isLoadingGraphs, error: graphsError } = useGraphs()
   const { data: activeGraph, isLoading: isLoadingActive } = useActiveGraph()
@@ -391,7 +391,7 @@ export function useGraphManagement() {
   const branchGraph = useBranchGraph()
   const mergeGraph = useMergeGraph()
   const rollbackGraph = useRollbackGraph()
-  const switchGraph = useSwitchGraph()
+  const switchGraph = useSwitchGraph(options)
 
   const handleSwitchGraph = useCallback((graphId: string) => {
     switchGraph.mutate(graphId)
