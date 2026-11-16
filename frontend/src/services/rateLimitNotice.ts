@@ -95,14 +95,6 @@ export function rateLimitedMessage(request: RefusedRequest): string {
   return `${refusalStem(request)} Try again shortly.`
 }
 
-/** The wait still to go, in the words a person reads; ticks down as `now` advances. */
-export function retryText(retryAt: number | undefined, now: number = Date.now()): string {
-  if (retryAt === undefined) return 'Try again in a moment.'
-  const seconds = Math.ceil((retryAt - now) / 1000)
-  if (seconds <= 0) return 'You can try again now.'
-  return `Try again in ${seconds} ${seconds === 1 ? 'second' : 'seconds'}.`
-}
-
 /** Whether an error is the API client's 429 (it carries what was refused). */
 export function isRefusal(error: unknown): boolean {
   return typeof error === 'object' && error !== null && typeof (error as { refusal?: unknown }).refusal === 'string'

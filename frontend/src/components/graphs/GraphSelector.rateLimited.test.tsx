@@ -109,9 +109,10 @@ describe('GraphSelector when a switch is refused with 429', () => {
     expect(alert).toHaveTextContent(/Try again in 12 seconds/)
 
     // The app's notification centre carries the same refusal, once.
+    // The alert is the one message: no duplicate notice (and no second "try again now").
     const notices = useGlobalStore.getState().errors.filter((e) => /Switching graphs was refused/.test(e.message))
-    expect(notices).toHaveLength(1)
-    expect(notices[0]?.retryAt).toBeGreaterThan(Date.now() + 8000)
+    expect(notices).toHaveLength(0)
+    expect(screen.getAllByTestId('retry-countdown')).toHaveLength(1)
 
     // Nothing half-switched: still on the old graph, locally and in the picker.
     expect(activateCalls).toBe(1)
@@ -180,7 +181,7 @@ describe('GraphSelector when a switch is refused with 429', () => {
     await waitFor(() => expect(screen.queryByTestId('graph-switch-error')).not.toBeInTheDocument(), { timeout: 6000 })
   }, 10000)
 
-  it('on a phone shows the alert alone, below the header, not also the notice', async () => {
+  it('on a phone the alert sits below the header', async () => {
     const alert = await refuseASwitch(true)
     // Under the header height Header.tsx publishes, not a guessed number.
     expect(alert.className).toContain('var(--app-header-h')

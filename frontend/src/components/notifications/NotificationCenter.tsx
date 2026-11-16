@@ -103,7 +103,7 @@ export function RetryCountdown({ retryAt, className }: { retryAt?: number; class
           </>
         )}
       </span>
-      <span className="sr-only" data-testid="retry-spoken">{spoken}</span>
+      <span className="sr-only" data-testid="retry-spoken">{done ? '' : spoken}</span>
       <span role="status" className="sr-only">{done ? 'You can try again now.' : ''}</span>
     </p>
   )

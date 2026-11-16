@@ -37,74 +37,67 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
       const outcome = await deleteEvent(event.id)
       if (outcome.delivery === 'queued') return
 
-      // The restored copy's id once undo has re-created the event, and the
-      // links still to be made. A restore a 429 interrupted is finished by the
-      // next undo, which re-creates neither the event nor the links already made.
+      // The id of the live copy: the original until an undo re-creates it, then
+      // the restored one. Redo deletes whichever is live.
       let currentId = event.id
-      let restoredId: string | null = null
-      let pending: CausalRelationship[] = links
-      // The lasting notice for links still missing, so a repeat replaces it.
-      let missingNotice: string | null = null
+      // The lasting notice this entry last left about links it could not restore,
+      // so a repeat replaces it instead of stacking.
+      let lastMissing: string | null = null
       const linkCount = links.length
       const description = `deleted "${event.description}"${
         linkCount ? ` and its ${linkCount} causal link${linkCount === 1 ? '' : 's'}` : ''
       }`
 
-      /** Where each missing link was going, by name where the event is in view. */
-      const nameEnds = (missing: CausalRelationship[]): string => {
-        const inView = new Map(useGlobalStore.getState().events.map((e) => [e.id, e.description]))
-        const names = missing
-          .map((link) => (link.cause_event_id === event.id ? link.effect_event_id : link.cause_event_id))
-          .map((id) => inView.get(id))
-          .filter((name): name is string => Boolean(name))
-        if (names.length === 0) return ''
-        const shown = names.slice(0, 2).map((n) => `"${n}"`)
-        const rest = missing.length - shown.length
-        const list =
-          rest > 0 ? `${shown.join(', ')}, and ${rest} more` : shown.join(shown.length === 2 ? ' and ' : ', ')
-        return ` (to ${list})`
+      /** An event's name where it is in view, or its id. */
+      const nameOf = (id: string): string => {
+        if (id === event.id) return `"${event.description}"`
+        const inView = useGlobalStore.getState().events.find((e) => e.id === id)
+        return inView ? `"${inView.description}"` : id
       }
 
-      /** A lasting notice; an identical one already showing is not added again. */
+      /**
+       * A lasting notice. An identical one already showing is removed first and
+       * the new one added, so a repeated failure is announced again instead of
+       * staying silent or stacking.
+       */
       const tell = (message: string, type: 'general' | 'network' = 'general') => {
-        if (useGlobalStore.getState().errors.some((e) => e.message === message)) return
+        const { errors, removeError } = useGlobalStore.getState()
+        for (const e of errors) if (e.message === message) removeError(e.id)
         addError({ type, message })
       }
 
       record({
         description,
+        // One step: the event, then each link. A 429 partway leaves the event
+        // back and a notice that names what is missing; the entry is done.
         undo: async () => {
           try {
-            if (restoredId === null) {
-              const created = await createEvent({
-                description: event.description,
-                actor: event.actor,
-                target: event.target,
-                timestamp: event.timestamp,
-                metadata: event.metadata,
-              })
-              if (created.delivery === 'queued') {
-                addError({ type: 'network', message: 'You are offline, so the deletion cannot be undone yet.' })
-                return false
-              }
-              restoredId = created.value.id
-              currentId = restoredId
+            const created = await createEvent({
+              description: event.description,
+              actor: event.actor,
+              target: event.target,
+              timestamp: event.timestamp,
+              metadata: event.metadata,
+            })
+            if (created.delivery === 'queued') {
+              addError({ type: 'network', message: 'You are offline, so the deletion cannot be undone yet.' })
+              return false
             }
-            const newId = restoredId
+            const restoredId = created.value.id
+            currentId = restoredId
             let lostLinks = 0
-            // Links the server refused for load (429). They are not made yet; the
-            // entry stays on the undo stack and the next undo makes them. After the
-            // first refusal no more are sent: the rest would be refused too.
+            // After the first refusal (429) no more are sent: the rest would be
+            // refused too. They are named in the notice, not retried.
             const refused: CausalRelationship[] = []
-            for (const link of pending) {
+            for (const link of links) {
               if (refused.length > 0) {
                 refused.push(link)
                 continue
               }
               try {
                 await createLink({
-                  causeId: link.cause_event_id === event.id ? newId : link.cause_event_id,
-                  effectId: link.effect_event_id === event.id ? newId : link.effect_event_id,
+                  causeId: link.cause_event_id === event.id ? restoredId : link.cause_event_id,
+                  effectId: link.effect_event_id === event.id ? restoredId : link.effect_event_id,
                   relationship: {
                     weight: link.weight,
                     evidence: link.evidence,
@@ -121,25 +114,25 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
                 }
               }
             }
-            pending = refused
             if (lostLinks > 0) {
               tell(
                 `"${event.description}" is back, but ${lostLinks} of its causal links could not be restored: the event at the other end no longer exists.`
               )
             }
             if (refused.length > 0) {
-              const message = `"${event.description}" is back, but ${refused.length} of its causal links weren't restored yet because the server is busy${nameEnds(
-                refused
-              )}. Press Undo again once the wait is over to restore them.`
-              missingNotice = message
-              tell(message)
-              // Unfinished: the entry stays on the undo stack for the rest.
-              return false
-            }
-            if (missingNotice !== null) {
-              const { errors, removeError } = useGlobalStore.getState()
-              for (const e of errors) if (e.message === missingNotice) removeError(e.id)
-              missingNotice = null
+              const list = refused
+                .map((link) => `${nameOf(link.cause_event_id)} \u2192 ${nameOf(link.effect_event_id)}`)
+                .join(', ')
+              const count =
+                refused.length === 1 ? '1 of its causal links wasn\'t' : `${refused.length} of its causal links weren't`
+              if (lastMissing !== null) {
+                const { errors, removeError } = useGlobalStore.getState()
+                for (const e of errors) if (e.message === lastMissing) removeError(e.id)
+              }
+              lastMissing = `"${event.description}" is back, but ${count} restored because the server was busy: ${list}. Create ${
+                refused.length === 1 ? 'it' : 'them'
+              } again with Create Link once the wait is over.`
+              tell(lastMissing)
             }
             return true
           } catch (error) {
@@ -155,11 +148,7 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
         redo: async () => {
           try {
             const again = await deleteEvent(currentId)
-            if (again.delivery !== 'sent') return false
-            // Gone again: the next undo re-creates it from the snapshot.
-            restoredId = null
-            pending = links
-            return true
+            return again.delivery === 'sent'
           } catch (error) {
             tell(
               `"${event.description}" could not be deleted again: ${

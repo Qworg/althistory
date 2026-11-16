@@ -5,7 +5,6 @@ import {
   retryAfterSeconds,
   describeRefusedRequest,
   reportApiError,
-  retryText,
 } from './rateLimitNotice'
 
 const refused = (headers: Record<string, string> = {}, data: unknown = {}) => ({ status: 429, headers, data })
@@ -73,14 +72,6 @@ describe('noticeRateLimited', () => {
     expect(notices[0]?.id).toBe(first.id)
     expect(notices[0]?.message).toBe(first.message)
     expect(notices[0]!.retryAt! - first.retryAt!).toBeGreaterThan(20000)
-  })
-
-  it('counts the wait down in words', () => {
-    const now = 1_000_000
-    expect(retryText(now + 12_000, now)).toBe('Try again in 12 seconds.')
-    expect(retryText(now + 1_000, now)).toBe('Try again in 1 second.')
-    expect(retryText(now - 1, now)).toBe('You can try again now.')
-    expect(retryText(undefined, now)).toBe('Try again in a moment.')
   })
 
   it('does not notify for a job-status poll, and words it as a check if it is ever shown', () => {

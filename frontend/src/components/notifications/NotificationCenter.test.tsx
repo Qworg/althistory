@@ -118,6 +118,8 @@ describe('NotificationCenter', () => {
         vi.advanceTimersByTime(3000)
       })
       expect(status()?.textContent).toBe('You can try again now.')
+      // The earlier spoken sentence is gone, not left to be re-read.
+      expect(spoken()).toBe('')
       // Nothing left ticking once it has run out.
       expect(vi.getTimerCount()).toBe(0)
     })
