@@ -580,6 +580,30 @@ describe('ImportService', () => {
       );
     });
 
+    it.each([
+      ['missing', undefined],
+      ['empty', ''],
+      ['whitespace', '  '],
+    ])('should warn, not fail, about a relationship whose evidence is %s (an export from before it was required)', async (_name, evidence) => {
+      const old = createValidExport();
+      const link: Record<string, unknown> = { ...old.data.causalRelationships[0] };
+      if (evidence === undefined) delete link.evidence;
+      else link.evidence = evidence;
+      old.data.causalRelationships = [link as unknown as (typeof old.data.causalRelationships)[number]];
+
+      const result = await importService.validateFormat(old);
+
+      expect(result.valid).toBe(true);
+      expect(result.warnings).toContainEqual(
+        expect.objectContaining({ code: 'MISSING_EVIDENCE', path: '$.data.causalRelationships[0].evidence' })
+      );
+    });
+
+    it('should not warn about a relationship that has evidence', async () => {
+      const result = await importService.validateFormat(createValidExport());
+      expect(result.warnings.filter((w) => w.code === 'MISSING_EVIDENCE')).toEqual([]);
+    });
+
     it('should warn about missing provenance', async () => {
       const exportWithoutProvenance = createValidExport();
       delete exportWithoutProvenance.provenance;
@@ -777,6 +801,23 @@ describe('ImportService', () => {
         pressures: 0,
       });
       expect(result.errors).toHaveLength(0);
+    });
+
+    it('keeps a link exported without evidence, storing the placeholder and reporting it', async () => {
+      const old = createValidExport();
+      const link: Record<string, unknown> = { ...old.data.causalRelationships[0] };
+      delete link.evidence;
+      old.data.causalRelationships = [link as unknown as (typeof old.data.causalRelationships)[number]];
+
+      const result = await importService.executeImport(old, { mode: 'create-new', conflictResolution: 'skip' });
+
+      expect(result.success).toBe(true);
+      expect(result.imported.relationships).toBe(1);
+      expect(result.warnings).toContainEqual(expect.objectContaining({ code: 'MISSING_EVIDENCE' }));
+      const repository = new GraphRepository({ dataDir: testDataDir });
+      await repository.initialize();
+      const data = await repository.checkout(result.graphId);
+      expect(data.relationships['rel-1']).toMatchObject({ evidence: '(no evidence recorded)' });
     });
 
     it('should include warnings in successful result', async () => {

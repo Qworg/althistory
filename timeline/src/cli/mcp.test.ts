@@ -250,6 +250,40 @@ describe('CLI Phase 6: Model Context Protocol (MCP) Server & Tooling', () => {
     });
   });
 
+  describe('link evidence (#31)', () => {
+    const link = (args: Record<string, unknown>) =>
+      server.handleMessage(
+        JSON.stringify({ jsonrpc: '2.0', id: 31, method: 'tools/call', params: { name: 'althistory_link_events', arguments: args } })
+      );
+
+    it('marks evidence required in the tool schema', () => {
+      const tool = MCP_TOOLS.find((t) => t.name === 'althistory_link_events')!;
+      expect((tool.inputSchema as { required: string[] }).required).toEqual(
+        expect.arrayContaining(['graphId', 'causeId', 'effectId', 'evidence'])
+      );
+    });
+
+    it.each([['missing', {}], ['empty', { evidence: '' }], ['whitespace', { evidence: '   ' }]])(
+      'refuses a link whose evidence is %s, and writes nothing',
+      async (_name, extra) => {
+        const a = await engine.createEvent(testGraphId, { description: 'A', timestamp: '1700-01-01T00:00:00Z' });
+        const b = await engine.createEvent(testGraphId, { description: 'B', timestamp: '1701-01-01T00:00:00Z' });
+        const response = JSON.parse((await link({ graphId: testGraphId, causeId: a.id, effectId: b.id, ...extra }))!);
+        expect(response.result.isError).toBe(true);
+        expect(response.result.content[0].text).toMatch(/evidence/);
+        expect(await engine.listCausalLinks(testGraphId)).toEqual([]);
+      }
+    );
+
+    it('stores the evidence it is given', async () => {
+      const a = await engine.createEvent(testGraphId, { description: 'A', timestamp: '1700-01-01T00:00:00Z' });
+      const b = await engine.createEvent(testGraphId, { description: 'B', timestamp: '1701-01-01T00:00:00Z' });
+      await link({ graphId: testGraphId, causeId: a.id, effectId: b.id, evidence: 'A chronicle says so' });
+      const links = await engine.listCausalLinks(testGraphId);
+      expect(links.map((l) => l.reasoning)).toEqual(['A chronicle says so']);
+    });
+  });
+
   describe('epochYear in the tool schemas', () => {
     it('gives an example of a BCE epoch that names the year it says (stored years are astronomical)', () => {
       const described = MCP_TOOLS.flatMap((tool) => {

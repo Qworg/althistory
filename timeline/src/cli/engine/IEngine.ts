@@ -80,6 +80,7 @@ export interface IEngine {
   assignEventToArc(graphId: string, eventId: string, arcId: string): Promise<EventDto>;
 
   // Causal Relationships
+  /** `reasoning` is the link's evidence and is required: a missing or blank one is refused. */
   createCausalLink(graphId: string, data: { causeId: string; effectId: string; weight?: number; type?: string; reasoning?: string }): Promise<CausalRelationshipDto>;
   listCausalLinks(graphId: string): Promise<CausalRelationshipDto[]>;
   deleteCausalLink(graphId: string, causeId: string, effectId: string): Promise<void>;

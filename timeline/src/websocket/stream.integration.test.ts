@@ -1096,6 +1096,40 @@ describe('WebSocket streaming (requirement 16)', () => {
       }
     });
 
+    it.each([
+      ['missing', {}],
+      ['blank', { evidence: '   ' }],
+    ])('refuses a relationship whose evidence is %s, and writes no link (#31)', async (_name, extra) => {
+      const scoped = await container.graphScopedRepositories(graphId);
+      const cause = await scoped.eventRepository.create({
+        description: 'Cause without evidence',
+        actor: 'Cause Actor',
+        target: 'Target',
+        timestamp: new Date('1450-01-01T00:00:00.000Z'),
+      });
+      const effect = await scoped.eventRepository.create({
+        description: 'Effect without evidence',
+        actor: 'Effect Actor',
+        target: 'Target',
+        timestamp: new Date('1455-01-01T00:00:00.000Z'),
+      });
+
+      const token = await requestToken(writerKey);
+      const harness = await connectAccepted(token);
+      try {
+        sendJson(harness, {
+          type: 'relationship',
+          requestId: 'rel-no-evidence',
+          data: { causeEventId: cause.id, effectEventId: effect.id, weight: 0.7, confidence: 0.9, ...extra },
+        });
+        const ack = await harness.next();
+        expect(ack).toMatchObject({ type: 'ack', success: false, code: 'INVALID_MESSAGE', requestId: 'rel-no-evidence' });
+        expect(String(ack.error)).toMatch(/evidence is required/);
+      } finally {
+        await harness.close();
+      }
+    });
+
     it('acks a repository failure with success:false and creates nothing', async () => {
       // Unlike the missing-actor test above, this fails AFTER input conversion
       // and inside the repository call, which is where a swallowed error would

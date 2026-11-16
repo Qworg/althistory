@@ -23,6 +23,7 @@ import { IArc } from '@/models/Arc';
 import type { EventRepository } from '@/repositories/EventRepository';
 import type { ArcRepository } from '@/repositories/ArcRepository';
 import { CausalService, StoredCausalRelationship } from '@/services/CausalService';
+import { hasLinkEvidence, LINK_EVIDENCE_REQUIRED } from '@/utils/linkEvidence';
 import { createLogger } from '@/utils/logger';
 import type { BatchLiveState, BatchStep } from '@/services/GraphWriteVersioningService';
 
@@ -244,7 +245,8 @@ interface BatchRelationshipRequest {
     cause_event_id: string;
     effect_event_id: string;
     weight?: number;
-    evidence?: string;
+    /** Required: a non-empty string. A link without it is refused with a 400. */
+    evidence: string;
     confidence?: number;
     relationship_type?: 'direct' | 'indirect' | 'contributory';
   }>;
@@ -548,6 +550,17 @@ batchRoutes.post(
       return res.status(400).json(createBatchError('VALIDATION_ERROR', validationError));
     }
 
+    // Evidence is required of every link and cannot be waived by `validation`
+    // or `onError`: the whole batch is refused, with nothing written.
+    const evidenceProblems = linksWithoutEvidence(request.relationships);
+    if (evidenceProblems.length > 0) {
+      return res.status(400).json(createBatchError(
+        'VALIDATION_ERROR',
+        `${LINK_EVIDENCE_REQUIRED} (relationships at index ${evidenceProblems.join(', ')})`,
+        { failedIndex: evidenceProblems[0] }
+      ));
+    }
+
     const validation = request.validation || 'strict';
     const onError = request.onError || 'abort';
     const { relationships } = request;
@@ -602,7 +615,7 @@ batchRoutes.post(
           effectEvent,
           {
             weight: relData.weight || 0.5,
-            evidence: relData.evidence || '',
+            evidence: relData.evidence,
             confidence: relData.confidence || 0.5,
             relationship_type: relData.relationship_type || 'direct',
           }
@@ -749,6 +762,17 @@ batchRoutes.post(
       ));
     }
 
+    // Every link a transaction creates needs evidence: refuse the lot before
+    // the first step runs, so nothing is written and nothing needs undoing.
+    const evidenceProblems = createLinksWithoutEvidence(request.operations);
+    if (evidenceProblems.length > 0) {
+      return res.status(400).json(createBatchError(
+        'VALIDATION_ERROR',
+        `${LINK_EVIDENCE_REQUIRED} (create_relationship at operation index ${evidenceProblems.join(', ')})`,
+        { failedIndex: evidenceProblems[0] }
+      ));
+    }
+
     const atomic = request.atomic !== false; // Default to atomic
     const { operations } = request;
 
@@ -837,7 +861,7 @@ batchRoutes.post(
               cause_event_id: string;
               effect_event_id: string;
               weight?: number;
-              evidence?: string;
+              evidence: string;
               confidence?: number;
               relationship_type?: 'direct' | 'indirect' | 'contributory';
             };
@@ -847,7 +871,7 @@ batchRoutes.post(
             if (!effectEvent) throw new Error(`Effect event not found: ${relData.effect_event_id}`);
             const stored = await causalService.createCausalLink(causeEvent, effectEvent, {
               weight: relData.weight || 0.5,
-              evidence: relData.evidence || '',
+              evidence: relData.evidence,
               confidence: relData.confidence || 0.5,
               relationship_type: relData.relationship_type || 'direct',
             });
@@ -1083,6 +1107,30 @@ function validateArcData(data: Partial<IArc>): string[] {
   }
 
   return warnings;
+}
+
+/** The indices of the relationships in a batch that carry no usable evidence. */
+function linksWithoutEvidence(relationships: unknown): number[] {
+  if (!Array.isArray(relationships)) return [];
+  const missing: number[] = [];
+  relationships.forEach((rel: unknown, index: number) => {
+    const evidence = typeof rel === 'object' && rel !== null ? (rel as { evidence?: unknown }).evidence : undefined;
+    if (!hasLinkEvidence(evidence)) missing.push(index);
+  });
+  return missing;
+}
+
+/** The indices of the `create_relationship` operations of a transaction that carry no usable evidence. */
+function createLinksWithoutEvidence(operations: unknown): number[] {
+  if (!Array.isArray(operations)) return [];
+  const missing: number[] = [];
+  operations.forEach((op: unknown, index: number) => {
+    if (typeof op !== 'object' || op === null || (op as { type?: unknown }).type !== 'create_relationship') return;
+    const data = (op as { data?: unknown }).data;
+    const evidence = typeof data === 'object' && data !== null ? (data as { evidence?: unknown }).evidence : undefined;
+    if (!hasLinkEvidence(evidence)) missing.push(index);
+  });
+  return missing;
 }
 
 function validateRelationshipData(data: {

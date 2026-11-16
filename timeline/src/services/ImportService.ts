@@ -15,6 +15,7 @@
  * - Provenance recording for imported entities
  */
 
+import { hasLinkEvidence, importedEvidence, NO_EVIDENCE_PLACEHOLDER } from '@/utils/linkEvidence';
 import { GraphRepository } from '../repositories/GraphRepository';
 import {
   type WorldCalendarSet,
@@ -100,6 +101,7 @@ export type ImportWarningCode =
   | 'FUTURE_DATE'
   | 'MISSING_PROVENANCE'
   | 'LOW_CONFIDENCE'
+  | 'MISSING_EVIDENCE'
   | 'DEPRECATED_FIELD'
   | 'EMPTY_COLLECTION'
   | 'INVALID_VALUE'
@@ -1267,6 +1269,16 @@ export class ImportService {
           path: `${path}.confidence`,
           message: `Low confidence relationship: ${r.confidence}`,
           code: 'LOW_CONFIDENCE',
+        });
+      }
+
+      // A link made now always has evidence. One exported before that rule
+      // may not: it is still imported, with a placeholder, and reported here.
+      if (!hasLinkEvidence(r.evidence)) {
+        warnings.push({
+          path: `${path}.evidence`,
+          message: `Relationship has no evidence; it is imported with "${NO_EVIDENCE_PLACEHOLDER}"`,
+          code: 'MISSING_EVIDENCE',
         });
       }
 
@@ -2735,6 +2747,8 @@ export class ImportService {
           data: {
             ...sanitizedRel,
             id: newId,
+            // A link exported without evidence is kept, marked with a placeholder.
+            evidence: importedEvidence(sanitizedRel.evidence).evidence,
             cause_event_id: causeEventId,
             effect_event_id: effectEventId,
             // Preserve cross-graph IDs

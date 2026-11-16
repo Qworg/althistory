@@ -91,6 +91,7 @@
  *     reading.
  */
 
+import { LINK_EVIDENCE_REQUIRED, readLinkEvidence } from '@/utils/linkEvidence';
 import { type WorldCalendarSet, storedCalendarSet, toInstant } from '@althistory/calendar';
 import { type RequestTime, newDateMetadata, readRequestTime } from '../api/worldDates';
 import type { IncomingMessage, Server as HttpServer } from 'http';
@@ -1961,10 +1962,8 @@ function toCreateCausalRelationshipInput(
   const effectEventId = readNonEmptyString(data, 'effect_event_id') ?? readNonEmptyString(data, 'effectEventId');
   const weight = typeof data.weight === 'number' && !Number.isNaN(data.weight) ? data.weight : 0.5;
   const confidence = typeof data.confidence === 'number' && !Number.isNaN(data.confidence) ? data.confidence : 0.8;
-  const evidence =
-    readNonEmptyString(data, 'evidence') ??
-    readNonEmptyString(data, 'reasoning') ??
-    'Streamed relationship';
+  // Required, as at every door: `reasoning` is accepted as an older name for it.
+  const evidence = readLinkEvidence(data.evidence) ?? readLinkEvidence(data.reasoning);
   const rawType = typeof data.relationship_type === 'string' ? data.relationship_type : 'direct';
   const relationshipType =
     rawType === 'direct' || rawType === 'indirect' || rawType === 'contributory'
@@ -1977,6 +1976,9 @@ function toCreateCausalRelationshipInput(
       ...(!effectEventId ? ['effect_event_id'] : []),
     ];
     return { ok: false, error: `Missing required fields: ${missing.join(', ')}` };
+  }
+  if (evidence === undefined) {
+    return { ok: false, error: LINK_EVIDENCE_REQUIRED };
   }
 
   return {

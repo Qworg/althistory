@@ -118,7 +118,7 @@ present only when the graph has any.
 | `cause_event_id` | string | yes | Must name an event in this document, or one in `causeGraphId`. |
 | `effect_event_id` | string | yes | Same. |
 | `weight` | number | yes | Strength, `0..1`. |
-| `evidence` | string | yes | Why the link is claimed. Non-empty. |
+| `evidence` | string | yes | Why the link is claimed. Non-empty. A document from before evidence was required may hold a link without it: the importers keep that link, store `(no evidence recorded)` and warn. |
 | `confidence` | number | yes | Confidence, `0..1`. |
 | `relationship_type` | `"direct"` \| `"indirect"` \| `"contributory"` | yes | The kind of link. |
 | `sourceRef` | string? | no | Provenance. |

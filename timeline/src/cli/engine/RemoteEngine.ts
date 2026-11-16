@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
+import { LINK_EVIDENCE_REQUIRED, readLinkEvidence } from '@/utils/linkEvidence';
 import { MAX_AXIS_MS, MIN_AXIS_MS, datePrecisionMetadata, isoOfAxisTime, storedCalendarSet, toInstant } from '@althistory/calendar';
 import type { CalendarInput } from '../../models/Graph';
 import { needsCalendar, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
@@ -744,6 +745,9 @@ export class RemoteEngine implements IEngine {
     graphId: string,
     data: { causeId: string; effectId: string; weight?: number; type?: string; reasoning?: string }
   ): Promise<CausalRelationshipDto> {
+    // Every link says why: refused here, as the daemon would refuse it.
+    const evidence = readLinkEvidence(data.reasoning);
+    if (evidence === undefined) throw new ValidationErrorCLI(LINK_EVIDENCE_REQUIRED);
     try {
       const res = await this.client.post(
         '/api/causal/link',
@@ -754,7 +758,7 @@ export class RemoteEngine implements IEngine {
             type: readRelationshipType(data.type),
             strength: data.weight ?? 1,
             confidence: 1,
-            evidence: data.reasoning || 'Observed historical causality',
+            evidence,
           },
         },
         { headers: this.graphHeaders(graphId) }

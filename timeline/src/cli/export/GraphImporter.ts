@@ -5,6 +5,7 @@ import { ServiceContainer } from '@/container';
 import { CausalRelationshipType } from '@/models/relationships';
 import { ImportResultDto } from '../types';
 import { ValidationErrorCLI } from '../utils/exitCodes';
+import { importedEvidence, NO_EVIDENCE_PLACEHOLDER } from '@/utils/linkEvidence';
 
 /**
  * The calendar an export carries. A field that does not check out is dropped
@@ -222,6 +223,9 @@ export class GraphImporter {
 
     // 3. Process Causal Relationships
     const existingRels = await scoped.causalService.getAllRelationships();
+    // Links the export holds without evidence (an old export): kept, with a
+    // placeholder, and counted in one warning rather than failing the import.
+    let linksWithoutEvidence = 0;
     for (const relData of rels) {
       let causeId = String(relData.cause_event_id || '');
       let effectId = String(relData.effect_event_id || '');
@@ -241,6 +245,7 @@ export class GraphImporter {
         (r) => r.cause_event_id === causeId && r.effect_event_id === effectId
       );
 
+      const linkEvidence = importedEvidence(relData.evidence);
       const relType: CausalRelationshipType =
         relData.relationship_type === 'indirect' || relData.relationship_type === 'contributory'
           ? relData.relationship_type
@@ -257,10 +262,11 @@ export class GraphImporter {
             await scoped.causalService.createCausalLink(causeExists, effectExists, {
               weight: typeof relData.weight === 'number' ? relData.weight : 0.8,
               confidence: typeof relData.confidence === 'number' ? relData.confidence : 0.8,
-              evidence: String(relData.evidence || 'Imported causal relationship'),
+              evidence: linkEvidence.evidence,
               relationship_type: relType,
             });
             imported.relationships++;
+            if (linkEvidence.placeholder) linksWithoutEvidence++;
           } catch {
             skipped.relationships++;
           }
@@ -273,15 +279,22 @@ export class GraphImporter {
           await scoped.causalService.createCausalLink(causeExists, effectExists, {
             weight: typeof relData.weight === 'number' ? relData.weight : 0.8,
             confidence: typeof relData.confidence === 'number' ? relData.confidence : 0.8,
-            evidence: String(relData.evidence || 'Imported causal relationship'),
+            evidence: linkEvidence.evidence,
             relationship_type: relType,
           });
           imported.relationships++;
+          if (linkEvidence.placeholder) linksWithoutEvidence++;
         } catch {
           conflicts++;
           skipped.relationships++;
         }
       }
+    }
+
+    if (linksWithoutEvidence > 0) {
+      warnings.push(
+        `${linksWithoutEvidence} imported ${linksWithoutEvidence === 1 ? 'link has' : 'links have'} no evidence in the file and ${linksWithoutEvidence === 1 ? 'was' : 'were'} stored with "${NO_EVIDENCE_PLACEHOLDER}"`
+      );
     }
 
     return {

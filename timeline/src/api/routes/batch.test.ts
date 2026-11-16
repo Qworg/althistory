@@ -362,7 +362,7 @@ describe('Batch Routes', () => {
         .send({
           graphId: 'test-graph',
           relationships: [
-            { cause_event_id: 'evt-1', effect_event_id: 'evt-2' },
+            { cause_event_id: 'evt-1', effect_event_id: 'evt-2', evidence: 'Seen' },
           ],
         })
         .expect(201);
@@ -378,7 +378,7 @@ describe('Batch Routes', () => {
         .post('/api/batch/relationships')
         .set('X-API-Key', 'valid-write-key')
         .set('X-Graph-Id', 'test-graph')
-        .send({ graphId: 'test-graph', relationships: [{ cause_event_id: 'evt-1', effect_event_id: 'evt-2' }] })
+        .send({ graphId: 'test-graph', relationships: [{ cause_event_id: 'evt-1', effect_event_id: 'evt-2', evidence: 'Seen' }] })
         .expect(201);
 
       // The response keeps its documented key (and rollback reads it)...
@@ -397,11 +397,45 @@ describe('Batch Routes', () => {
         .set('X-Graph-Id', 'test-graph')
         .send({
           graphId: 'test-graph',
-          operations: [{ type: 'create_relationship', data: { cause_event_id: 'evt-1', effect_event_id: 'evt-2' } }],
+          operations: [{ type: 'create_relationship', data: { cause_event_id: 'evt-1', effect_event_id: 'evt-2', evidence: 'Seen' } }],
         });
 
       const entities = publish.mock.calls.flatMap((call) => call[1].entities);
       expect(entities).toEqual([{ type: 'relationship', id: 'rel-real-2' }]);
+    });
+
+    it.each([
+      ['missing', {}],
+      ['empty', { evidence: '' }],
+      ['whitespace', { evidence: '  \n' }],
+    ])('refuses a batch with a link whose evidence is %s, before anything is written', async (_name, extra) => {
+      const response = await request(app)
+        .post('/api/batch/relationships')
+        .set('X-API-Key', 'valid-write-key')
+        .set('X-Graph-Id', 'test-graph')
+        .send({
+          graphId: 'test-graph',
+          relationships: [
+            { cause_event_id: 'evt-1', effect_event_id: 'evt-2', evidence: 'Seen' },
+            { cause_event_id: 'evt-2', effect_event_id: 'evt-3', ...extra },
+          ],
+        })
+        .expect(400);
+
+      expect(response.body.error.code).toBe('VALIDATION_ERROR');
+      expect(response.body.error.message).toMatch(/evidence is required/);
+      expect(response.body.error.message).toContain('index 1');
+      expect(causalServiceMock.createCausalLink).not.toHaveBeenCalled();
+    });
+
+    it('does not let validation: skip waive the evidence', async () => {
+      await request(app)
+        .post('/api/batch/relationships')
+        .set('X-API-Key', 'valid-write-key')
+        .set('X-Graph-Id', 'test-graph')
+        .send({ graphId: 'test-graph', validation: 'skip', onError: 'continue', relationships: [{ cause_event_id: 'evt-1', effect_event_id: 'evt-2' }] })
+        .expect(400);
+      expect(causalServiceMock.createCausalLink).not.toHaveBeenCalled();
     });
 
     it('should fail for non-existent events', async () => {
@@ -414,12 +448,40 @@ describe('Batch Routes', () => {
         .send({
           graphId: 'test-graph',
           relationships: [
-            { cause_event_id: 'non-existent', effect_event_id: 'also-missing' },
+            { cause_event_id: 'non-existent', effect_event_id: 'also-missing', evidence: 'Seen' },
           ],
         })
         .expect(400);
 
       expect(response.body.error.message).toContain('not found');
+    });
+  });
+
+  describe('POST /api/batch/transaction: link evidence (#31)', () => {
+    it.each([
+      ['missing', undefined],
+      ['empty', ''],
+      ['whitespace', '   '],
+    ])('refuses a transaction whose create_relationship has %s evidence, before any step runs', async (_name, evidence) => {
+      const data: Record<string, unknown> = { cause_event_id: 'evt-1', effect_event_id: 'evt-2' };
+      if (evidence !== undefined) data.evidence = evidence;
+      const response = await request(app)
+        .post('/api/batch/transaction')
+        .set('X-API-Key', 'valid-write-key')
+        .set('X-Graph-Id', 'test-graph')
+        .send({
+          graphId: 'test-graph',
+          operations: [
+            { type: 'create_event', data: { description: 'Event', actor: 'A', target: 'B', timestamp: '1914-06-28T00:00:00.000Z' } },
+            { type: 'create_relationship', data },
+          ],
+        })
+        .expect(400);
+
+      expect(response.body.error.message).toMatch(/evidence is required/);
+      expect(response.body.error.message).toContain('index 1');
+      expect(causalServiceMock.createCausalLink).not.toHaveBeenCalled();
+      expect(mockEventRepository.create).not.toHaveBeenCalled();
     });
   });
 

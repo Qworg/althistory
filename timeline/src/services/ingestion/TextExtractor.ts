@@ -24,6 +24,7 @@
  * reviewer can fill the field and select it.
  */
 
+import { hasLinkEvidence } from '@/utils/linkEvidence';
 import { DataSource } from '../ExportService';
 import { LLMClient } from '../llm/LLMClient';
 import { newTempId } from './ids';
@@ -125,10 +126,13 @@ export class TextExtractor implements Extractor<TextExtractionInput> {
     try {
       const suggested = await this.llmClient.suggestRelationships(events, context);
       const eventIds = new Set(events.map((event) => event.tempId));
+      // A link the model gave no reason for has no evidence, and a link needs
+      // evidence (utils/linkEvidence): it is not suggested.
       return suggested.filter(
         (relationship) =>
           eventIds.has(relationship.causeEventTempId) &&
-          eventIds.has(relationship.effectEventTempId)
+          eventIds.has(relationship.effectEventTempId) &&
+          hasLinkEvidence(relationship.reasoning)
       );
     } catch {
       return [];

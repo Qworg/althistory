@@ -190,7 +190,7 @@ describe('DirectEngine auto-repair of an inverted causal link', () => {
 
     // The link is written the right way round and the earlier event is then
     // moved after the later one, which is how a paradox reaches the store.
-    await engine.createCausalLink(graphId, { causeId: earlier.id, effectId: later.id });
+    await engine.createCausalLink(graphId, { reasoning: 'Test evidence', causeId: earlier.id, effectId: later.id });
     await engine.updateEvent(graphId, earlier.id, { timestamp: '1980-01-01T00:00:00Z' });
 
     const before = await engine.validateGraph(graphId);

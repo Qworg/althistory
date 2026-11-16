@@ -263,4 +263,69 @@ describe('causal route graph scoping', () => {
       .expect(400);
     expect(response.body.error.message).toMatch(/type \(or relationship_type\)/);
   });
+  describe('evidence is required (#31)', () => {
+    async function pair(): Promise<{ graphId: string; cause: Event; effect: Event }> {
+      const graph = await container.graphRepository.create({ name: 'Graph' });
+      const cause = await seedEvent(graph.id, 'Cause', 'actor', new Date('2020-01-01T00:00:00Z'));
+      const effect = await seedEvent(graph.id, 'Effect', 'actor', new Date('2020-01-02T00:00:00Z'));
+      return { graphId: graph.id, cause, effect };
+    }
+
+    it.each([
+      ['missing', undefined],
+      ['empty', ''],
+      ['whitespace', '   \n\t'],
+      ['not a string', 7],
+    ])('refuses a new link whose evidence is %s, with a clear 400', async (_name, evidence) => {
+      const { graphId, cause, effect } = await pair();
+      const relationship: Record<string, unknown> = { type: 'direct', strength: 0.8, confidence: 0.9 };
+      if (evidence !== undefined) relationship.evidence = evidence;
+
+      const response = await request(app)
+        .post('/api/causal/link')
+        .set('X-Graph-Id', graphId)
+        .send({ causeEventId: cause.id, effectEventId: effect.id, relationship })
+        .expect(400);
+      expect(response.body.error.message).toMatch(/evidence is required/);
+
+      const listed = await request(app).get('/api/causal/relationships').set('X-Graph-Id', graphId).expect(200);
+      expect(listed.body.data).toEqual([]);
+    });
+
+    it('returns the id the link goes by', async () => {
+      const { graphId, cause, effect } = await pair();
+      const created = await request(app)
+        .post('/api/causal/link')
+        .set('X-Graph-Id', graphId)
+        .send({ causeEventId: cause.id, effectEventId: effect.id, relationship: RELATIONSHIP })
+        .expect(201);
+      const listed = await request(app).get('/api/causal/relationships').set('X-Graph-Id', graphId).expect(200);
+      expect(created.body.data.relationship.id).toBe(listed.body.data[0].id);
+    });
+
+    it('refuses an update that blanks the evidence, and keeps a change that does not', async () => {
+      const { graphId, cause, effect } = await pair();
+      await request(app)
+        .post('/api/causal/link')
+        .set('X-Graph-Id', graphId)
+        .send({ causeEventId: cause.id, effectEventId: effect.id, relationship: { ...RELATIONSHIP, evidence: 'A letter' } })
+        .expect(201);
+
+      for (const evidence of ['', '  ', null]) {
+        const refused = await request(app)
+          .put('/api/causal/link')
+          .set('X-Graph-Id', graphId)
+          .send({ causeEventId: cause.id, effectEventId: effect.id, relationship: { evidence } })
+          .expect(400);
+        expect(refused.body.error.message).toMatch(/evidence is required/);
+      }
+      await request(app)
+        .put('/api/causal/link')
+        .set('X-Graph-Id', graphId)
+        .send({ causeEventId: cause.id, effectEventId: effect.id, relationship: { weight: 0.3 } })
+        .expect(200);
+      const listed = await request(app).get('/api/causal/relationships').set('X-Graph-Id', graphId).expect(200);
+      expect(listed.body.data[0]).toMatchObject({ evidence: 'A letter', weight: 0.3 });
+    });
+  });
 });
