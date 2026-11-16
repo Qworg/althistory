@@ -29,7 +29,7 @@ through the app, so `--direct` is never needed beside one.
 | `status` | Reports the health and the execution mode. |
 | `graph list\|create\|info\|calendar\|branch\|merge\|diff\|rollback\|delete` | Manages the graphs. `calendar` gives a graph an invented world's calendar, or removes it with `--clear`. |
 | `event add\|list\|get\|update\|delete` | Manages the events of a graph. |
-| `arc create\|list\|get\|delete\|assign` | Manages the narrative arcs. `assign` puts an event inside an arc. |
+| `arc create\|list\|get\|delete\|assign` | Manages the narrative arcs. `assign` puts an event inside an arc. `delete` keeps the arc's child arcs: they move to its parent (or the top) and its events stay, unassigned. |
 | `causal link\|unlink\|list\|paths` | Manages the causal links and finds the paths between two events. |
 | `ingest text\|url\|wikidata` | Extracts events from a text, a page or Wikidata. |
 | `generate timeline\|branch\|expand\|simulate` | Generates an alternate history or an invented world, a branch, an expansion or a simulation. |
