@@ -4,6 +4,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { DirectEngine } from './engine/DirectEngine';
+import { ImportService } from '@/services/ImportService';
 
 describe('CLI: deleting an arc that has child arcs', () => {
   let engine: DirectEngine;
@@ -35,6 +36,22 @@ describe('CLI: deleting an arc that has child arcs', () => {
     const kept = await engine.getEvent(graphId, event.id);
     expect(kept.metadata?.arcId).toBeUndefined();
     await expect(engine.getArc(graphId, age.id)).rejects.toThrow(/Arc not found/);
+
+    // The delete is versioned: the head and the export agree with the live store.
+    const container = await (engine as unknown as { getInitializedContainer(): Promise<import('@/container').Container> }).getInitializedContainer();
+    const head = await container.graphRepository.checkout(graphId);
+    expect(Object.keys(head.arcs).sort()).toEqual([world.id, reign.id, year.id].sort());
+    expect(head.arcs[reign.id]).toMatchObject({ level: 1 });
+    expect(head.arcs[year.id]).toMatchObject({ level: 2 });
+    expect((head.events[event.id].metadata as Record<string, unknown>).arcId).toBeUndefined();
+    const document = await container.exportService.exportGraph({ graphId, scope: 'full', includeProvenance: false });
+    const checked = await new ImportService({ dataDir: container.config.localExecution.dataDirectory }).validateFormat(document.export);
+    expect(checked.errors).toEqual([]);
+    expect(Object.fromEntries(document.export.data.arcs.map((a) => [a.name, [a.level, a.parent_arc_id]]))).toEqual({
+      World: [0, null],
+      Reign: [1, world.id],
+      Year: [2, reign.id],
+    });
   });
 
   it('makes the children of a top-level arc top level', async () => {

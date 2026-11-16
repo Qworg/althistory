@@ -276,6 +276,8 @@ export function useDeleteArc(options?: UseMutationOptions<OfflineWriteOutcome<vo
       
       // Invalidate and refetch related queries
       queryClient.invalidateQueries({ queryKey: queryKeys.arcs.all })
+      // The events it held are unassigned from it
+      queryClient.invalidateQueries({ queryKey: queryKeys.events.all })
       // Every write is a new version: refresh the graph's metadata and version head
       queryClient.invalidateQueries({ queryKey: graphKeys.all })
     },

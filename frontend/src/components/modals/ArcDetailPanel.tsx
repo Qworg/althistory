@@ -197,7 +197,7 @@ export const ArcDetailPanel: React.FC<ArcDetailPanelProps> = ({
     if (!onDelete) return
 
     const confirmMessage = childArcs.length > 0 
-      ? `This arc has ${childArcs.length} child arcs. Deleting it will also delete all child arcs. Are you sure?`
+      ? `This arc has ${childArcs.length} child arcs. Deleting it keeps them: they move up a level, to this arc's parent. Its events stay, without the arc. Are you sure?`
       : 'Are you sure you want to delete this arc?'
 
     if (!confirm(confirmMessage)) return

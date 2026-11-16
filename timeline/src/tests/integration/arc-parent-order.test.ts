@@ -157,6 +157,8 @@ describe("an arc's parent when a subtree moves", () => {
         }
         const { id, ...body } = demoteParent.data;
         await put(graphId, id, body).expect(200);
+        // The parent's move took the child with it, so the child's own edit is already true.
+        if (!childFirst) await put(graphId, 'C', { level: 2 }).expect(200);
         expect(await exported(graphId)).toEqual({ valid: true, errors: [], arcs: demoted });
       });
 
@@ -169,6 +171,7 @@ describe("an arc's parent when a subtree moves", () => {
         }
         const { id, ...body } = promoteParent.data;
         await put(graphId, id, body).expect(200);
+        if (!childFirst) await put(graphId, 'C', { level: 1 }).expect(200);
         expect(await exported(graphId)).toEqual({ valid: true, errors: [], arcs: promoted });
       });
     }
@@ -242,7 +245,11 @@ describe("an arc's parent when a subtree moves", () => {
     } finally {
       stop();
     }
-    expect(heard.map((record) => (record as { summary?: string }).summary)).toEqual(['Edited 1 arc in a batch (not versioned)']);
+    // The batch reads the arc's head copy before it writes anything (as the PUT
+    // does), so it fails first: nothing is written, nothing is announced.
+    expect(heard).toEqual([]);
+    const { arcRepository } = await container.graphScopedRepositories(graphId);
+    expect((await arcRepository.findById('C'))?.name).toBe('C');
     expect(await history()).toBe(before);
   });
 

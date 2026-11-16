@@ -236,35 +236,56 @@ the temporal and inference routes take those ISO instants.
 
 An arc can sit inside another. The parent is named in `metadata.parentArcId` (or
 as `parent_arc_id` on a create or update, which is recorded the same way), and a
-child is always exactly one level below its parent: level 0 is the top and has no
-parent. The arc routes and `POST /api/batch/*` keep that true:
+child is always exactly one level below its parent: level 0 is the top, and an
+arc with no parent is level 0. The arc routes and `POST /api/batch/*` keep that
+true:
 
 - **An impossible parent is a `400`.** An arc named as its own parent, one of its
   own descendants named as its parent, or a parent that is not an arc of the
   graph is refused on `POST /api/arcs`, `PUT /api/arcs/:id`, and the batch
   `create_arc` and `update_arc` steps, at any level (an arc already at level 0
-  included).
+  included). Naming a parent that is not the arc's current one is a move, whatever
+  the arc's metadata reads; clearing it (`parent_arc_id: null`, or
+  `metadata.parentArcId: null`) makes the arc top level.
 - **A level that cannot fit the parent is a `400`.** Level 2 under a level-0
-  parent, say. The message says why; name a new parent that fits, or set `level`
-  to 0 to make the arc top level. Changing an arc's parent without a `level`
-  moves it to its new parent's level + 1.
+  parent, say, or a level above 0 with no parent. The message says why; name a new
+  parent that fits, or set `level` to 0 to make the arc top level. Changing an
+  arc's parent without a `level` moves it to its new parent's level + 1.
+- **An arc lies within its parent's time span** (start at or after the parent's,
+  end at or before it): otherwise `400`, naming the arc and the span. A root is
+  constrained by no other arc, and arcs of different branches overlap freely at
+  any level.
 - **Changing an arc's level or parent moves its subtree with it.** Every
   descendant keeps being its parent's level + 1, three deep or more.
 - **Deleting an arc lifts its child arcs.** `DELETE /api/arcs/:id`, a batch
   `delete_arc` and `althistory arc delete` move each child to the deleted arc's
   parent (or make it top level, if the deleted arc was), each with its own subtree
-  one level up. The response's `data` lists `movedChildArcs`. The events assigned
-  to the deleted arc stay, without the arc (`unassignedEvents`). The feed's
+  one level up. If a child would not lie within its new parent's span (only
+  possible for data written before the span rule), the delete is refused with a
+  `400` that names the child and the span. The response's `data` lists
+  `movedChildArcs`. The events assigned to the deleted arc stay, without the arc
+  (`unassignedEvents`), and a pressure that named it lets go of it. The feed's
   announcement says how many child arcs moved ("Deleted arc “Age of Sail”, moved
   2 child arcs up a level"), and the graph's head, an export and the live store
   all agree.
 
 A batch (`/api/batch/transaction`, `/api/batch/arcs`) is judged **once, against
-the state it ends in**, not step by step: a batch that promotes B and then puts its
-old parent A under it is valid, and so is one that creates a child before its
-parent (name the parent's `id`). If the end state is not a valid hierarchy the
-whole batch is refused with a `400` (`VALIDATION_ERROR`) before any step runs, atomic
-or not, so nothing lands.
+the state it ends in**, not step by step, and whatever the order of its steps: a
+batch that promotes B and then puts its old parent A under it is valid, and so is
+one that creates a child before its parent (name the parent's `id`) or moves an
+arc under a parent created later in the batch. If the end state is not a valid
+hierarchy the whole batch is refused with a `400` (`VALIDATION_ERROR`) before any
+step runs, atomic or not, so nothing lands. A step that then fails anyway (a
+create that is refused by the store) never leaves an arc under a parent that was
+not made: an atomic transaction puts every arc it touched back as it was; a
+non-atomic one puts back the arcs that no longer fit and reports those steps as
+failed (`207`).
+
+A graph rebuilt from its history (rollback, branch, merge, import) keeps every
+arc, including one that lies outside its parent's span because it was stored
+before that rule; the `replaced` message on the live feed then carries a
+`warnings` count, and a `skipped` count (with "could not be restored" in its
+summary) for anything the live store refused.
 
 ## Responses
 

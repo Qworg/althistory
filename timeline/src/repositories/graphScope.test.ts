@@ -238,19 +238,12 @@ describe('graph-scoped cloud repositories (#59)', () => {
       await repository.update('arc-1', { name: 'changed' });
       await repository.delete('arc-1');
 
-      const predicateQueries = recorded.filter((entry) => !entry.query.includes('conflictId'));
-      expect(predicateQueries.length).toBeGreaterThanOrEqual(13);
-      for (const entry of predicateQueries) {
+      // Every query of the repository is confined to the graph. (The temporal
+      // rule is parent-based and reads the parent through `findById`, so it is
+      // confined with the rest: a parent in another graph is not found.)
+      expect(recorded.length).toBeGreaterThanOrEqual(13);
+      for (const entry of recorded) {
         expect(entry.query).toContain('graphId: $graphId');
-        expect(entry.parameters.graphId).toBe(GRAPH_ID);
-      }
-
-      // The boundary check reads arcs of this graph only; otherwise a violation
-      // in another graph would block a legitimate write.
-      const boundaryChecks = recorded.filter((entry) => entry.query.includes('conflictId'));
-      expect(boundaryChecks.length).toBeGreaterThan(0);
-      for (const entry of boundaryChecks) {
-        expect(entry.query).toContain('MATCH (existing:Arc {graphId: $graphId})');
         expect(entry.parameters.graphId).toBe(GRAPH_ID);
       }
     });

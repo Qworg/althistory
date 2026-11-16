@@ -424,11 +424,12 @@ arcRoutes.post('/:id/validate-hierarchy', ...entityPermission('read:arcs'), asyn
       throw new NotFoundError(`Arc with ID ${id} not found`, 'Arc', id);
     }
 
-    // Validate hierarchy boundaries against overlapping arcs at lower/higher levels
-    const [overlappingArcs, parentArcs, childArcs] = await Promise.all([
-      repository.findOverlappingArcs({ start: arc.start_time, end: arc.end_time }),
+    // The temporal rule is parent-based: the arc lies within its own parent's
+    // span, and its children lie within its. Arcs of other branches may overlap.
+    const [parentArcs, childArcs, found] = await Promise.all([
       repository.findParentArcs(id),
-      repository.findDirectChildren(id)
+      repository.findDirectChildren(id),
+      new ArcHierarchyService(req.container.graphWriteVersioningService).open(requireGraphId(req), { arcRepository: repository }).containment(id)
     ]);
 
     const violations: Array<{
@@ -439,32 +440,16 @@ arcRoutes.post('/:id/validate-hierarchy', ...entityPermission('read:arcs'), asyn
       message: string;
     }> = [];
 
-    for (const existing of overlappingArcs) {
-      if (existing.id === arc.id) continue;
-
-      if (
-        existing.level < arc.level &&
-        !(compareInstants(arc.start_time, existing.start_time) >= 0 && compareInstants(arc.end_time, existing.end_time) <= 0)
-      ) {
-        violations.push({
-          arcId: existing.id,
-          arcName: existing.name,
-          level: existing.level,
-          type: 'exceeds_parent_bounds',
-          message: `Arc "${arc.name}" (level ${arc.level}) extends beyond overlapping parent arc "${existing.name}" (level ${existing.level})`
-        });
-      } else if (
-        existing.level > arc.level &&
-        !(compareInstants(existing.start_time, arc.start_time) >= 0 && compareInstants(existing.end_time, arc.end_time) <= 0)
-      ) {
-        violations.push({
-          arcId: existing.id,
-          arcName: existing.name,
-          level: existing.level,
-          type: 'fails_to_contain_child',
-          message: `Arc "${arc.name}" (level ${arc.level}) does not fully contain overlapping child arc "${existing.name}" (level ${existing.level})`
-        });
-      }
+    for (const problem of found) {
+      const other = await repository.findById(problem.kind === 'time-parent' ? (problem.other ?? '') : problem.id);
+      if (!other) continue;
+      violations.push({
+        arcId: other.id,
+        arcName: other.name,
+        level: other.level,
+        type: problem.kind === 'time-parent' ? 'exceeds_parent_bounds' : 'fails_to_contain_child',
+        message: problem.message
+      });
     }
 
     const validation = {

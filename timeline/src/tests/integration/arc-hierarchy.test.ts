@@ -127,7 +127,7 @@ describe('the arc hierarchy', () => {
     arcSpec('P', 1, 1800, 1900, 'G'),
     arcSpec('C', 2, 1810, 1850, 'P'),
     arcSpec('D', 3, 1812, 1820, 'C'),
-    arcSpec('S', 1, 1910, 1940, 'G'),
+    arcSpec('S', 1, 1790, 1940, 'G'),
   ];
 
   for (const kind of ['cli', 'imported'] as const) {
@@ -377,7 +377,7 @@ describe('the arc hierarchy', () => {
       describe('reading the head', () => {
         it('never checks the whole head out for a PUT, and once for a whole batch', async () => {
           // 40 siblings under a root, moved under each other: a batch of 40 reparentings.
-          const arcs: ArcSpec[] = [arcSpec('R', 0, 1000, 3000), ...Array.from({ length: 40 }, (_, i) => arcSpec(`a${i}`, 1, 1100 + i * 10, 1105 + i * 10, 'R'))];
+          const arcs: ArcSpec[] = [arcSpec('R', 0, 1000, 3000), ...Array.from({ length: 40 }, (_, i) => arcSpec(`a${i}`, 1, 1100, 1900, 'R'))];
           const graphId = await graphOf(kind, arcs);
           // A commit also recounts the graph (`calculateMetadata`, a plain checkout), which main does too;
           // what a write must not do is resolve the whole head to judge or version an arc (a call with options).

@@ -61,12 +61,55 @@ describe('ArcHierarchyPlan', () => {
     expect(() => p.update('Z', { level: 0 })).not.toThrow();
   });
 
-  it('treats a stale metadata parent as no move, and a field parent as the export reads it', () => {
+  it('moves an arc to the parent an edit names, whatever its stale metadata says', () => {
     const stale: ArcNode = { id: 'C', name: 'C', level: 1, parent: 'B', metaParent: 'A' };
     const p = plan(node('A', 0), node('B', 0), stale);
+    // The head says B, the metadata A: naming A (either way) is a move to A.
     p.update('C', { metadata: { parentArcId: 'A' } });
-    expect(p.get('C')?.parent).toBe('B');
-    p.update('C', { metadata: { parentArcId: 'A' }, parent_arc_id: 'A' });
     expect(p.get('C')?.parent).toBe('A');
+    const q = plan(node('A', 0), node('B', 0), stale);
+    q.update('C', { parent_arc_id: 'A' });
+    expect(q.get('C')?.parent).toBe('A');
+    // Naming the parent it has is no move.
+    const r = plan(node('A', 0), node('B', 0), stale);
+    r.update('C', { metadata: { parentArcId: 'B' } });
+    expect(r.get('C')?.parent).toBe('B');
+  });
+
+  it('clears the parent and sets level 0 whichever spelling clears it', () => {
+    for (const request of [{ metadata: { parentArcId: null } }, { parent_arc_id: null }] as const) {
+      const p = plan(node('A', 0), node('B', 1, 'A'), node('C', 2, 'B'));
+      p.update('B', request);
+      expect(levels(p, 'B', 'C')).toEqual([[0, null], [1, 'B']]);
+      expect(p.problems()).toEqual([]);
+    }
+  });
+
+  it('refuses an arc with no parent above level 0, and a child outside its parent\'s span', () => {
+    const p = plan(node('A', 0));
+    p.update('A', { level: 2 });
+    expect(p.problems()[0]).toMatch(/no parent but is at level 2/);
+    const dated = (id: string, level: number, from: number, to: number, parent: string | null = null): ArcNode => ({ ...node(id, level, parent), start: new Date(Date.UTC(from, 0, 1)), end: new Date(Date.UTC(to, 0, 1)) });
+    const q = plan(dated('G', 0, 1700, 1950), dated('P', 1, 1800, 1900, 'G'), dated('S', 1, 1910, 1940, 'G'));
+    q.update('P', { metadata: { parentArcId: 'S' } });
+    expect(q.problems().join(' ')).toMatch(/must lie within its parent "S"/);
+  });
+
+  it('settles an arc moved without a level the same in either step order', () => {
+    for (const childFirst of [true, false]) {
+      const p = plan(node('G', 0), node('S', 1, 'G'), node('C', 1, 'G'), node('D', 2, 'C'));
+      const move = () => p.update('C', { metadata: { parentArcId: 'NEW' } });
+      const create = () => p.create({ id: 'NEW', name: 'NEW', level: 2, metadata: { parentArcId: 'S' } });
+      if (childFirst) { move(); create(); } else { create(); move(); }
+      expect(p.problems()).toEqual([]);
+      expect(levels(p, 'C', 'D')).toEqual([[3, 'NEW'], [4, 'C']]);
+    }
+  });
+
+  it('does not make a child its own parent when a deleted arc sat in a stored cycle', () => {
+    const p = plan(node('X', 1, 'Y'), node('Y', 1, 'X'));
+    expect(p.delete('X')).toEqual(['Y']);
+    expect(levels(p, 'Y')).toEqual([[0, null]]);
+    expect(p.problems()).toEqual([]);
   });
 });

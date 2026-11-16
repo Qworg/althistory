@@ -42,6 +42,8 @@ class Touched {
   readonly links = new Map<string, LinkPair>();
   /** An event or a link was deleted: the version must read every head link (`BatchLiveState.deletesLinks`). */
   deletesLinks = false;
+  /** The parent the arc hierarchy decided for each arc it wrote (`BatchLiveState.parents`). */
+  parents?: ReadonlyMap<string, string | null>;
 
   link(pair: LinkPair): void {
     this.links.set(JSON.stringify([pair.cause_event_id, pair.effect_event_id]), {
@@ -96,7 +98,7 @@ async function versionBatch(
 /** What the live store now holds of what a batch touched. */
 async function readBack(live: LiveReaders, touched: Touched): Promise<BatchLiveState> {
   const { eventRepository, arcRepository, causalService } = live;
-  const state: BatchLiveState = { deletesLinks: touched.deletesLinks };
+  const state: BatchLiveState = { deletesLinks: touched.deletesLinks, parents: touched.parents };
   if (touched.events.size > 0 && eventRepository) {
     state.events = new Map();
     for (const id of touched.events) state.events.set(id, await eventRepository.findById(id));
@@ -208,19 +210,28 @@ function stepsOf(
 
 /**
  * The arc steps of a transaction, as the hierarchy plan runs them. Their dates
- * are not read here: the plan looks only at levels, parents and ids.
+ * are read as the steps will read them (a date the plan cannot read is left
+ * out of the plan, and the step itself fails on it).
  */
-function arcPlanSteps(operations: BatchOperation[]): PlanStep[] {
-  return operations.flatMap((op): PlanStep[] => {
-    const data = (op.data ?? {}) as Record<string, unknown>;
-    if (op.type === 'create_arc') return [{ kind: 'create', data: data as never }];
-    if (op.type === 'update_arc') {
-      const { id, ...rest } = data;
-      return typeof id === 'string' ? [{ kind: 'update', id, data: rest as never }] : [];
+async function arcPlanSteps(operations: BatchOperation[], calendarOf: ReturnType<typeof calendarLookup>): Promise<PlanStep[]> {
+  const dated = async (data: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    try {
+      return await readStepDates(data, calendarOf, 'arc');
+    } catch {
+      const { start_time: _s, end_time: _e, ...rest } = data;
+      return rest;
     }
-    if (op.type === 'delete_arc') return typeof data.id === 'string' ? [{ kind: 'delete', id: data.id }] : [];
-    return [];
-  });
+  };
+  const steps: PlanStep[] = [];
+  for (const op of operations) {
+    const data = (op.data ?? {}) as Record<string, unknown>;
+    if (op.type === 'create_arc') steps.push({ kind: 'create', data: (await dated(data)) as never });
+    else if (op.type === 'update_arc') {
+      const { id, ...rest } = data;
+      if (typeof id === 'string') steps.push({ kind: 'update', id, data: (await dated(rest)) as never });
+    } else if (op.type === 'delete_arc' && typeof data.id === 'string') steps.push({ kind: 'delete', id: data.id });
+  }
+  return steps;
 }
 
 /**
@@ -230,6 +241,7 @@ function arcPlanSteps(operations: BatchOperation[]): PlanStep[] {
  */
 function absorbArcMoves(touched: Touched, session: ArcHierarchySession, steps: BatchStep[]): BatchStep[] {
   session.arcIds().forEach((id) => touched.arcs.add(id));
+  touched.parents = session.parents();
   session.eventIds().forEach((id) => touched.events.add(id));
   const named = new Set(steps.map((step) => `${step.type}:${step.id}`));
   const extra: BatchStep[] = [];
@@ -497,13 +509,25 @@ batchRoutes.post(
     // batch ends in (a child may come before its parent), before any is made.
     const arcSession = new ArcHierarchyService(req.container.graphWriteVersioningService).open(requireGraphId(req), { arcRepository, eventRepository });
     try {
-      await arcSession.preflight(arcs.map((data): PlanStep => ({ kind: 'create', data: data as never })));
+      const calendar = calendarLookup(req);
+      const planned: PlanStep[] = [];
+      for (const data of arcs) {
+        let read: Record<string, unknown> = data as unknown as Record<string, unknown>;
+        try {
+          read = (await readDates(read, calendar, 'arc')).data;
+        } catch {
+          // A date that cannot be read fails its own item below.
+        }
+        planned.push({ kind: 'create', data: read as never });
+      }
+      await arcSession.preflight(planned);
     } catch (error) {
       if (error instanceof ValidationError) return res.status(400).json(createBatchError('VALIDATION_ERROR', error.message));
       throw error;
     }
 
     const calendarOf = calendarLookup(req);
+    const createdAt = new Map<string, number>();
     for (let i = 0; i < arcs.length; i++) {
       let arcData = arcs[i];
 
@@ -532,6 +556,7 @@ batchRoutes.post(
         } as Parameters<typeof arcSession.create>[0]);
 
         result.created.push(createdArc.id);
+        createdAt.set(createdArc.id, i);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
@@ -563,6 +588,15 @@ batchRoutes.post(
       }
     }
 
+    // A child made before a parent that then failed is left under a missing
+    // arc: put it back (and so its own children), and report it as failed.
+    if (result.failed.length > 0 || result.created.length < arcs.length) {
+      await arcSession.finish();
+      for (const id of await arcSession.reconcile()) {
+        result.created = result.created.filter((createdId) => createdId !== id);
+        result.failed.push({ index: createdAt.get(id) ?? -1, error: 'Undone: its parent arc was not created' });
+      }
+    }
     result.success = result.failed.length === 0;
 
     await versionCreated(req, 'arcs', result.created, arcRepository);
@@ -817,7 +851,7 @@ batchRoutes.post(
     // the whole transaction, atomic or not.
     const arcSession = new ArcHierarchyService(req.container.graphWriteVersioningService).open(requireGraphId(req), { arcRepository, eventRepository });
     try {
-      await arcSession.preflight(arcPlanSteps(operations));
+      await arcSession.preflight(await arcPlanSteps(operations, calendarOf));
     } catch (error) {
       if (error instanceof ValidationError) return res.status(400).json(createBatchError('VALIDATION_ERROR', error.message));
       throw error;
@@ -950,7 +984,23 @@ batchRoutes.post(
         if (atomic) {
           // Rollback all created entities
           const rolledBack = new Set<string>();
+          // The arcs go back as they were, whatever the transaction did to them
+          // (created, moved, lifted, deleted), so nothing of them lands.
+          const arcIds = arcSession.arcIds();
+          arcIds.forEach((id) => touched.arcs.add(id));
+          let arcsRestored = false;
+          try {
+            await arcSession.undo();
+            arcsRestored = true;
+          } catch (rollbackError) {
+            logger.error('Rollback of the arc hierarchy failed', rollbackError);
+          }
+          if (arcsRestored) {
+            for (const step of result.results) if (/_arc$/.test(step.type) && step.id !== undefined) rolledBack.add(step.id);
+            arcIds.forEach((id) => rolledBack.add(id));
+          }
           for (const created of createdIds.reverse()) {
+            if (created.type === 'arc' && arcsRestored) continue;
             try {
               switch (created.type) {
                 case 'event':
@@ -1002,6 +1052,25 @@ batchRoutes.post(
           });
         }
       }
+    }
+
+    // The arcs the steps moved with the ones they named are written now, as
+    // the end state has them; if a step failed (a non-atomic transaction), the
+    // arcs that no longer fit (under a parent that was never made) are put back.
+    try {
+      await arcSession.finish();
+      if (!result.success) {
+        const undone = new Set(await arcSession.reconcile());
+        for (const step of result.results) {
+          if (step.success && step.id !== undefined && /^(create|update)_arc$/.test(step.type) && undone.has(step.id)) {
+            step.success = false;
+            step.error = 'Undone: the arc no longer fits the hierarchy, because a step it depended on failed';
+          }
+        }
+      }
+    } catch (error) {
+      await arcSession.undo().catch((rollbackError) => logger.error('Rollback of the arc hierarchy failed', rollbackError));
+      throw error;
     }
 
     // A transaction whose version cannot be committed is not undone (its

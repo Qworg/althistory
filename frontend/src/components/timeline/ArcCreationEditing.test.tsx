@@ -240,6 +240,9 @@ describe('Arc Creation and Editing', () => {
       expect(confirmSpy).toHaveBeenCalledWith(
         expect.stringContaining('This arc has 1 child arcs')
       )
+      // The child arcs are kept: they move up to this arc's parent.
+      expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('move up a level'))
+      expect(confirmSpy).not.toHaveBeenCalledWith(expect.stringContaining('also delete'))
     })
 
     it('should not render when closed', () => {

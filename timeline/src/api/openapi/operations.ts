@@ -300,7 +300,8 @@ export const OPERATIONS: Record<string, OperationSpec> = {
   'POST /api/arcs': {
     summary:
       'Create an arc. A parent named in `metadata.parentArcId` or `parent_arc_id` must be an arc of the graph, ' +
-      'and a child sits one level below it; otherwise `400`.',
+      'a child sits one level below it, and it lies within the parent\'s time span; an arc with no parent is ' +
+      'level 0; otherwise `400`.',
     request: 'ArcRequest',
     requestRequired: true,
     response: 'Arc',
@@ -318,8 +319,9 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     summary:
       'Change an arc. Only the fields that are given are changed. Changing its level or parent moves its ' +
       'subtree with it (every descendant stays its parent\'s level + 1). `400` for a parent that is the arc ' +
-      'itself, one of its descendants or no arc of the graph, and for a level that does not fit its parent ' +
-      '(name a new parent, or set level 0).',
+      'itself, one of its descendants or no arc of the graph, for a level that does not fit its parent ' +
+      '(name a new parent, or set level 0), and for dates outside its parent\'s span. A null `parent_arc_id` ' +
+      'or `metadata.parentArcId` makes it top level.',
     request: 'ArcUpdate',
     response: 'Arc',
     auth: ENTITY_AUTH,
@@ -328,8 +330,9 @@ export const OPERATIONS: Record<string, OperationSpec> = {
   'DELETE /api/arcs/:id': {
     summary:
       'Delete an arc. Its child arcs are not deleted: each moves to the deleted arc\'s parent (or becomes ' +
-      'top level), with its subtree one level up, and `data` lists them as `movedChildArcs`. Its events stay, ' +
-      'unassigned (`unassignedEvents`).',
+      'top level), with its subtree one level up, and `data` lists them as `movedChildArcs`. `400` if a child ' +
+      'would not lie within its new parent\'s span. Its events stay, unassigned (`unassignedEvents`), and ' +
+      'pressures let go of it.',
     response: 'GenericObject',
     auth: ENTITY_AUTH,
     graphScoped: true,
@@ -1004,7 +1007,8 @@ export const OPERATIONS: Record<string, OperationSpec> = {
       'transaction created; the updates and deletes before it stay. What the transaction leaves is ' +
       'recorded as one version of the graph. Its arc steps are judged once, against the state they end in: ' +
       'a hierarchy that is not valid there (a parent that is the arc itself, its descendant or missing, a ' +
-      'level that does not fit) is a `400` before any step runs. `delete_arc` lifts the arc\'s children.',
+      'level that does not fit, dates outside the parent\'s span) is a `400` before any step runs, whatever ' +
+      'the order of the steps. `delete_arc` lifts the arc\'s children. An atomic failure puts every arc back.',
     request: 'BatchTransactionRequest',
     requestRequired: true,
     response: 'BatchTransactionResult',

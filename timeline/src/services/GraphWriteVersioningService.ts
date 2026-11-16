@@ -252,6 +252,11 @@ export interface BatchLiveState {
    * batch that only creates or edits needs just the links it touched.
    */
   deletesLinks?: boolean;
+  /**
+   * The parent the arc hierarchy decided for each arc it wrote (null: none), so
+   * the version records what was decided and not what the overlay can infer.
+   */
+  parents?: ReadonlyMap<string, string | null>;
 }
 
 /** A value as stored (JSON), with every object's keys in order, so two spellings of one value compare equal. */
@@ -268,7 +273,13 @@ function canonical(value: unknown): string {
 
 /** Whether a written entity's data is the data the head already holds, whatever the key order. */
 function sameData(head: Record<string, unknown>, written: Record<string, unknown>): boolean {
-  return canonical(head) === canonical(written);
+  // No metadata and empty metadata say the same thing: an entity put back as it
+  // was (from the live model, which holds `{}`) is not an edit.
+  const bare = (data: Record<string, unknown>): Record<string, unknown> => {
+    const { metadata, ...rest } = data;
+    return metadata && typeof metadata === 'object' && Object.keys(metadata).length === 0 ? rest : data;
+  };
+  return canonical(bare(head)) === canonical(bare(written));
 }
 
 /**
@@ -295,6 +306,15 @@ function consistentParent(parent: unknown, level: unknown, named: unknown): unkn
   const current = typeof named === 'string' && named !== '' ? named : parent;
   if (typeof current !== 'string' || current === '') return current;
   return level === 0 ? null : current;
+}
+
+/**
+ * An arc's `parent_arc_id` as the hierarchy decided it: written where the head
+ * records one, or wherever the arc now has a parent.
+ */
+function decideParent(data: Record<string, unknown>, parent: string | null | undefined): void {
+  if (parent === undefined) return;
+  if ('parent_arc_id' in data || parent !== null) data.parent_arc_id = parent;
 }
 
 /**
@@ -493,12 +513,26 @@ export class GraphWriteVersioningService {
   }
 
   /**
-   * Some arcs as the head holds them, by id; an arc the head lacks is absent.
-   * Reads only those arcs, never the whole head, and never fails: the caller
-   * (the arc hierarchy) treats an unreadable arc as one with no recorded parent.
+   * A pressure that names a deleted arc lets go of it: the export refuses a
+   * pressure whose `affected_arc_ids` names an arc that is not there.
    */
-  async headArcs(graphId: string, ids: string[]): Promise<Record<string, Record<string, unknown>>> {
-    return this.headEntities(graphId, 'arc', ids);
+  private releasePressures(changes: EntityChanges, pressures: Record<string, Record<string, unknown>>): void {
+    const gone = new Set(changes.deleted.filter((entity) => entity.type === 'arc').map((entity) => entity.id));
+    if (gone.size === 0) return;
+    for (const [id, pressure] of Object.entries(pressures)) {
+      const named = pressure.affected_arc_ids;
+      if (!Array.isArray(named) || !named.some((arcId) => gone.has(String(arcId)))) continue;
+      changes.modified.push({ type: 'pressure', id, data: { ...pressure, affected_arc_ids: named.filter((arcId) => !gone.has(String(arcId))) } });
+    }
+  }
+
+  /**
+   * Some arcs as the head holds them, by id; an arc the head lacks is absent.
+   * Reads only those arcs, never the whole head. Unless `strict`, it never fails: the
+   * caller (the arc hierarchy) treats an unreadable arc as one with no recorded parent.
+   */
+  async headArcs(graphId: string, ids: string[], { strict = false }: { strict?: boolean } = {}): Promise<Record<string, Record<string, unknown>>> {
+    return strict ? this.requireHeadEntities(graphId, 'arc', ids) : this.headEntities(graphId, 'arc', ids);
   }
 
   /**
@@ -511,15 +545,12 @@ export class GraphWriteVersioningService {
   async recordArcEdit(graphId: string, edit: ArcEdit, options: WriteOptions = {}): Promise<void> {
     const changes: EntityChanges = { added: [], modified: [], deleted: [] };
     try {
-      const arcIds = [...edit.updated.map((arc) => arc.id), ...edit.deleted];
-      const headArcs = await this.requireHeadEntities(graphId, 'arc', arcIds);
+      const headArcs = await this.requireHeadEntities(graphId, 'arc', edit.updated.map((arc) => arc.id));
       const headEvents = await this.requireHeadEntities(graphId, 'event', (edit.events ?? []).map((event) => event.id));
       for (const arc of edit.updated) {
         const head = headArcs[arc.id];
         const data = overlay('arc', head, arcToVersionData(arc));
-        if (edit.parents?.has(arc.id) && ('parent_arc_id' in data || edit.parents.get(arc.id) !== null)) {
-          data.parent_arc_id = edit.parents.get(arc.id) ?? null;
-        }
+        decideParent(data, edit.parents?.get(arc.id));
         if (!head) changes.added.push({ type: 'arc', id: arc.id, data });
         else if (!sameData(head, data)) changes.modified.push({ type: 'arc', id: arc.id, data });
       }
@@ -529,8 +560,11 @@ export class GraphWriteVersioningService {
         if (!head) changes.added.push({ type: 'event', id: event.id, data });
         else if (!sameData(head, data)) changes.modified.push({ type: 'event', id: event.id, data });
       }
-      for (const id of edit.deleted) {
-        if (headArcs[id]) changes.deleted.push({ type: 'arc', id });
+      for (const id of edit.deleted) changes.deleted.push({ type: 'arc', id });
+      if (edit.deleted.length > 0) {
+        const ids = await this.graphRepository.getHeadIds?.(graphId, 'pressure');
+        const pressures = await this.requireHeadEntities(graphId, 'pressure', ids ?? []);
+        this.releasePressures(changes, pressures);
       }
     } catch (error) {
       this.logger.error(`Could not read the head to version an arc edit in graph ${graphId}`, error);
@@ -617,6 +651,7 @@ export class GraphWriteVersioningService {
     };
     const write = (type: EntityType, id: string, projection: Record<string, unknown>, current: Record<string, unknown> | undefined): void => {
       const data = overlay(type, current, projection);
+      if (type === 'arc') decideParent(data, state.parents?.get(id));
       if (!current) changes.added.push({ type, id, data });
       else if (!sameData(current, data)) changes.modified.push({ type, id, data });
     };
@@ -652,6 +687,8 @@ export class GraphWriteVersioningService {
       if (liveLinkIds.has(id)) continue;
       if (goneEvents.has(String(link.cause_event_id)) || goneEvents.has(String(link.effect_event_id))) remove('relationship', id);
     }
+
+    this.releasePressures(changes, head.pressures);
 
     const summary = `${describeChanges(changes)} in a batch`;
     const operation: EntityWriteOperation | 'delete' =
