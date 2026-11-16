@@ -3,6 +3,13 @@ import { useCreateCausalLink, useCreateEvent, useDeleteEvent } from '@/hooks/use
 import { useGlobalStore } from '@/stores/globalStore'
 import type { EditHistoryEntry } from '@/hooks/useEditHistory'
 import type { CausalRelationship, Event } from '@/types'
+import { isRefusal } from '@/services/rateLimitNotice'
+
+/** An error's message as the end of a sentence: no stop of its own, so the caller's does not double it. */
+function sentence(error: unknown): string {
+  const text = error instanceof Error && error.message ? error.message : 'unknown error'
+  return text.replace(/[.\s]+$/, '')
+}
 
 /**
  * Delete an event and record how to take it back.
@@ -54,9 +61,14 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
             const restoredId = created.value.id
             let lostLinks = 0
             // Links the server refused for load (429): not lost, just not made yet.
+            // After the first refusal no more are sent: the rest would be refused too.
             let refusedLinks = 0
-            let refusal: string | undefined
+            let busy = false
             for (const link of links) {
+              if (busy) {
+                refusedLinks++
+                continue
+              }
               try {
                 await createLink({
                   causeId: link.cause_event_id === currentId ? restoredId : link.cause_event_id,
@@ -69,9 +81,9 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
                   },
                 })
               } catch (linkError) {
-                if ((linkError as { status?: number } | null)?.status === 429) {
+                if (isRefusal(linkError)) {
                   refusedLinks++
-                  refusal ??= linkError instanceof Error ? linkError.message : undefined
+                  busy = true
                 } else {
                   // The other end may have been deleted since.
                   lostLinks++
@@ -82,7 +94,8 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
             if (refusedLinks > 0) {
               addError({
                 type: 'general',
-                message: `"${event.description}" is back, but ${refusedLinks} of its causal links were not restored. ${refusal ?? 'The server asked for a pause; try again shortly.'}`,
+                // Its own, lasting notice; the retry notice says when to try again.
+                message: `"${event.description}" is back, but ${refusedLinks} of its causal links were not restored because the server is busy. Link them again shortly.`,
               })
             }
             if (lostLinks > 0) {
@@ -95,7 +108,9 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
           } catch (error) {
             addError({
               type: 'network',
-              message: `"${event.description}" could not be restored: ${error instanceof Error ? error.message : 'unknown error'}. It is still in Version history.`,
+              message: `"${event.description}" could not be restored: ${
+                isRefusal(error) ? 'the server is busy, try again shortly' : sentence(error)
+              }. It is still in Version history.`,
             })
             return false
           }
@@ -107,7 +122,9 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
           } catch (error) {
             addError({
               type: 'network',
-              message: `"${event.description}" could not be deleted again: ${error instanceof Error ? error.message : 'unknown error'}.`,
+              message: `"${event.description}" could not be deleted again: ${
+                isRefusal(error) ? 'the server is busy, try again shortly' : sentence(error)
+              }.`,
             })
             return false
           }

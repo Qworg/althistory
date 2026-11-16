@@ -1,5 +1,7 @@
 import { useGlobalStore } from '@/stores/globalStore'
+import { useEffect, useState } from 'react'
 import { ErrorState } from '@/types'
+import { retryText } from '@/services/rateLimitNotice'
 
 type ErrorType = ErrorState['type']
 
@@ -54,6 +56,18 @@ function errorIcon(className: string) {
       />
     </svg>
   )
+}
+
+/** The wait still to go on a rate-limit notice, counting down once a second. */
+export function RetryCountdown({ retryAt, className }: { retryAt?: number; className?: string }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (retryAt === undefined) return
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [retryAt])
+  return <p className={className}>{retryText(retryAt, now)}</p>
 }
 
 /**
@@ -111,6 +125,9 @@ export function NotificationCenter() {
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold">{style.label}</p>
               <p className="mt-0.5 text-sm break-words">{error.message}</p>
+              {error.refusal !== undefined && (
+                <RetryCountdown retryAt={error.retryAt} className="font-mono-code text-sm" />
+              )}
             </div>
             <button
               type="button"

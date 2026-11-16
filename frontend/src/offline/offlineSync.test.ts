@@ -381,6 +381,7 @@ describe('replaying a queued write that the server rate limits', () => {
     await expect(send({ method: 'POST', url: '/events', body: {} } as never)).rejects.toBeInstanceOf(HttpMutationError)
     const messages = useGlobalStore.getState().errors.map((e) => e.message)
     expect(messages).toHaveLength(1)
-    expect(messages[0]).toContain('Try again in 20 seconds')
+    expect(messages[0]).toContain('was refused')
+    expect(useGlobalStore.getState().errors[0]!.retryAt).toBeGreaterThan(Date.now() + 15000)
   })
 })

@@ -88,15 +88,56 @@ describe('useUndoableEventDelete', () => {
   })
 
   it('reports a link the server refused as a refusal, not as a missing event', async () => {
-    createLink.mockRejectedValueOnce(
-      Object.assign(new Error('Saving the link was refused because too many requests were sent. Try again in 9 seconds.'), { status: 429 }),
+    const busy = Object.assign(new Error('Saving the link was refused because too many requests were sent. Try again shortly.'), {
+      status: 429,
+      refusal: 'Saving the link was refused because too many requests were sent.',
+    })
+    createLink.mockRejectedValue(busy)
+    const record = vi.fn<(entry: EditHistoryEntry) => void>()
+    const { result } = renderHook(() => useUndoableEventDelete(record))
+    await act(() => result.current(event, [link('l1', 'e0', 'e1'), link('l2', 'e1', 'e2'), link('l3', 'e1', 'e3')]))
+    await expect(record.mock.calls[0]![0].undo()).resolves.toBe(true)
+    // After the first refusal no more links are sent; the rest count as refused.
+    expect(createLink).toHaveBeenCalledTimes(1)
+    const messages = addError.mock.calls.map((c) => (c[0] as { message: string }).message)
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toContain('3 of its causal links were not restored because the server is busy')
+    expect(messages[0]).not.toContain('no longer exists')
+    // Its own words, not the retry notice's sentence.
+    expect(messages[0]).not.toContain('was refused because too many requests')
+  })
+
+  it('gives each failed restore its own notice, in its own words, with no doubled stop', async () => {
+    createEvent.mockRejectedValue(
+      Object.assign(new Error('Saving the event was refused because too many requests were sent. Try again shortly.'), {
+        status: 429,
+        refusal: 'x',
+      }),
     )
     const record = vi.fn<(entry: EditHistoryEntry) => void>()
     const { result } = renderHook(() => useUndoableEventDelete(record))
-    await act(() => result.current(event, [link('l1', 'e0', 'e1')]))
-    await expect(record.mock.calls[0]![0].undo()).resolves.toBe(true)
-    const message = addError.mock.calls.map((c) => (c[0] as { message: string }).message).join('\n')
-    expect(message).toContain('Try again in 9 seconds')
-    expect(message).not.toContain('no longer exists')
+    await act(() => result.current(event, []))
+    await act(() => result.current({ ...event, id: 'e2', description: 'Second event' }, []))
+    await record.mock.calls[0]![0].undo()
+    await record.mock.calls[1]![0].undo()
+    const messages = addError.mock.calls.map((c) => (c[0] as { message: string }).message)
+    expect(messages).toHaveLength(2)
+    expect(messages[0]).toContain('"Babbage completes the Engine" could not be restored: the server is busy')
+    expect(messages[1]).toContain('"Second event" could not be restored')
+    for (const m of messages) {
+      expect(m).toContain('It is still in Version history.')
+      expect(m).not.toContain('..')
+    }
+  })
+
+  it('has no doubled stop when the restore fails for another reason', async () => {
+    createEvent.mockRejectedValue(new Error('disk full.'))
+    const record = vi.fn<(entry: EditHistoryEntry) => void>()
+    const { result } = renderHook(() => useUndoableEventDelete(record))
+    await act(() => result.current(event, []))
+    await record.mock.calls[0]![0].undo()
+    const message = (addError.mock.calls[0]![0] as { message: string }).message
+    expect(message).toContain('could not be restored: disk full. It is still')
+    expect(message).not.toContain('..')
   })
 })

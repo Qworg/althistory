@@ -9,6 +9,7 @@
  */
 
 import { useGlobalStore } from '@/stores/globalStore'
+import type { ErrorState } from '@/types'
 
 /** The parts of a failed axios response this module reads. */
 export interface RefusedResponse {
@@ -79,30 +80,58 @@ export function refusalStem(request: RefusedRequest): string {
   return `${describeRefusedRequest(request)} was refused because too many requests were sent.`
 }
 
-/** The sentence shown to the person. */
-export function rateLimitedMessage(request: RefusedRequest, retryAfter: number | null): string {
-  const when =
-    retryAfter === null
-      ? 'Try again in a moment.'
-      : `Try again in ${retryAfter} ${retryAfter === 1 ? 'second' : 'seconds'}.`
-  return `${refusalStem(request)} ${when}`
+/**
+ * The sentence a thrown `APIError` carries for a 429. It has no number in it: a
+ * wait written into a message is stale a second later. The notice and the
+ * picker's alert count the wait down from `retryAt`.
+ */
+export function rateLimitedMessage(request: RefusedRequest): string {
+  return `${refusalStem(request)} Try again shortly.`
 }
 
-/** A notice goes away once the wait has passed (a little after, so it is read). */
+/** The wait still to go, in the words a person reads; ticks down as `now` advances. */
+export function retryText(retryAt: number | undefined, now: number = Date.now()): string {
+  if (retryAt === undefined) return 'Try again in a moment.'
+  const seconds = Math.ceil((retryAt - now) / 1000)
+  if (seconds <= 0) return 'You can try again now.'
+  return `Try again in ${seconds} ${seconds === 1 ? 'second' : 'seconds'}.`
+}
+
+/** Whether an error is the API client's 429 (it carries what was refused). */
+export function isRefusal(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && typeof (error as { refusal?: unknown }).refusal === 'string'
+}
+
+/**
+ * Report an API failure from a caller that has its own context ("Failed to save
+ * event"). A refusal for load (429) is already on screen as the retry notice,
+ * which says what was refused and counts the wait down, so the caller adds
+ * nothing; anything else is shown as `context: message`.
+ */
+export function reportApiError(
+  context: string | null,
+  error: unknown,
+  type: ErrorState['type'] = 'network',
+  /** Where to add it; the store's by default (a hook that already holds `addError` may pass it). */
+  add: (error: Omit<ErrorState, 'id' | 'timestamp'>) => void = (e) => useGlobalStore.getState().addError(e)
+): void {
+  if (isRefusal(error)) return
+  const detail = error instanceof Error && error.message ? error.message : 'Unknown error'
+  add({ type, message: context ? `${context}: ${detail}` : detail })
+}
+
+/** A notice goes away a little after the wait has passed. */
 const EXPIRY_GRACE_MS = 3000
 const DEFAULT_EXPIRY_MS = 8000
 const expiry = new Map<string, ReturnType<typeof setTimeout>>()
-/** The message this module last set for a notice: a caller may have merged fuller text in, which a new wait must not erase. */
-const lastShown = new Map<string, string>()
 
 /**
- * Show a 429 to the person. Returns the message, or null when the response is
- * anything else or a status poll (the caller is already waiting on the job and
- * polls again; saying "refused" there would be noise).
+ * Show a 429 to the person. Returns the notice's message, or null when the
+ * response is anything else or a status poll (the caller is already waiting on
+ * the job and polls again; saying "refused" there would be noise).
  *
- * One refusal is one notice: a notice for the same thing (the same request
- * class) is updated with the new wait, not added again, and it expires when the
- * wait has passed.
+ * One kind of refusal is one notice: a repeat only moves its `retryAt`, which
+ * the notice centre renders as a live countdown. It expires shortly after.
  */
 export function noticeRateLimited(response: RefusedResponse | undefined, request: RefusedRequest | undefined): string | null {
   if (response?.status !== 429) return null
@@ -111,32 +140,28 @@ export function noticeRateLimited(response: RefusedResponse | undefined, request
 
   const stem = refusalStem(req)
   const wait = retryAfterSeconds(response)
-  const message = rateLimitedMessage(req, wait)
+  const retryAt = wait === null ? undefined : Date.now() + wait * 1000
   const store = useGlobalStore.getState()
 
-  const existing = store.errors.find((e) => e.refusal === stem)
-  if (existing) {
-    if (existing.message !== message && existing.message === lastShown.get(stem)) {
-      store.updateError(existing.id, { message })
-      lastShown.set(stem, message)
-    }
+  let notice = store.errors.find((e) => e.refusal === stem)
+  if (notice) {
+    store.updateError(notice.id, { retryAt })
   } else {
-    store.addError({ type: 'general', message, refusal: stem })
-    lastShown.set(stem, message)
+    store.addError({ type: 'general', message: stem, refusal: stem, retryAt })
+    notice = useGlobalStore.getState().errors.find((e) => e.refusal === stem)
   }
 
-  const id = (existing ?? useGlobalStore.getState().errors.find((e) => e.refusal === stem))?.id
-  if (id) {
+  if (notice) {
+    const id = notice.id
     const previous = expiry.get(stem)
     if (previous) clearTimeout(previous)
     expiry.set(
       stem,
       setTimeout(() => {
         expiry.delete(stem)
-        lastShown.delete(stem)
         useGlobalStore.getState().removeError(id)
-      }, wait === null ? DEFAULT_EXPIRY_MS : wait * 1000 + EXPIRY_GRACE_MS)
+      }, retryAt === undefined ? DEFAULT_EXPIRY_MS : retryAt - Date.now() + EXPIRY_GRACE_MS)
     )
   }
-  return message
+  return stem
 }

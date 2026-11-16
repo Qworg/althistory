@@ -281,11 +281,16 @@ export interface ErrorState {
   type: 'network' | 'validation' | 'visualization' | 'general' | 'info'
   timestamp: Date
   /**
-   * Set on a rate-limit notice: what was refused, without the changing wait.
-   * A later error whose message contains it is the same refusal told again by
-   * a caller, and `addError` drops it.
+   * Set on a rate-limit notice: what was refused (its identity: a repeat
+   * refusal of the same kind updates this notice, it does not add one).
    */
   refusal?: string
+  /**
+   * Set on a rate-limit notice: when the server will take the request again
+   * (epoch ms). The notice shows the remaining wait counting down, and goes
+   * away a little after it.
+   */
+  retryAt?: number
 }
 
 // User preferences that should be persisted

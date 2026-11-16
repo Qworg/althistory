@@ -111,7 +111,7 @@ describe('GraphSelector when a switch is refused with 429', () => {
     // The app's notification centre carries the same refusal, once.
     const notices = useGlobalStore.getState().errors.filter((e) => /Switching graphs was refused/.test(e.message))
     expect(notices).toHaveLength(1)
-    expect(notices[0]?.message).toMatch(/Try again in 12 seconds/)
+    expect(notices[0]?.retryAt).toBeGreaterThan(Date.now() + 8000)
 
     // Nothing half-switched: still on the old graph, locally and in the picker.
     expect(activateCalls).toBe(1)

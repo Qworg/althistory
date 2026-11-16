@@ -14,6 +14,7 @@ import {
 } from '@/hooks/useGraphs'
 import { useGlobalStore } from '@/stores/globalStore'
 import { GraphStatus } from '@/types'
+import { RetryCountdown } from '@/components/notifications/NotificationCenter'
 import { formatHistoricalRange, historicalYear } from '@/utils/historicalTime'
 import { storedCalendarSet } from '@althistory/calendar'
 import { buildGraphTree, branchLabel } from './graphTree'
@@ -123,6 +124,12 @@ export const GraphSelector = memo(function GraphSelector({
     if (switchError) clearSwitchError()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeGraphId])
+
+  // The moment the server will take the switch again, counted down in the alert.
+  const retryAt = useMemo(() => {
+    const wait = (switchError as { retryAfter?: number | null } | null)?.retryAfter
+    return switchError && typeof wait === 'number' ? Date.now() + wait * 1000 : undefined
+  }, [switchError])
 
   // ... and it goes once the wait it named has passed, as the notices do.
   useEffect(() => {
@@ -485,14 +492,20 @@ export const GraphSelector = memo(function GraphSelector({
           data-testid="graph-switch-error"
           className={`z-40 flex items-start gap-2 rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink shadow-lg ${
             sheet
-              ? 'fixed inset-x-4 top-[calc(env(safe-area-inset-top,0px)+7rem)]'
+              ? 'fixed inset-x-4 top-[calc(var(--app-header-h,7rem)+0.5rem)]'
               : 'absolute top-full right-0 mt-1 w-80 max-w-[calc(100vw-2rem)]'
           }`}
         >
-          <p className="min-w-0 flex-1 break-words">
-            Couldn’t switch to {graphs.find((g) => g.id === switchTargetId)?.name ?? 'that graph'}; still on{' '}
-            {activeGraph?.name ?? 'the current graph'}. {switchError.message}
-          </p>
+          <div className="min-w-0 flex-1 break-words">
+            <p>
+              Couldn’t switch to {graphs.find((g) => g.id === switchTargetId)?.name ?? 'that graph'}; still on{' '}
+              {activeGraph?.name ?? 'the current graph'}.{' '}
+              {(switchError as { refusal?: string }).refusal ?? switchError.message}
+            </p>
+            {(switchError as { refusal?: string }).refusal !== undefined && (
+              <RetryCountdown retryAt={retryAt} className="font-mono-code" />
+            )}
+          </div>
           <button
             type="button"
             onClick={clearSwitchError}

@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { apiClient } from '@/services/api'
 import { useGlobalStore } from '@/stores/globalStore'
+import { reportApiError } from '@/services/rateLimitNotice'
 import { useCopyStore } from '@/stores/copyStore'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
 import { 
@@ -169,10 +170,7 @@ export const useGraphCopy = (): UseGraphCopyReturn => {
       }
     },
     onError: (error) => {
-      addError({
-        message: `Failed to create graph copy: ${error.message}`,
-        type: 'network'
-      })
+      reportApiError('Failed to create graph copy', error, 'network', addError)
       
       setFormState(prev => ({
         ...prev,
@@ -360,4 +358,4 @@ export const useGraphCopy = (): UseGraphCopyReturn => {
     isCreatingCopy: createCopyMutation.isPending || copyState.isCreatingCopy,
     isRefreshingStatus: false // Could be enhanced with actual refresh state
   }
-}
+}

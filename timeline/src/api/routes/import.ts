@@ -62,10 +62,10 @@ export interface ImportRouterConfig {
   idempotencyTtlMs?: number;
 }
 
-// Rate limiting: track requests per IP
+// Rate limiting: track requests per API key (per IP when there is no key)
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
-const DEFAULT_RATE_LIMIT_MAX_REQUESTS = 10; // 10 requests per minute per IP
+const DEFAULT_RATE_LIMIT_MAX_REQUESTS = 10; // 10 requests per minute per key
 // Polling a running import's job status is its own, much higher allowance: the
 // import wizard asks every 500 ms (120 a minute), and a start/validate budget
 // of 10 would refuse it a few seconds into a background import.

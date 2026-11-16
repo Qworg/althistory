@@ -1,3 +1,4 @@
+import { reportApiError } from '@/services/rateLimitNotice'
 import { compareInstants, toInstant } from '@althistory/calendar'
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useSearchParams } from 'react-router'
@@ -61,11 +62,6 @@ import { Portal } from '@/components/ui/Portal'
 /** What an event records of how much of its date is known: a month's or year's precision, and the calendar it was given in. */
 type DatePeriod = { datePrecision?: unknown; dateCalendar?: unknown }
 
-
-function describeError(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message
-  return 'Unknown error'
-}
 
 /**
  * A context menu that was opened, and what it was opened on.
@@ -423,10 +419,7 @@ export function TimelineView() {
       }
       setCreateTimestamp(null)
     } catch (error) {
-      addError({
-        type: 'network',
-        message: `Failed to create event: ${describeError(error)}`,
-      })
+      reportApiError(`Failed to create event`, error)
       // Re-throw so the modal keeps itself open and shows its inline message.
       throw error
     }
@@ -548,10 +541,7 @@ export function TimelineView() {
       })
       return true
     } catch (error) {
-      addError({
-        type: 'network',
-        message: `Failed to move "${event.description}": ${describeError(error)}`,
-      })
+      reportApiError(`Failed to move "${event.description}"`, error)
       return false
     }
   }, [eventMoveViolation, updateEventMutation, addError])
@@ -576,10 +566,7 @@ export function TimelineView() {
       })
       return true
     } catch (error) {
-      addError({
-        type: 'network',
-        message: `Failed to resize "${arc.name}": ${describeError(error)}`,
-      })
+      reportApiError(`Failed to resize "${arc.name}"`, error)
       return false
     }
   }, [arcResizeViolation, updateArcMutation, addError])
@@ -737,12 +724,9 @@ export function TimelineView() {
         setSelectedArc(null)
       }
     } catch (error) {
-      addError({
-        type: 'network',
-        message: `Failed to delete ${deleteConfirm.type}: ${describeError(error)}`,
-      })
+      reportApiError(`Failed to delete ${deleteConfirm.type}`, error)
     }
-  }, [deleteConfirm, deleteEventUndoably, relationships, deleteArcMutation, selectedEvent, selectedArc, addError, setSelectedEvent, setSelectedArc])
+  }, [deleteConfirm, deleteEventUndoably, relationships, deleteArcMutation, selectedEvent, selectedArc, setSelectedEvent, setSelectedArc])
 
   // Cancel delete
   const handleDeleteCancel = useCallback(() => {
@@ -759,14 +743,11 @@ export function TimelineView() {
         })
         setEditModal(null)
       } catch (error) {
-        addError({
-          type: 'network',
-          message: `Failed to save event: ${describeError(error)}`,
-        })
+        reportApiError(`Failed to save event`, error)
         throw error
       }
     }
-  }, [editModal, updateEventMutation, addError])
+  }, [editModal, updateEventMutation])
 
   // Delete event from modal
   const handleEventDelete = useCallback(async () => {
@@ -778,14 +759,11 @@ export function TimelineView() {
           setSelectedEvent(null)
         }
       } catch (error) {
-        addError({
-          type: 'network',
-          message: `Failed to delete event: ${describeError(error)}`,
-        })
+        reportApiError(`Failed to delete event`, error)
         throw error
       }
     }
-  }, [editModal, deleteEventUndoably, relationships, selectedEvent, addError, setSelectedEvent])
+  }, [editModal, deleteEventUndoably, relationships, selectedEvent, setSelectedEvent])
 
   // Save arc changes
   const handleArcSave = useCallback(async (updates: UpdateArcRequest) => {
@@ -797,14 +775,11 @@ export function TimelineView() {
         })
         setEditModal(null)
       } catch (error) {
-        addError({
-          type: 'network',
-          message: `Failed to save arc: ${describeError(error)}`,
-        })
+        reportApiError(`Failed to save arc`, error)
         throw error
       }
     }
-  }, [editModal, updateArcMutation, addError])
+  }, [editModal, updateArcMutation])
 
   // Delete arc from modal
   const handleArcDelete = useCallback(async () => {
@@ -816,14 +791,11 @@ export function TimelineView() {
           setSelectedArc(null)
         }
       } catch (error) {
-        addError({
-          type: 'network',
-          message: `Failed to delete arc: ${describeError(error)}`,
-        })
+        reportApiError(`Failed to delete arc`, error)
         throw error
       }
     }
-  }, [editModal, deleteArcMutation, selectedArc, addError, setSelectedArc])
+  }, [editModal, deleteArcMutation, selectedArc, setSelectedArc])
 
   // Close edit modal
   const handleEditModalClose = useCallback(() => {

@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { useGlobalStore } from '@/stores/globalStore'
-import { noticeRateLimited, retryAfterSeconds, describeRefusedRequest } from './rateLimitNotice'
+import {
+  noticeRateLimited,
+  retryAfterSeconds,
+  describeRefusedRequest,
+  reportApiError,
+  retryText,
+} from './rateLimitNotice'
 
 const refused = (headers: Record<string, string> = {}, data: unknown = {}) => ({ status: 429, headers, data })
 
@@ -34,8 +40,11 @@ describe('noticeRateLimited', () => {
     expect(describeRefusedRequest({ method, url })).toBe(what)
     const message = noticeRateLimited(refused({}, { error: { retryAfter: 3 } }), { method, url })
     expect(message).toContain(`${what} was refused`)
-    expect(message).toContain('Try again in 3 seconds')
-    expect(useGlobalStore.getState().errors.map((e) => e.message)).toContain(message)
+    // No number in the text: the notice centre counts the wait down from retryAt.
+    expect(message).not.toMatch(/\d/)
+    const notice = useGlobalStore.getState().errors.find((e) => e.message === message)
+    expect(notice?.retryAt).toBeGreaterThan(Date.now() + 2000)
+    expect(notice?.retryAt).toBeLessThanOrEqual(Date.now() + 3000)
   })
 
   it('shows one notice for a burst of identical refusals', () => {
@@ -50,13 +59,23 @@ describe('noticeRateLimited', () => {
     expect(useGlobalStore.getState().errors).toHaveLength(0)
   })
 
-  it('updates one notice with the new wait instead of stacking a notice per second', () => {
-    for (const wait of [30, 29, 28, 27]) {
-      noticeRateLimited(refused({}, { error: { retryAfter: wait } }), { method: 'post', url: '/graphs/g2/activate' })
-    }
+  it('moves the one notice\'s retryAt on a repeat refusal, so its countdown follows the server', () => {
+    noticeRateLimited(refused({}, { error: { retryAfter: 30 } }), { method: 'post', url: '/graphs/g2/activate' })
+    const first = useGlobalStore.getState().errors[0]!
+    noticeRateLimited(refused({}, { error: { retryAfter: 58 } }), { method: 'post', url: '/graphs/g2/activate' })
     const notices = useGlobalStore.getState().errors
     expect(notices).toHaveLength(1)
-    expect(notices[0]?.message).toContain('Try again in 27 seconds')
+    expect(notices[0]?.id).toBe(first.id)
+    expect(notices[0]?.message).toBe(first.message)
+    expect(notices[0]!.retryAt! - first.retryAt!).toBeGreaterThan(20000)
+  })
+
+  it('counts the wait down in words', () => {
+    const now = 1_000_000
+    expect(retryText(now + 12_000, now)).toBe('Try again in 12 seconds.')
+    expect(retryText(now + 1_000, now)).toBe('Try again in 1 second.')
+    expect(retryText(now - 1, now)).toBe('You can try again now.')
+    expect(retryText(undefined, now)).toBe('Try again in a moment.')
   })
 
   it('does not notify for a job-status poll, and words it as a check if it is ever shown', () => {
@@ -65,22 +84,28 @@ describe('noticeRateLimited', () => {
     expect(describeRefusedRequest({ method: 'get', url: '/import/jobs/job_1' })).toBe('Checking on the job')
   })
 
-  it("merges a caller's fuller report into the notice instead of dropping it or stacking a second", () => {
-    const shown = noticeRateLimited(refused({}, { error: { retryAfter: 12 } }), { method: 'post', url: '/events' })
-    const id = useGlobalStore.getState().errors[0]!.id
-    // What a caller writes: its own context plus the thrown APIError's message.
-    const fuller = `"Battle of X" could not be restored: ${shown}. It is still in Version history.`
-    useGlobalStore.getState().addError({ type: 'network', message: fuller })
-    const notices = useGlobalStore.getState().errors
-    expect(notices).toHaveLength(1)
-    expect(notices[0]?.id).toBe(id)
-    expect(notices[0]?.message).toContain('Version history')
-    // A later refusal of the same kind does not erase that context.
-    noticeRateLimited(refused({}, { error: { retryAfter: 9 } }), { method: 'post', url: '/events' })
-    expect(useGlobalStore.getState().errors[0]?.message).toContain('Version history')
+  it('adds nothing when a caller only restates a refusal the notice already shows', () => {
+    noticeRateLimited(refused({}, { error: { retryAfter: 12 } }), { method: 'post', url: '/events' })
+    const refusal = Object.assign(new Error('The event was refused'), { status: 429, refusal: 'The event was refused' })
+    reportApiError('Failed to save event', refusal)
     expect(useGlobalStore.getState().errors).toHaveLength(1)
-    useGlobalStore.getState().addError({ type: 'network', message: 'Failed to create event: disk full' })
-    expect(useGlobalStore.getState().errors).toHaveLength(2)
+  })
+
+  it('adds the caller\'s own notice for a failure that is not a refusal', () => {
+    reportApiError('Failed to save event', new Error('disk full'))
+    expect(useGlobalStore.getState().errors.map((e) => e.message)).toEqual(['Failed to save event: disk full'])
+    reportApiError(null, new Error('plain'), 'validation')
+    expect(useGlobalStore.getState().errors[1]).toMatchObject({ message: 'plain', type: 'validation' })
+  })
+
+  it('never merges text into a notice: addError only adds', () => {
+    noticeRateLimited(refused({}, { error: { retryAfter: 12 } }), { method: 'post', url: '/events' })
+    const notice = useGlobalStore.getState().errors[0]!
+    useGlobalStore.getState().addError({ type: 'network', message: `Failed: ${notice.message} Version history.` })
+    useGlobalStore.getState().addError({ type: 'network', message: `Failed: ${notice.message} Another.` })
+    const all = useGlobalStore.getState().errors
+    expect(all).toHaveLength(3)
+    expect(all[0]).toEqual(notice)
   })
 
   describe('expiry', () => {

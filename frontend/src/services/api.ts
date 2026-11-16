@@ -209,7 +209,7 @@ function handleAPIError(error: AxiosError): never {
       payload?.error?.message || payload?.message || error.message
     // A refused request says what was refused and when to retry, not the
     // server's bare "Rate limit exceeded: 60/minute".
-    if (status === 429) message = rateLimitedMessage(error.config ?? {}, retryAfterSeconds(error.response))
+    if (status === 429) message = rateLimitedMessage(error.config ?? {})
     const code = payload?.error?.code || payload?.code
     const details = payload?.error?.details ?? payload?.details
     if (status === 429) {

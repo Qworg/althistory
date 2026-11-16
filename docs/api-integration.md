@@ -318,7 +318,8 @@ withdraws it. Costs that are not request rates still apply to it, such as the
 generation-job caps below. For an exempt key `GET /api/keys/:id/usage` answers
 `"rateLimitExempt": true` and empty `currentUsage` windows (its requests are not
 counted); `rateLimit` still shows the stored numbers, which are not applied.
-The same holds for the import routes' own per-IP limiter (10 a minute; polling
+The same holds for the import routes' own limiter (10 a minute per key, per IP
+when there is no key; polling
 `GET /api/import/jobs/:id` has a separate 600 a minute), which skips the app key,
 and which sends `Retry-After` like every other `429`. The stream token and
 `auth_result` report `concurrentStreams: null` for the app key.
