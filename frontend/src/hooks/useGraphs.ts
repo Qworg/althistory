@@ -448,5 +448,9 @@ export function useGraphManagement() {
     isMerging: mergeGraph.isPending,
     isRollingBack: rollbackGraph.isPending,
     isSwitching: switchGraph.isPending,
+    /** Why the last switch was refused, and which graph it was for; null once it succeeds, a new one starts or it is dismissed. Nothing was changed when it is set. */
+    switchError: switchGraph.error as Error | null,
+    switchTargetId: (switchGraph.variables as string | undefined) ?? null,
+    clearSwitchError: switchGraph.reset,
   }
 }

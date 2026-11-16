@@ -109,6 +109,9 @@ export const GraphSelector = memo(function GraphSelector({
     isLoading,
     isCreating: isCreatingGraph,
     isSwitching,
+    switchError,
+    switchTargetId,
+    clearSwitchError,
   } = useGraphManagement()
   const headVersion = useGraphHeadVersion(activeGraphId, activeGraph?.version)
   const accessProblem = useApiAccess()
@@ -447,6 +450,30 @@ export const GraphSelector = memo(function GraphSelector({
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
+
+      {/* A refused switch (a 429, say) changed nothing: the button above still
+          names the graph that is open. Say so, so the click is not silent. */}
+      {switchError && !isOpen && (
+        <div
+          role="alert"
+          className="absolute top-full right-0 z-40 mt-1 flex w-80 max-w-[calc(100vw-2rem)] items-start gap-2 rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink shadow-lg"
+        >
+          <p className="min-w-0 flex-1 break-words">
+            Couldn’t switch to {graphs.find((g) => g.id === switchTargetId)?.name ?? 'that graph'}; still on{' '}
+            {activeGraph?.name ?? 'the current graph'}. {switchError.message}
+          </p>
+          <button
+            type="button"
+            onClick={clearSwitchError}
+            aria-label="Dismiss switch error"
+            className="shrink-0 rounded p-1 text-ink-muted hover:bg-subtle hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-selected"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       {/* Dropdown Menu: a panel under the button on desktop; on a phone a
           bottom sheet, because a 20rem panel anchored to the button's right

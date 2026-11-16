@@ -1,0 +1,120 @@
+/**
+ * A graph switch the server refuses with 429 must be shown, and must leave the
+ * picker where it was (issue #32). This runs the real hooks and the real API
+ * client over a fake transport, so the response interceptor, the hook and the
+ * picker are all exercised together.
+ */
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import axios from 'axios'
+import type { Graph } from '@/types'
+
+function graph(id: string, name: string): Graph {
+  return {
+    id,
+    name,
+    status: 'active',
+    version: 1,
+    createdAt: '2024-01-01T00:00:00Z',
+    updatedAt: '2024-01-01T00:00:00Z',
+    metadata: { eventCount: 1, arcCount: 0, relationshipCount: 0, pressureCount: 0 },
+  } as Graph
+}
+
+const graphs = [graph('g1', 'Main Timeline'), graph('g2', 'Alternative Branch')]
+
+describe('GraphSelector when a switch is refused with 429', () => {
+  let activateCalls = 0
+
+  beforeEach(() => {
+    vi.resetModules()
+    localStorage.clear()
+    localStorage.setItem('active_graph_id', 'g1')
+    activateCalls = 0
+
+    let onRejected: ((error: unknown) => unknown) | undefined
+    const refuse = (url: string) => {
+      const error = {
+        isAxiosError: true,
+        message: 'Request failed with status code 429',
+        request: {},
+        config: { url, method: 'post' },
+        response: {
+          status: 429,
+          data: { error: { message: 'Rate limit exceeded: 60/minute', retryAfter: 12 } },
+          headers: { 'retry-after': '12' },
+        },
+      }
+      return onRejected ? onRejected(error) : Promise.reject(error)
+    }
+    const ok = (data: unknown) => Promise.resolve({ data: { success: true, data } })
+
+    vi.spyOn(axios, 'create').mockReturnValue({
+      get: vi.fn((url: string) => {
+        if (url === '/graphs/active') return ok(graphs[0])
+        if (url === '/graphs/g1') return ok(graphs[0])
+        if (url === '/graphs/g2') return ok(graphs[1])
+        if (url === '/graphs') return Promise.resolve({ data: { success: true, data: graphs, pagination: { total: 2 } } })
+        return ok(null)
+      }),
+      post: vi.fn((url: string) => {
+        if (url.endsWith('/activate')) {
+          activateCalls += 1
+          return refuse(url)
+        }
+        return ok(null)
+      }),
+      put: vi.fn(),
+      delete: vi.fn(),
+      patch: vi.fn(),
+      interceptors: {
+        request: { use: vi.fn() },
+        response: { use: vi.fn((_ok: unknown, bad: (e: unknown) => unknown) => { onRejected = bad }) },
+      },
+      defaults: { headers: { common: {} } },
+    } as never)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('tells the person, and stays on the old graph', async () => {
+    const { GraphSelector } = await import('./GraphSelector')
+    const { useGlobalStore } = await import('@/stores/globalStore')
+    useGlobalStore.setState({ errors: [] })
+    const user = userEvent.setup()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    render(
+      <QueryClientProvider client={client}>
+        <GraphSelector />
+      </QueryClientProvider>
+    )
+
+    const button = await screen.findByRole('button', { name: /Main Timeline/ })
+    await waitFor(() => expect(button).toBeEnabled())
+    await user.click(button)
+    await user.click(await screen.findByRole('button', { name: /Alternative Branch/ }))
+
+    // The picker says the switch failed, why, and when to retry.
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Couldn.t switch to Alternative Branch/)
+    expect(alert).toHaveTextContent(/still on Main Timeline/)
+    expect(alert).toHaveTextContent(/Switching graphs was refused/)
+    expect(alert).toHaveTextContent(/Try again in 12 seconds/)
+
+    // The app's notification centre carries the same refusal, once.
+    const notices = useGlobalStore.getState().errors.filter((e) => /Switching graphs was refused/.test(e.message))
+    expect(notices).toHaveLength(1)
+    expect(notices[0]?.message).toMatch(/Try again in 12 seconds/)
+
+    // Nothing half-switched: still on the old graph, locally and in the picker.
+    expect(activateCalls).toBe(1)
+    expect(localStorage.getItem('active_graph_id')).toBe('g1')
+    expect(screen.getByRole('button', { name: /Main Timeline/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Switching/ })).not.toBeInTheDocument()
+  })
+})
