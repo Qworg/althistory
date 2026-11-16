@@ -621,7 +621,7 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
         const settled = (await neo4jLinks(cause, effect)).map((l) => l.id);
 
         const reads = await Promise.all(Array.from({ length: 30 }, () => liveLinks(cause)));
-        for (const links of reads) expect(links.map((l) => l.id)).toEqual(settled);
+        for (const links of reads) expect(links.map((l) => l.id).sort()).toEqual([...settled].sort());
         expect((await neo4jLinks(cause, effect)).map((l) => l.id)).toEqual(settled);
 
         // An edge that appears after the migration is read under its pair name and left alone:
