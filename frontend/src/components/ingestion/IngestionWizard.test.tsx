@@ -246,6 +246,54 @@ describe('IngestionWizard', () => {
     })
   })
 
+  it('says how many Wikidata rows were left out, and why, in the review step (#33)', async () => {
+    const user = userEvent.setup()
+    const preview = makePreview()
+    preview.extraction.droppedRows = {
+      total: 3,
+      reasons: [{ reason: 'before-timeline', count: 3, description: 'the date is beyond the timeline (older than about 285 million years)' }],
+    }
+    mockedWikidata.mockResolvedValue(preview)
+
+    renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} />)
+    await user.click(screen.getByRole('tab', { name: 'Wikidata' }))
+    await user.click(screen.getByRole('button', { name: /Extract events/ }))
+
+    expect(await screen.findByText('3 rows were left out: the date is beyond the timeline (older than about 285 million years)')).toBeInTheDocument()
+  })
+
+  it('lists each reason when rows were left out for several', async () => {
+    const user = userEvent.setup()
+    const preview = makePreview()
+    preview.extraction.droppedRows = {
+      total: 3,
+      reasons: [
+        { reason: 'no-date', count: 2, description: 'there is no date' },
+        { reason: 'after-timeline', count: 1, description: 'the date is beyond the timeline (more than about 285 million years ahead)' },
+      ],
+    }
+    mockedWikidata.mockResolvedValue(preview)
+
+    renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} />)
+    await user.click(screen.getByRole('tab', { name: 'Wikidata' }))
+    await user.click(screen.getByRole('button', { name: /Extract events/ }))
+
+    expect(await screen.findByText('3 rows were left out:')).toBeInTheDocument()
+    expect(screen.getByText('2: there is no date')).toBeInTheDocument()
+  })
+
+  it('shows no notice when nothing was left out', async () => {
+    const user = userEvent.setup()
+    mockedWikidata.mockResolvedValue(makePreview())
+
+    renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} />)
+    await user.click(screen.getByRole('tab', { name: 'Wikidata' }))
+    await user.click(screen.getByRole('button', { name: /Extract events/ }))
+
+    await screen.findByText('Battle of Hastings')
+    expect(screen.queryByTestId('dropped-rows-notice')).not.toBeInTheDocument()
+  })
+
   it('shows extracted entities in an editable table with checkboxes (Req 19.3)', async () => {
     const user = userEvent.setup()
     mockedText.mockResolvedValue(makePreview())

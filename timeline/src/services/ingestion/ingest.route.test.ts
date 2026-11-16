@@ -620,7 +620,7 @@ describe('Ingestion routes: Wikidata rows left out (#33)', () => {
     expect(response.body.extraction.events).toHaveLength(7);
     expect(response.body.extraction.droppedRows).toEqual({
       total: 3,
-      reasons: [{ reason: 'before-timeline', count: 3, description: 'their dates are beyond the timeline (older than about 285 million years)' }],
+      reasons: [{ reason: 'before-timeline', count: 3, description: 'the date is beyond the timeline (older than about 285 million years)' }],
     });
   });
 });

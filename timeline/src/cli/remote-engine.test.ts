@@ -334,7 +334,7 @@ function createDaemon(): { app: Express; requests: RecordedRequest[]; state: Dae
         overallConfidence: 0,
         droppedRows: {
           total: 3,
-          reasons: [{ reason: 'before-timeline', count: 3, description: 'their dates are beyond the timeline (older than about 285 million years)' }],
+          reasons: [{ reason: 'before-timeline', count: 3, description: 'the date is beyond the timeline (older than about 285 million years)' }],
         },
       },
       validationIssues: [],

@@ -324,11 +324,11 @@ export function readWikidataRows(
 }
 
 const DROPPED_ROW_TEXT: Record<DroppedRowReason, string> = {
-  'no-date': 'they have no date',
-  unreadable: 'their dates could not be read',
-  'before-timeline': 'their dates are beyond the timeline (older than about 285 million years)',
-  'after-timeline': 'their dates are beyond the timeline (more than about 285 million years ahead)',
-  'outside-range': 'they fall outside the time range asked for',
+  'no-date': 'there is no date',
+  unreadable: 'the date could not be read',
+  'before-timeline': 'the date is beyond the timeline (older than about 285 million years)',
+  'after-timeline': 'the date is beyond the timeline (more than about 285 million years ahead)',
+  'outside-range': 'the date is outside the time range asked for',
 };
 
 /** The counts as the report every front end shows; undefined when no row was left out. */

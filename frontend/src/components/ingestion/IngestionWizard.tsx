@@ -20,6 +20,7 @@ import { EntityReviewTable } from './EntityReviewTable'
 import { describeIngestError, type IngestErrorView, type IngestSource } from './ingestErrors'
 import { applyReviewDefaults, historySpan } from './reviewDefaults'
 import { SkippedSentences } from './SkippedSentences'
+import { DroppedRowsNotice } from './DroppedRowsNotice'
 import { buildEventLookup, entityLabel, reviewRowId } from './reviewLabels'
 import { knownNames } from './reviewMatching'
 import { useEvents } from '@/hooks/useEvents'
@@ -651,6 +652,9 @@ export function IngestionWizard({
                 handleTextSubmit({ ...lastTextRequest, text: text(lastTextRequest.text) })
               }}
             />
+          )}
+          {extraction.droppedRows && extraction.droppedRows.total > 0 && (
+            <DroppedRowsNotice droppedRows={extraction.droppedRows} />
           )}
           {issues.length > 0 && (
             <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40" role="status">
