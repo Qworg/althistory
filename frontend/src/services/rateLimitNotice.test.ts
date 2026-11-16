@@ -36,6 +36,11 @@ describe('noticeRateLimited', () => {
     ['post', '/ingest/text', 'The ingestion'],
     ['post', '/generate/timeline', 'The generation request'],
     ['post', '/stream/token', 'Starting live sync'],
+    ['post', '/graphs/copy', 'Creating the copy'],
+    ['delete', '/arcs/a1', 'Deleting the arc'],
+    ['delete', '/events/e1', 'Deleting the event'],
+    ['delete', '/causal/link/l1', 'Removing the link'],
+    ['delete', '/causal/r1', 'Deleting the link'],
   ])('says what a refused %s %s was', async (method, url, what) => {
     expect(describeRefusedRequest({ method, url })).toBe(what)
     const message = noticeRateLimited(refused({}, { error: { retryAfter: 3 } }), { method, url })
@@ -82,6 +87,17 @@ describe('noticeRateLimited', () => {
     expect(noticeRateLimited(refused({}, { error: { retryAfter: 3 } }), { method: 'get', url: '/import/jobs/job_1' })).toBeNull()
     expect(useGlobalStore.getState().errors).toHaveLength(0)
     expect(describeRefusedRequest({ method: 'get', url: '/import/jobs/job_1' })).toBe('Checking on the job')
+  })
+
+  it('a migrated caller adds nothing for a 429 that the interceptor already showed', async () => {
+    // useGraphCopy's onError path: the API client throws a 429 APIError.
+    const { APIError } = await import('./api')
+    noticeRateLimited(refused({}, { error: { retryAfter: 12 } }), { method: 'post', url: '/graphs/copy' })
+    const error = new APIError('x', 429, undefined, undefined, 'Creating the copy was refused because too many requests were sent.', 12)
+    const add = vi.fn()
+    reportApiError('Failed to create graph copy', error, 'network', add)
+    expect(add).not.toHaveBeenCalled()
+    expect(useGlobalStore.getState().errors).toHaveLength(1)
   })
 
   it('adds nothing when a caller only restates a refusal the notice already shows', () => {

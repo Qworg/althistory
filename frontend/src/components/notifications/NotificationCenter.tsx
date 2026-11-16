@@ -1,7 +1,6 @@
 import { useGlobalStore } from '@/stores/globalStore'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ErrorState } from '@/types'
-import { retryText } from '@/services/rateLimitNotice'
 
 type ErrorType = ErrorState['type']
 
@@ -58,16 +57,56 @@ function errorIcon(className: string) {
   )
 }
 
-/** The wait still to go on a rate-limit notice, counting down once a second. */
+/**
+ * The wait still to go on a rate-limit notice, counting down once a second.
+ *
+ * It sits inside an assertive live region, so the ticking text is hidden from
+ * assistive technology (`aria-hidden`): read out every second it would drown
+ * the page. What is announced instead is a spoken sentence fixed when `retryAt`
+ * is set or moved ("Try again in about 12 seconds."), and, once, a polite
+ * "You can try again now." when the wait is over. The timer stops there.
+ */
 export function RetryCountdown({ retryAt, className }: { retryAt?: number; className?: string }) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     if (retryAt === undefined) return
     setNow(Date.now())
-    const timer = setInterval(() => setNow(Date.now()), 1000)
+    if (retryAt - Date.now() <= 0) return
+    const timer = setInterval(() => {
+      const current = Date.now()
+      setNow(current)
+      if (retryAt - current <= 0) clearInterval(timer)
+    }, 1000)
     return () => clearInterval(timer)
   }, [retryAt])
-  return <p className={className}>{retryText(retryAt, now)}</p>
+
+  // Fixed per retryAt, not per tick.
+  const spoken = useMemo(() => {
+    if (retryAt === undefined) return 'Try again in a moment.'
+    const seconds = Math.ceil((retryAt - Date.now()) / 1000)
+    if (seconds <= 0) return ''
+    return `Try again in about ${seconds} ${seconds === 1 ? 'second' : 'seconds'}.`
+  }, [retryAt])
+
+  const remaining = retryAt === undefined ? null : Math.ceil((retryAt - now) / 1000)
+  const done = remaining !== null && remaining <= 0
+  return (
+    <p className={className}>
+      <span aria-hidden="true" data-testid="retry-countdown">
+        {remaining === null ? (
+          'Try again in a moment.'
+        ) : done ? (
+          'You can try again now.'
+        ) : (
+          <>
+            Try again in <span className="font-mono-code">{remaining}</span> {remaining === 1 ? 'second' : 'seconds'}.
+          </>
+        )}
+      </span>
+      <span className="sr-only" data-testid="retry-spoken">{spoken}</span>
+      <span role="status" className="sr-only">{done ? 'You can try again now.' : ''}</span>
+    </p>
+  )
 }
 
 /**
@@ -126,7 +165,7 @@ export function NotificationCenter() {
               <p className="text-sm font-semibold">{style.label}</p>
               <p className="mt-0.5 text-sm break-words">{error.message}</p>
               {error.refusal !== undefined && (
-                <RetryCountdown retryAt={error.retryAt} className="font-mono-code text-sm" />
+                <RetryCountdown retryAt={error.retryAt} className="text-sm" />
               )}
             </div>
             <button

@@ -71,25 +71,63 @@ describe('NotificationCenter', () => {
     beforeEach(() => vi.useFakeTimers())
     afterEach(() => vi.useRealTimers())
 
+    const visible = () => screen.getByTestId('retry-countdown').textContent
+    const spoken = () => screen.getByTestId('retry-spoken').textContent
+    const addRefusal = (retryAt: number) =>
+      useGlobalStore.getState().addError({
+        type: 'general',
+        message: 'Switching graphs was refused because too many requests were sent.',
+        refusal: 'Switching graphs was refused because too many requests were sent.',
+        retryAt,
+      })
+
     it('counts the wait down live, then says it can be tried again', () => {
       render(<NotificationCenter />)
-      act(() => {
-        useGlobalStore.getState().addError({
-          type: 'general',
-          message: 'Switching graphs was refused because too many requests were sent.',
-          refusal: 'Switching graphs was refused because too many requests were sent.',
-          retryAt: Date.now() + 5000,
-        })
-      })
-      expect(screen.getByText('Try again in 5 seconds.')).toBeInTheDocument()
+      act(() => addRefusal(Date.now() + 5000))
+      expect(visible()).toBe('Try again in 5 seconds.')
       act(() => {
         vi.advanceTimersByTime(3000)
       })
-      expect(screen.getByText('Try again in 2 seconds.')).toBeInTheDocument()
+      expect(visible()).toBe('Try again in 2 seconds.')
       act(() => {
         vi.advanceTimersByTime(3000)
       })
-      expect(screen.getByText('You can try again now.')).toBeInTheDocument()
+      expect(visible()).toBe('You can try again now.')
+    })
+
+    it('keeps the ticking text out of assistive technology and the spoken sentence still', () => {
+      render(<NotificationCenter />)
+      act(() => addRefusal(Date.now() + 12000))
+      // The ticking node is hidden from the live region it sits in.
+      expect(screen.getByTestId('retry-countdown')).toHaveAttribute('aria-hidden', 'true')
+      expect(spoken()).toBe('Try again in about 12 seconds.')
+      act(() => {
+        vi.advanceTimersByTime(4000)
+      })
+      expect(visible()).toBe('Try again in 8 seconds.')
+      // Not re-announced on a tick.
+      expect(spoken()).toBe('Try again in about 12 seconds.')
+    })
+
+    it('announces that it can be tried again once, politely, and stops its timer', () => {
+      render(<NotificationCenter />)
+      act(() => addRefusal(Date.now() + 2000))
+      const status = () => screen.getAllByRole('status').find((el) => el.className.includes('sr-only'))
+      expect(status()?.textContent).toBe('')
+      act(() => {
+        vi.advanceTimersByTime(3000)
+      })
+      expect(status()?.textContent).toBe('You can try again now.')
+      // Nothing left ticking once it has run out.
+      expect(vi.getTimerCount()).toBe(0)
+    })
+
+    it('puts only the number in the monospace face', () => {
+      render(<NotificationCenter />)
+      act(() => addRefusal(Date.now() + 9000))
+      const mono = screen.getByTestId('retry-countdown').querySelector('.font-mono-code')
+      expect(mono?.textContent).toBe('9')
+      expect(screen.getByTestId('retry-countdown').parentElement?.className ?? '').not.toContain('font-mono-code')
     })
 
     it('follows a repeat refusal that moves retryAt', () => {
@@ -101,7 +139,8 @@ describe('NotificationCenter', () => {
       act(() => {
         useGlobalStore.getState().updateError(id, { retryAt: Date.now() + 58000 })
       })
-      expect(screen.getByText('Try again in 58 seconds.')).toBeInTheDocument()
+      expect(visible()).toBe('Try again in 58 seconds.')
+      expect(spoken()).toBe('Try again in about 58 seconds.')
     })
   })
 })

@@ -139,6 +139,16 @@ describe('GraphSelector when a switch is refused with 429', () => {
     return screen.findByRole('alert')
   }
 
+  it("counts the wait down in the alert (it uses the notice centre's countdown)", async () => {
+    await refuseASwitch()
+    const text = () => screen.getByTestId('retry-countdown').textContent
+    expect(text()).toBe('Try again in 12 seconds.')
+    await waitFor(() => expect(text()).toBe('Try again in 11 seconds.'), { timeout: 3000 })
+    // Hidden from the alert's live region, which still carries the spoken sentence.
+    expect(screen.getByTestId('retry-countdown')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByTestId('retry-spoken').textContent).toBe('Try again in about 12 seconds.')
+  })
+
   it('hides the alert once the graph it could not open is the open one', async () => {
     await refuseASwitch()
     // A switch made elsewhere (the Graph Manager, another tab) lands on g2.
@@ -172,7 +182,8 @@ describe('GraphSelector when a switch is refused with 429', () => {
 
   it('on a phone shows the alert alone, below the header, not also the notice', async () => {
     const alert = await refuseASwitch(true)
-    expect(alert.className).toContain('7rem')
+    // Under the header height Header.tsx publishes, not a guessed number.
+    expect(alert.className).toContain('var(--app-header-h')
     const { useGlobalStore } = await import('@/stores/globalStore')
     expect(useGlobalStore.getState().errors.filter((e) => /Switching graphs/.test(e.message))).toHaveLength(0)
   })

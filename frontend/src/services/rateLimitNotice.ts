@@ -61,9 +61,15 @@ export function describeRefusedRequest(request: RefusedRequest): string {
   if (/\/ingest(\/|$)/.test(path)) return 'The ingestion'
   if (/\/generate(\/|$)/.test(path)) return 'The generation request'
   if (/\/export(\/|$)/.test(path)) return 'The export'
+  if (/\/graphs\/copy(\/|$)/.test(path)) return 'Creating the copy'
   if (/\/causal\/link/.test(path)) return method === 'DELETE' ? 'Removing the link' : 'Saving the link'
   if (method === 'GET' || method === 'HEAD') return 'Loading data'
-  if (method === 'DELETE') return 'Deleting'
+  if (method === 'DELETE') {
+    if (/\/arcs(\/|$)/.test(path)) return 'Deleting the arc'
+    if (/\/events(\/|$)/.test(path)) return 'Deleting the event'
+    if (/\/causal(\/|$)/.test(path)) return 'Deleting the link'
+    return 'Deleting'
+  }
   if (/\/arcs(\/|$)/.test(path)) return 'Saving the arc'
   if (/\/events(\/|$)/.test(path)) return 'Saving the event'
   return 'Saving your change'

@@ -503,7 +503,7 @@ export const GraphSelector = memo(function GraphSelector({
               {(switchError as { refusal?: string }).refusal ?? switchError.message}
             </p>
             {(switchError as { refusal?: string }).refusal !== undefined && (
-              <RetryCountdown retryAt={retryAt} className="font-mono-code" />
+              <RetryCountdown retryAt={retryAt} />
             )}
           </div>
           <button

@@ -37,42 +37,74 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
       const outcome = await deleteEvent(event.id)
       if (outcome.delivery === 'queued') return
 
+      // The restored copy's id once undo has re-created the event, and the
+      // links still to be made. A restore a 429 interrupted is finished by the
+      // next undo, which re-creates neither the event nor the links already made.
       let currentId = event.id
+      let restoredId: string | null = null
+      let pending: CausalRelationship[] = links
+      // The lasting notice for links still missing, so a repeat replaces it.
+      let missingNotice: string | null = null
       const linkCount = links.length
       const description = `deleted "${event.description}"${
         linkCount ? ` and its ${linkCount} causal link${linkCount === 1 ? '' : 's'}` : ''
       }`
 
+      /** Where each missing link was going, by name where the event is in view. */
+      const nameEnds = (missing: CausalRelationship[]): string => {
+        const inView = new Map(useGlobalStore.getState().events.map((e) => [e.id, e.description]))
+        const names = missing
+          .map((link) => (link.cause_event_id === event.id ? link.effect_event_id : link.cause_event_id))
+          .map((id) => inView.get(id))
+          .filter((name): name is string => Boolean(name))
+        if (names.length === 0) return ''
+        const shown = names.slice(0, 2).map((n) => `"${n}"`)
+        const rest = missing.length - shown.length
+        const list =
+          rest > 0 ? `${shown.join(', ')}, and ${rest} more` : shown.join(shown.length === 2 ? ' and ' : ', ')
+        return ` (to ${list})`
+      }
+
+      /** A lasting notice; an identical one already showing is not added again. */
+      const tell = (message: string, type: 'general' | 'network' = 'general') => {
+        if (useGlobalStore.getState().errors.some((e) => e.message === message)) return
+        addError({ type, message })
+      }
+
       record({
         description,
         undo: async () => {
           try {
-            const created = await createEvent({
-              description: event.description,
-              actor: event.actor,
-              target: event.target,
-              timestamp: event.timestamp,
-              metadata: event.metadata,
-            })
-            if (created.delivery === 'queued') {
-              addError({ type: 'network', message: 'You are offline, so the deletion cannot be undone yet.' })
-              return false
+            if (restoredId === null) {
+              const created = await createEvent({
+                description: event.description,
+                actor: event.actor,
+                target: event.target,
+                timestamp: event.timestamp,
+                metadata: event.metadata,
+              })
+              if (created.delivery === 'queued') {
+                addError({ type: 'network', message: 'You are offline, so the deletion cannot be undone yet.' })
+                return false
+              }
+              restoredId = created.value.id
+              currentId = restoredId
             }
-            const restoredId = created.value.id
+            const newId = restoredId
             let lostLinks = 0
-            // Links the server refused for load (429): not lost, just not made yet.
-            // After the first refusal no more are sent: the rest would be refused too.
-            let refusedLinks = 0
-            let busy = false
-            for (const link of links) {
-              if (busy) {
-                refusedLinks++
+            // Links the server refused for load (429). They are not made yet; the
+            // entry stays on the undo stack and the next undo makes them. After the
+            // first refusal no more are sent: the rest would be refused too.
+            const refused: CausalRelationship[] = []
+            for (const link of pending) {
+              if (refused.length > 0) {
+                refused.push(link)
                 continue
               }
               try {
                 await createLink({
-                  causeId: link.cause_event_id === currentId ? restoredId : link.cause_event_id,
-                  effectId: link.effect_event_id === currentId ? restoredId : link.effect_event_id,
+                  causeId: link.cause_event_id === event.id ? newId : link.cause_event_id,
+                  effectId: link.effect_event_id === event.id ? newId : link.effect_event_id,
                   relationship: {
                     weight: link.weight,
                     evidence: link.evidence,
@@ -82,50 +114,59 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
                 })
               } catch (linkError) {
                 if (isRefusal(linkError)) {
-                  refusedLinks++
-                  busy = true
+                  refused.push(link)
                 } else {
                   // The other end may have been deleted since.
                   lostLinks++
                 }
               }
             }
-            currentId = restoredId
-            if (refusedLinks > 0) {
-              addError({
-                type: 'general',
-                // Its own, lasting notice; the retry notice says when to try again.
-                message: `"${event.description}" is back, but ${refusedLinks} of its causal links were not restored because the server is busy. Link them again shortly.`,
-              })
-            }
+            pending = refused
             if (lostLinks > 0) {
-              addError({
-                type: 'general',
-                message: `"${event.description}" is back, but ${lostLinks} of its causal links could not be restored: the event at the other end no longer exists.`,
-              })
+              tell(
+                `"${event.description}" is back, but ${lostLinks} of its causal links could not be restored: the event at the other end no longer exists.`
+              )
+            }
+            if (refused.length > 0) {
+              const message = `"${event.description}" is back, but ${refused.length} of its causal links weren't restored yet because the server is busy${nameEnds(
+                refused
+              )}. Press Undo again once the wait is over to restore them.`
+              missingNotice = message
+              tell(message)
+              // Unfinished: the entry stays on the undo stack for the rest.
+              return false
+            }
+            if (missingNotice !== null) {
+              const { errors, removeError } = useGlobalStore.getState()
+              for (const e of errors) if (e.message === missingNotice) removeError(e.id)
+              missingNotice = null
             }
             return true
           } catch (error) {
-            addError({
-              type: 'network',
-              message: `"${event.description}" could not be restored: ${
+            tell(
+              `"${event.description}" could not be restored: ${
                 isRefusal(error) ? 'the server is busy, try again shortly' : sentence(error)
               }. It is still in Version history.`,
-            })
+              'network'
+            )
             return false
           }
         },
         redo: async () => {
           try {
             const again = await deleteEvent(currentId)
-            return again.delivery === 'sent'
+            if (again.delivery !== 'sent') return false
+            // Gone again: the next undo re-creates it from the snapshot.
+            restoredId = null
+            pending = links
+            return true
           } catch (error) {
-            addError({
-              type: 'network',
-              message: `"${event.description}" could not be deleted again: ${
+            tell(
+              `"${event.description}" could not be deleted again: ${
                 isRefusal(error) ? 'the server is busy, try again shortly' : sentence(error)
               }.`,
-            })
+              'network'
+            )
             return false
           }
         },

@@ -48,9 +48,8 @@ export const useCausalPathExploration = (initialOptions?: Partial<PathExploratio
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   
-  const { addError } = useGlobalStore()
-
   const autoAdvanceTimerRef = useRef<number | null>(null)
+  const { addError } = useGlobalStore()
 
   // Calculate path metrics
   const calculatePathMetrics = useCallback((path: CausalPath) => {
@@ -354,4 +353,4 @@ export const useCausalPathExploration = (initialOptions?: Partial<PathExploratio
   }
 }
 
-export default useCausalPathExploration
+export default useCausalPathExploration
