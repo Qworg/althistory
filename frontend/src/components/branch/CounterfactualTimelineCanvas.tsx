@@ -13,7 +13,7 @@ import {
   PointOfDivergence,
   EventComparisonItem,
 } from '@/utils/divergenceAnalysis'
-import { layoutEventLabels, truncateLabel, LABEL_ROW_OFFSETS, type EventLabelPlacement, type LabelLayoutConfig } from '@/components/timeline/eventLabelLayout'
+import { layoutEventLabels, truncateLabel, LABEL_ROW_OFFSETS, TIMELINE_LABEL_CONFIG, type EventLabelPlacement, type LabelLayoutConfig } from '@/components/timeline/eventLabelLayout'
 import { msApart, toAxisTime, toInstant } from '@althistory/calendar'
 
 export interface CounterfactualTimelineCanvasProps {
@@ -85,7 +85,12 @@ const LABEL_FONT_PX = 12
  * default 10px, a 12px label near the plot's edge was placed as if it fitted
  * and ran past the clip ("abbage completes…").
  */
-const LANE_LABEL_CONFIG: LabelLayoutConfig = { rowOffsets: LABEL_ROW_OFFSETS, fontSize: LABEL_FONT_PX }
+const LANE_LABEL_CONFIG: LabelLayoutConfig = {
+  rowOffsets: LABEL_ROW_OFFSETS,
+  fontSize: LABEL_FONT_PX,
+  maxChars: TIMELINE_LABEL_CONFIG.maxChars,
+  fullChars: TIMELINE_LABEL_CONFIG.fullChars,
+}
 /** Width of the tooltip, which is clamped inside the canvas. */
 const TOOLTIP_WIDTH_PX = 240
 

@@ -19,7 +19,7 @@ import {
   filterPressuresInWindow
 } from './timelineVirtualization'
 import { formatHistoricalTimestamp, formatEventDate, formatHistoricalEnd } from '@/utils/historicalTime'
-import { layoutEventLabels, LABEL_FONT_SIZE, TIMELINE_LABEL_CONFIG } from './eventLabelLayout'
+import { layoutEventLabels, LABEL_FONT_SIZE, TIMELINE_BELOW_ROW_OFFSETS, TIMELINE_LABEL_CONFIG } from './eventLabelLayout'
 import { tooltipPlacement } from './tooltipPlacement'
 import { useLiveChangesStore } from '@/stores/liveChangesStore'
 import {
@@ -38,6 +38,7 @@ import {
   restingLinkOpacity,
   linkPath,
   linkStrokeWidth,
+  linkSpansInBands,
   LINK_DASH,
   type TimelineLink,
 } from './timelineLinks'
@@ -511,30 +512,6 @@ const Timeline = memo(function Timeline({
     [hasLinks, reach, maxReach, markScale]
   )
 
-  // Which visible events get a label, and where. The selected and highlighted
-  // events are placed first so they are always named; the rest are labelled
-  // only where there is room (see eventLabelLayout.ts).
-  const eventLabels = useMemo(
-    () =>
-      layoutEventLabels(
-        visibleEvents.map(ev => ({
-          id: ev.id,
-          x: xScale(toInstant(ev.timestamp)),
-          description: ev.description,
-          // The selection's ripple is named first, so the trace reads as words.
-          priority:
-            ev.id === selectedEventId ||
-            (highlightedEventIds?.has(ev.id) ?? false) ||
-            ripple.causes.has(ev.id) ||
-            ripple.effects.has(ev.id),
-          weight: reach.get(ev.id) ?? 0,
-        })),
-        innerWidth,
-        TIMELINE_LABEL_CONFIG
-      ),
-    [visibleEvents, xScale, innerWidth, selectedEventId, highlightedEventIds, ripple, reach]
-  )
-
   // ── Branch baseline (ghost) ──────────────────────────────────────────────
   // A baseline event has a counterpart in the branch when the branch holds the
   // same id, or the same instant and description (a copy with a new id).
@@ -574,6 +551,53 @@ const Timeline = memo(function Timeline({
   const navModel = useMemo(() => buildNavModel(events, arcHierarchy), [events, arcHierarchy])
   const eventsById = useMemo(() => new Map(events.map(ev => [ev.id, ev])), [events])
   const arcsById = useMemo(() => new Map(arcHierarchy.map(arc => [arc.id, arc])), [arcHierarchy])
+
+  // The rows under the track, where the causal links hang: a label may take
+  // one when the rows above are full, but never over a link's curve (a link is
+  // structure, a label can go elsewhere). Without links there is no band under
+  // the track, so no rows. Each row's blocked spans are where some link's
+  // curve passes through the row's height.
+  const labelBelowRows = useMemo(() => {
+    const band = layout.linkBand
+    if (!band) return undefined
+    const ends: Array<{ x1: number; x2: number }> = []
+    for (const link of drawableLinks) {
+      const cause = eventsById.get(link.causeId)
+      const effect = eventsById.get(link.effectId)
+      if (!cause || !effect) continue
+      const x1 = xScale(toInstant(cause.timestamp))
+      const x2 = xScale(toInstant(effect.timestamp))
+      if (Math.max(x1, x2) < -40 || Math.min(x1, x2) > innerWidth + 40) continue
+      ends.push({ x1, x2 })
+    }
+    // A row's text runs from about its ascent above the baseline to a descender below it, measured from the band's top (the stem's end).
+    const bands = TIMELINE_BELOW_ROW_OFFSETS.map((offset): [number, number] => [
+      offset - EVENT_STEM_LENGTH - LABEL_FONT_SIZE,
+      offset - EVENT_STEM_LENGTH + 4,
+    ])
+    const blocked = linkSpansInBands(ends, band.height, innerWidth, bands)
+    return TIMELINE_BELOW_ROW_OFFSETS.map((offset, index) => ({ offset, blocked: blocked[index] ?? [] }))
+  }, [layout.linkBand, drawableLinks, eventsById, xScale, innerWidth])
+
+  // Which visible events get a label, and where: where there is room, the
+  // rows above the track first, then those under it (see eventLabelLayout.ts).
+  // The layout does not depend on the selection, highlight or trace, so
+  // selecting an event never moves a label: the selection is shown by styling
+  // the label in place (TimelineEvent), and by dimming the rest.
+  const eventLabels = useMemo(
+    () =>
+      layoutEventLabels(
+        visibleEvents.map(ev => ({
+          id: ev.id,
+          x: xScale(toInstant(ev.timestamp)),
+          description: ev.description,
+          weight: reach.get(ev.id) ?? 0,
+        })),
+        innerWidth,
+        { ...TIMELINE_LABEL_CONFIG, belowRows: labelBelowRows }
+      ),
+    [visibleEvents, xScale, innerWidth, reach, labelBelowRows]
+  )
 
   // The mark that last had focus; the tab stop follows it.
   const [activeMarkKey, setActiveMarkKey] = useState<MarkKey | null>(null)
@@ -1603,13 +1627,31 @@ const Timeline = memo(function Timeline({
               {visibleEvents.map(ev => {
                 const placement = eventLabels.get(ev.id)
                 const firstRow = TIMELINE_LABEL_CONFIG.rowOffsets[0] ?? -20
-                if (!placement || placement.offset >= firstRow) return null
-                const base = markBaseRadius(ev.id)
-                const radius =
-                  base + ((highlightedEventIds?.has(ev.id) ?? false) ? 3 : selectedEventId === ev.id ? 2 : 0)
+                if (!placement) return null
                 const x = xScale(toInstant(ev.timestamp))
                 const dimmed =
                   isTracing && ev.id !== selectedEventId && !ripple.causes.has(ev.id) && !ripple.effects.has(ev.id)
+                // Below the track, past the first row: from the stem's end down to the label.
+                const firstBelow = TIMELINE_BELOW_ROW_OFFSETS[0]
+                if (placement.offset > firstBelow) {
+                  return (
+                    <line
+                      key={ev.id}
+                      className="event-label-leader"
+                      x1={x}
+                      x2={x}
+                      y1={eventY + EVENT_STEM_LENGTH}
+                      y2={eventY + placement.offset - LABEL_FONT_SIZE + 1}
+                      stroke="var(--text-muted)"
+                      strokeOpacity={dimmed ? 0.12 : 0.45}
+                      strokeWidth={1}
+                    />
+                  )
+                }
+                if (placement.offset >= firstRow) return null
+                const base = markBaseRadius(ev.id)
+                const radius =
+                  base + ((highlightedEventIds?.has(ev.id) ?? false) ? 3 : selectedEventId === ev.id ? 2 : 0)
                 return (
                   <line
                     key={ev.id}
@@ -1648,7 +1690,10 @@ const Timeline = memo(function Timeline({
                   reach={reach.get(ev.id) ?? 0}
                   baseRadius={markBaseRadius(ev.id)}
                   isTabStop={tabStopKey === eventMarkKey(ev.id)}
-                  label={eventLabels.get(ev.id) ?? null}
+                  // No room for its title: null (the mark keeps its tooltip and
+                  // name), except the selection, which the mark names over its
+                  // neighbours' labels rather than move them.
+                  label={eventLabels.get(ev.id) ?? (selectedEventId === ev.id ? undefined : null)}
                   onClick={handleEventClick}
                   onContextMenu={handleEventContextMenu}
                   onDragStart={handleEventDragStart}

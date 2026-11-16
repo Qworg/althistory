@@ -6,14 +6,14 @@ import { axisTicks, fitAxis, formatTimeAxisTickSet, getTimeAxisInterval } from '
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import { formatEventDate } from '@/utils/historicalTime'
 import { truncateToWidth } from '@/utils'
-import { layoutEventLabels, type EventLabelPlacement, type LabelLayoutConfig } from './eventLabelLayout'
+import { layoutEventLabels, truncateLabel, TIMELINE_LABEL_CONFIG, type EventLabelPlacement, type LabelLayoutConfig } from './eventLabelLayout'
 import { DEFAULT_ACTOR_MARGIN, actorAxisMaxTicks } from './timelineLayout'
 import { compareInstants, msApart, toAxisTime, toInstant } from '@althistory/calendar'
 
 /** Two rows of 12px labels (the 12px floor); the pitch is the font plus leading. */
-const ACTOR_LABEL_CONFIG: LabelLayoutConfig = { rowOffsets: [-16, -30], fontSize: 12 }
+const ACTOR_LABEL_CONFIG: LabelLayoutConfig = { rowOffsets: [-16, -30], fontSize: 12, maxChars: TIMELINE_LABEL_CONFIG.maxChars, fullChars: TIMELINE_LABEL_CONFIG.fullChars }
 /** Rows under a mark, for a label with no room above it. */
-const ACTOR_LABEL_BELOW_CONFIG: LabelLayoutConfig = { rowOffsets: [24, 38], fontSize: 12 }
+const ACTOR_LABEL_BELOW_CONFIG: LabelLayoutConfig = { rowOffsets: [24, 38], fontSize: 12, maxChars: TIMELINE_LABEL_CONFIG.maxChars, fullChars: TIMELINE_LABEL_CONFIG.fullChars }
 /**
  * Arc names are drawn at 12px medium, which runs wider than the regular
  * weight the estimate assumes; measured at 13px so two neighbouring names do
@@ -334,7 +334,6 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
           id: event.id,
           x: timeScale(toInstant(event.timestamp)),
           description: event.description,
-          priority: event.id === state.selectedEventId,
         })),
         innerWidth,
         ACTOR_LABEL_CONFIG
@@ -363,7 +362,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
       }
     }
     return placements
-  }, [events.length, groups, layoutMode, innerHeight, innerWidth, timeScale, yScale, arcLabelFloor, state.selectedEventId])
+  }, [events.length, groups, layoutMode, innerHeight, innerWidth, timeScale, yScale, arcLabelFloor])
 
   const selectEvent = useCallback((event: ActorEventData) => {
     setState(prev => ({
@@ -654,7 +653,13 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
                       const isHovered = state.hoveredEventId === event.id
                       const roleColor = ROLE_COLOR[event.role]
                       const placed = { event, x, y }
-                      const label = markLabels.get(event.id)
+                      // Where the layout found room; the selection with none is
+                      // named over its neighbours rather than moving them.
+                      const label =
+                        markLabels.get(event.id) ??
+                        (isSelected
+                          ? { offset: -16, anchor: 'middle' as const, text: truncateLabel(event.description, 32), emphasis: true }
+                          : undefined)
                       return (
                         <g
                           key={event.id}
@@ -720,6 +725,11 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
                               fontSize={12}
                               fontWeight={isSelected ? 600 : 400}
                               fill={isSelected ? 'var(--accent-selected)' : 'var(--text-secondary)'}
+                              // A card-coloured halo keeps the selection's label legible over its neighbours'.
+                              stroke={isSelected ? 'var(--surface-card)' : undefined}
+                              strokeWidth={isSelected ? 4 : undefined}
+                              strokeLinejoin="round"
+                              paintOrder="stroke"
                               pointerEvents="none"
                             >
                               {label.text}

@@ -443,7 +443,8 @@ describe('ActorTimeline', () => {
         />
       )
       const labels = Array.from(container.querySelectorAll('.actor-event-label')).map((t) => t.textContent)
-      expect(labels).toEqual(['Declaration of…', 'Treaty with Spain'])
+      // Where a row has room a title is whole (up to the main timeline's 44 characters), not cut to 18.
+      expect(labels).toEqual(['Declaration of Independence', 'Treaty with Spain'])
       // The role is the lane, the colour and the accessible name.
       const marks = Array.from(container.querySelectorAll('.actor-event'))
       for (const mark of marks) {
@@ -481,6 +482,28 @@ describe('ActorTimeline', () => {
       const label = mark.querySelector('.actor-event-label')
       expect(label).toHaveTextContent('Event e6')
       expect(label?.getAttribute('fill')).toBe('var(--accent-selected)')
+    })
+
+    it('keeps every other label where it was when a mark is selected', () => {
+      const sameDay = ['e1', 'e2', 'e3', 'e4', 'e5', 'e6'].map((id) => actorEvent(id, 'actor', 'Britain'))
+      const { container } = render(
+        <ActorTimeline actor="U.S." layoutMode="chronological" events={sameDay} arcs={[]} />
+      )
+      const drawn = () =>
+        new Map(
+          Array.from(container.querySelectorAll<SVGTextElement>('.actor-event-label')).map((text) => [
+            text.closest('.actor-event')!.getAttribute('data-event-id'),
+            [text.getAttribute('y'), text.getAttribute('text-anchor'), text.textContent],
+          ])
+        )
+      const before = drawn()
+      expect(before.size).toBeGreaterThan(0)
+      for (const id of ['e6', 'e1', 'e3']) {
+        fireEvent.click(container.querySelector(`.actor-event[data-event-id="${id}"]`)!)
+        const after = drawn()
+        for (const [key, where] of before) expect(after.get(key), `${id} selected moved ${key}`).toEqual(where)
+        fireEvent.click(container.querySelector(`.actor-event[data-event-id="${id}"]`)!)
+      }
     })
 
     it('draws the selected event in indigo, not danger red', () => {

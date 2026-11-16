@@ -7,6 +7,7 @@ import {
   MARK_RADIUS_MIN,
   MARK_RADIUS_MAX,
   linkPath,
+  linkSpansInBands,
   linkStrokeWidth,
   RIPPLE_DEPTH,
   type TimelineLink,
@@ -73,6 +74,46 @@ describe('linkPath', () => {
 
   it('draws a small loop between simultaneous events', () => {
     expect(linkPath(200, 200, 50, 120, 1000)).toMatch(/^M 200 50 C 190/)
+  })
+})
+
+describe('linkSpansInBands', () => {
+  /** The cubic linkPath draws, as dense points (x, y below the band's top). */
+  const curve = (x1: number, x2: number, depth: number, plot: number) => {
+    const m = /^M (-?[\d.]+) 0 C (-?[\d.]+) (-?[\d.]+), (-?[\d.]+) (-?[\d.]+), (-?[\d.]+) 0$/.exec(linkPath(x1, x2, 0, depth, plot))!
+    const [p0, c1x, c1y, c2x, c2y, p3] = m.slice(1).map(Number) as [number, number, number, number, number, number]
+    return Array.from({ length: 4001 }, (_, i) => {
+      const t = i / 4000
+      const u = 1 - t
+      return { x: u * u * u * p0 + 3 * u * u * t * c1x + 3 * u * t * t * c2x + t * t * t * p3, y: 3 * u * u * t * c1y + 3 * u * t * t * c2y }
+    })
+  }
+
+  it('covers every point of a link\'s curve that passes through a band, and nothing is missed', () => {
+    const links = [
+      { x1: 100, x2: 140 },
+      { x1: 100, x2: 900 },
+      { x1: 400, x2: 400 },
+      { x1: 700, x2: 250 },
+    ]
+    const bands: Array<[number, number]> = [[2, 20], [16, 34], [40, 60]]
+    // With the default padding, which absorbs the bulge of the curve beyond its sampled chords.
+    const spans = linkSpansInBands(links, 120, 1000, bands)
+    links.forEach((l) => {
+      for (const { x, y } of curve(l.x1, l.x2, 120, 1000)) {
+        bands.forEach(([from, to], index) => {
+          if (y >= from && y <= to) expect(spans[index]!.some(([left, right]) => x >= left && x <= right), `${x},${y} in ${from}..${to}`).toBe(true)
+        })
+      }
+    })
+  })
+
+  it('leaves a band free where no link comes near, and pads each span', () => {
+    const [free, used] = linkSpansInBands([{ x1: 100, x2: 100 }], 120, 1000, [[60, 80], [0, 10]], 4)
+    expect(free).toEqual([])
+    expect(used!.length).toBe(1)
+    expect(used![0]![0]).toBeLessThan(100 - 4 + 1)
+    expect(used![0]![1]).toBeGreaterThan(100 + 4 - 1)
   })
 })
 

@@ -5,8 +5,15 @@
  * dense track into overprinted text. So labels are placed greedily, left to
  * right, into a few rows above the track, and a label that fits
  * in no row is simply not drawn (its mark keeps its tooltip and aria-label).
- * The selected and highlighted events are placed first, in the nearest row, so
- * the marks the user is working with are always named.
+ * Where causal links hang under the track, its rows under the track are used
+ * too, once the rows above are full, and never over a link.
+ *
+ * The layout is a function of the marks' positions and weights alone. The
+ * main timeline gives it no `priority`, so selecting or highlighting an event
+ * never re-packs the rows: a label stays where it was, and the selection is
+ * shown by styling it. (`priority` remains for a caller whose priority does
+ * not change with the user's selection, such as the comparison's point of
+ * divergence.)
  */
 
 export type LabelAnchor = 'start' | 'middle' | 'end'
@@ -51,6 +58,14 @@ export interface LabelLayoutConfig {
    * is shortened to `maxChars` (and then to LABEL_MAX_CHARS) to fit.
    */
   fullChars?: number
+  /**
+   * Rows under the track, nearest first, for a label with no room in the rows
+   * above. Each has x spans where something else is drawn (the causal links'
+   * curves): a label never covers one, so a link wins over a label. A label
+   * takes a row under the track only after every row above is full, and is
+   * not shortened to do it.
+   */
+  belowRows?: ReadonlyArray<{ offset: number; blocked: ReadonlyArray<readonly [number, number]> }>
 }
 
 /**
@@ -64,6 +79,13 @@ export const TIMELINE_LABEL_CONFIG: LabelLayoutConfig = {
   maxChars: 28,
   fullChars: 44,
 }
+
+/**
+ * Baseline offsets of the main timeline's rows under the track, from the
+ * event mark's centre. The stem ends 20px down, so the first row hangs just
+ * below it and the second reaches up to it with a leader.
+ */
+export const TIMELINE_BELOW_ROW_OFFSETS = [34, 48] as const
 
 /** Baseline offsets of the default layout's two rows (ActorTimeline's 10px labels). */
 export const LABEL_ROW_OFFSETS = [-13, -26] as const
@@ -150,11 +172,23 @@ export function layoutEventLabels(
 ): Map<string, EventLabelPlacement> {
   const placements = new Map<string, EventLabelPlacement>()
   const { rowOffsets, fontSize } = config
-  const rows: Array<Array<[number, number]>> = rowOffsets.map(() => [])
+  // The rows above the track, then the rows under it (nearest first in each).
+  const below = config.belowRows ?? []
+  const offsets = [...rowOffsets, ...below.map((row) => row.offset)]
+  // x spans something else is drawn over (a link's curve), per row: never covered.
+  const blockedSpans = [...rowOffsets.map(() => [] as ReadonlyArray<readonly [number, number]>), ...below.map((row) => row.blocked)]
+  // The rows nearer the track than a row, on its side of it: a leader from a
+  // mark to a label in the row crosses every one of them.
+  const nearerRows = offsets.map((_, index) => {
+    const first = index < rowOffsets.length ? 0 : rowOffsets.length
+    return Array.from({ length: index - first }, (_x, i) => first + i)
+  })
+  const rows: Array<Array<[number, number]>> = offsets.map(() => [])
   // A label above the first row hangs from a hairline leader down to its mark
-  // (Timeline draws them). The leader crosses every nearer row at the mark's
+  // (Timeline draws them), as one under the track's first row does from the
+  // stem's end. The leader crosses every nearer row at the mark's
   // x, so those rows record it; clean placements keep labels off it.
-  const leaders: number[][] = rowOffsets.map(() => [])
+  const leaders: number[][] = offsets.map(() => [])
   const inView = items.filter((item) => item.x >= 0 && item.x <= innerWidth)
 
   /**
@@ -167,23 +201,17 @@ export function layoutEventLabels(
     const extents = extentsFor(item.x, width, innerWidth)
     for (const rowIndex of rowIndices) {
       const row = rows[rowIndex]
-      const offset = rowOffsets[rowIndex]
+      const offset = offsets[rowIndex]
       if (!row || offset === undefined) continue
-      if (clean) {
-        let blocked = false
-        for (let nearer = 0; nearer < rowIndex; nearer++) {
-          if (rows[nearer]?.some(([l, r]) => item.x > l - LEADER_GAP_PX && item.x < r + LEADER_GAP_PX)) {
-            blocked = true
-            break
-          }
-        }
-        if (blocked) continue
-      }
+      const nearer = nearerRows[rowIndex] ?? []
+      if (clean && nearer.some((index) => rows[index]?.some(([l, r]) => item.x > l - LEADER_GAP_PX && item.x < r + LEADER_GAP_PX))) continue
       for (const { left, right, anchor } of extents) {
         if (overlaps(row, left, right)) continue
+        // Never over a link's curve, clean or not: the label goes elsewhere.
+        if (blockedSpans[rowIndex]?.some(([l, r]) => left < r && right > l)) continue
         if (clean && leaders[rowIndex]?.some((lx) => lx > left - LEADER_GAP_PX && lx < right + LEADER_GAP_PX)) continue
         row.push([left, right])
-        for (let nearer = 0; nearer < rowIndex; nearer++) leaders[nearer]?.push(item.x)
+        for (const index of nearer) leaders[index]?.push(item.x)
         placements.set(item.id, { offset, anchor, text, emphasis: Boolean(item.priority) })
         return true
       }
@@ -212,7 +240,7 @@ export function layoutEventLabels(
     if (width <= innerWidth) tryPlace(item, lastText, width, rowIndices, false)
   }
 
-  const allRows = rowOffsets.map((_, i) => i)
+  const allRows = offsets.map((_, i) => i)
 
   // Priority labels claim space first. The first goes in row 0 unconditionally
   // in practice (the rows are empty); later ones take whichever row is free.

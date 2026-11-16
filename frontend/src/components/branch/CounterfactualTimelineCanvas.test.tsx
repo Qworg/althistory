@@ -2,6 +2,7 @@ import { render, screen, fireEvent, act, within } from '@testing-library/react'
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { CounterfactualTimelineCanvas } from './CounterfactualTimelineCanvas'
 import { Event } from '@/types'
+import { truncateLabel } from '@/components/timeline/eventLabelLayout'
 
 describe('CounterfactualTimelineCanvas', () => {
   const baselineEvents: Event[] = [
@@ -276,6 +277,23 @@ describe('CounterfactualTimelineCanvas', () => {
     const yA = screen.getByTestId('event-label-a').getAttribute('y')
     const yB = screen.getByTestId('event-label-b').getAttribute('y')
     expect(yB).not.toBe(yA)
+  })
+
+  it('gives a lane the longer titles the main timeline gets where its row has room', () => {
+    const long = 'Babbage completes the Analytical Engine in 1843'
+    const shared = { ...baselineEvents[0]!, id: 'shared', description: long, timestamp: '1940-05-09T00:00:00Z' }
+    render(
+      <CounterfactualTimelineCanvas
+        baselineName="Prime History"
+        counterfactualName="Halifax Government"
+        baselineEvents={[shared, baselineEvents[1]!]}
+        counterfactualEvents={[shared, counterfactualEvents[1]!]}
+        width={1020}
+      />
+    )
+    // Not cut to 18 characters ("Babbage completes…") with the whole lane free.
+    expect(screen.getByTestId('event-label-shared').textContent).toBe(truncateLabel(long, 44))
+    expect(screen.getByTestId('event-label-shared').textContent!.length).toBeGreaterThan(28)
   })
 
   it('fits a long lane name in the margin, keeping the full name in a title', () => {

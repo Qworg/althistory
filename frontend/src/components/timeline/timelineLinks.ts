@@ -111,6 +111,57 @@ export function linkPath(x1: number, x2: number, top: number, depth: number, plo
 }
 
 /**
+ * Where the links' curves pass through horizontal bands of the link band: for
+ * each band `[from, to]` (px below the band's top), the x spans (padded by
+ * `pad`, which covers the stroke and a little clear space) that some link's
+ * curve occupies there. The curve is the one {@link linkPath} draws, sampled
+ * finely enough that a span never misses a stretch of it. Labels use these
+ * to keep out of the links: a link is structure, a label can go elsewhere.
+ */
+export function linkSpansInBands(
+  links: ReadonlyArray<{ x1: number; x2: number }>,
+  depth: number,
+  plotWidth: number,
+  bands: ReadonlyArray<readonly [number, number]>,
+  pad = 4
+): Array<Array<[number, number]>> {
+  const spans: Array<Array<[number, number]>> = bands.map(() => [])
+  const STEPS = 48
+  for (const { x1, x2 } of links) {
+    const span = Math.abs(x2 - x1)
+    const reach = Math.min(1, span / Math.max(1, plotWidth))
+    const sag = Math.min(depth - 6, 10 + Math.sqrt(reach) * (depth - 16))
+    // The same cubic as linkPath (the loop of a link between simultaneous events included).
+    const ctrl = span < 2 ? 18 : sag / 0.75
+    const c1 = span < 2 ? x1 - 10 : x1
+    const c2 = span < 2 ? x1 + 10 : x2
+    let px = x1
+    let py = 0
+    for (let step = 1; step <= STEPS; step++) {
+      const t = step / STEPS
+      const u = 1 - t
+      const x = u * u * u * x1 + 3 * u * u * t * c1 + 3 * u * t * t * c2 + t * t * t * x2
+      const y = 3 * u * u * t * ctrl + 3 * u * t * t * ctrl
+      bands.forEach(([from, to], index) => {
+        if (Math.max(py, y) >= from && Math.min(py, y) <= to) spans[index]!.push([Math.min(px, x) - pad, Math.max(px, x) + pad])
+      })
+      px = x
+      py = y
+    }
+  }
+  // Merged, so a label checks a few spans rather than every sample.
+  return spans.map((row) => {
+    const merged: Array<[number, number]> = []
+    for (const [left, right] of row.sort((a, b) => a[0] - b[0])) {
+      const last = merged[merged.length - 1]
+      if (last && left <= last[1]) last[1] = Math.max(last[1], right)
+      else merged.push([left, right])
+    }
+    return merged
+  })
+}
+
+/**
  * How many events each event sets in motion: the size of its forward ripple
  * (within RIPPLE_DEPTH steps, the same count the inspector reports). Events
  * that cause nothing are absent.
