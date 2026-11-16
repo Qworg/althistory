@@ -117,6 +117,14 @@ export interface ValidationOptions {
   crossGraphLookup?: CrossGraphLookup;
   /** The graph's world calendars: a message then names each date as the world does, its instant beside it. */
   calendar?: WorldCalendarSet;
+  /**
+   * How a repair writes an arc. A repair that moves an arc's dates must obey
+   * the hierarchy (an arc lies within its parent), so the engine that owns the
+   * graph's versions supplies a writer that judges and versions it; without
+   * one, the repository's update is used. A writer that refuses reports the
+   * repair as not made.
+   */
+  writeArc?: (id: string, updates: { start_time?: Date; end_time?: Date }) => Promise<Arc | null>;
 }
 
 export class GraphValidator {
@@ -151,7 +159,7 @@ export class GraphValidator {
     const autoRepair = options?.autoRepair ?? false;
 
     if (autoRepair) {
-      return this.validateAndRepair(graphId, scoped, strict, options?.crossGraphLookup);
+      return this.validateAndRepair(graphId, scoped, strict, options?.crossGraphLookup, options?.writeArc);
     }
 
     return this.runValidationChecks(graphId, scoped, strict, options?.crossGraphLookup);
@@ -404,10 +412,12 @@ export class GraphValidator {
     graphId: string,
     scoped: ScopedGraphServices,
     strict: boolean,
-    crossGraphLookup?: CrossGraphLookup
+    crossGraphLookup?: CrossGraphLookup,
+    writeArc?: ValidationOptions['writeArc']
   ): Promise<ValidationReportDto> {
     const repairsApplied: string[] = [];
     const repairFailures: string[] = [];
+    const write = writeArc ?? ((id: string, updates: { start_time?: Date; end_time?: Date }) => scoped.arcRepository.update(id, updates));
 
     // Step 1: Repair arc temporal inversions (start > end)
     const initialArcs = await scoped.arcRepository.findAll();
@@ -415,11 +425,12 @@ export class GraphValidator {
       if (arc.start_time && arc.end_time && compareInstants(arc.start_time, arc.end_time) > 0) {
         const swappedStart = arc.end_time;
         const swappedEnd = arc.start_time;
-        await scoped.arcRepository.update(arc.id, {
-          start_time: swappedStart,
-          end_time: swappedEnd,
-        });
-        repairsApplied.push(`Swapped inverted start and end times for arc "${arc.name}" (${arc.id})`);
+        try {
+          await write(arc.id, { start_time: swappedStart, end_time: swappedEnd });
+          repairsApplied.push(`Swapped inverted start and end times for arc "${arc.name}" (${arc.id})`);
+        } catch (error) {
+          repairFailures.push(`Did not swap the inverted start and end times of arc "${arc.name}" (${arc.id}): ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
     }
 
@@ -474,11 +485,19 @@ export class GraphValidator {
             needsUpdate = true;
           }
 
+          let expanded = needsUpdate;
           if (needsUpdate) {
-            await scoped.arcRepository.update(arc.id, {
-              start_time: newStart,
-              end_time: newEnd,
-            });
+            try {
+              await write(arc.id, { start_time: newStart, end_time: newEnd });
+            } catch (error) {
+              // An arc that cannot grow (it would leave its parent) stays as it is.
+              expanded = false;
+              repairFailures.push(
+                `Did not expand arc "${arc.name}" (${arc.id}) to enclose event ${event.id}: ${error instanceof Error ? error.message : String(error)}`
+              );
+            }
+          }
+          if (expanded) {
             arcMap.set(arc.id, new Arc({
               id: arc.id,
               name: arc.name,

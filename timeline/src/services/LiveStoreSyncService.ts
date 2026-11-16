@@ -48,6 +48,12 @@ export interface LiveStoreSyncConfig {
   logger?: ILogger;
 }
 
+/** What a rebuild of the live store reports to a person: entities it refused, arcs it kept against a rule. */
+export interface RebuildReport {
+  skipped: MaterializeResult['skipped'];
+  warnings: string[];
+}
+
 export interface MaterializeResult {
   events: number;
   arcs: number;
@@ -108,10 +114,22 @@ export class LiveStoreSyncService {
   private readonly logger: ILogger;
   /** One materialization per graph at a time; a second waits for the first. */
   private readonly inFlight = new Map<string, Promise<MaterializeResult>>();
+  /** What the last rebuild of each graph could not write or kept against a rule, until a response takes it. */
+  private readonly reports = new Map<string, RebuildReport>();
 
   constructor(config: LiveStoreSyncConfig) {
     this.config = config;
     this.logger = config.logger ?? createLogger('LiveStoreSyncService');
+  }
+
+  /**
+   * What the last rebuild of a graph reported, once (null when it had nothing to
+   * say). The response of the import, rollback or merge that caused it carries it.
+   */
+  takeReport(graphId: string): RebuildReport | null {
+    const report = this.reports.get(graphId) ?? null;
+    this.reports.delete(graphId);
+    return report;
   }
 
   async materialize(graphId: string, reason: ReplacedReason = 'sync'): Promise<MaterializeResult> {
@@ -218,6 +236,11 @@ export class LiveStoreSyncService {
       this.logger.warn('Could not announce a replaced graph head', { graphId, error: reasonOf(error) });
     }
 
+    if (result.skipped.length > 0 || result.warnings!.length > 0) {
+      this.reports.set(graphId, { skipped: result.skipped, warnings: result.warnings! });
+    } else {
+      this.reports.delete(graphId);
+    }
     if (result.warnings!.length > 0) {
       this.logger.warn('Some arcs break the hierarchy rules and were kept', { graphId, warnings: result.warnings });
     }

@@ -250,6 +250,9 @@ function absorbArcMoves(touched: Touched, session: ArcHierarchySession, steps: B
   return [...steps, ...extra];
 }
 
+/** Why an arc step that was fine on its own was not applied. */
+const ARC_STEPS_TOGETHER = 'not applied: another arc step in this batch failed';
+
 export const batchRoutes = Router();
 
 /**
@@ -588,16 +591,14 @@ batchRoutes.post(
       }
     }
 
-    // A child made before a parent that then failed is left under a missing
-    // arc: put it back (and so its own children), and report it as failed.
-    if (result.failed.length > 0 || result.created.length < arcs.length) {
-      await arcSession.finish();
-      for (const id of await arcSession.reconcile()) {
-        result.created = result.created.filter((createdId) => createdId !== id);
-        result.failed.push({ index: createdAt.get(id) ?? -1, error: 'Undone: its parent arc was not created' });
-      }
+    // The arcs of a batch are judged as one end state, so they land or fail
+    // together: if any was not made, none is.
+    if (result.created.length < arcs.length && result.created.length > 0) {
+      await arcSession.undo();
+      for (const id of result.created) result.failed.push({ index: createdAt.get(id) ?? -1, error: ARC_STEPS_TOGETHER });
+      result.created = [];
     }
-    result.success = result.failed.length === 0;
+    result.success = result.failed.length === 0 && result.created.length === arcs.length;
 
     await versionCreated(req, 'arcs', result.created, arcRepository);
     res.status(result.success ? 201 : 207).json(result);
@@ -1054,19 +1055,25 @@ batchRoutes.post(
       }
     }
 
-    // The arcs the steps moved with the ones they named are written now, as
-    // the end state has them; if a step failed (a non-atomic transaction), the
-    // arcs that no longer fit (under a parent that was never made) are put back.
+    // The arc steps are one end state: they land or fail together, atomic or
+    // not. If any failed, every arc write is put back and every arc step that
+    // had succeeded is reported as not applied (the other steps keep their own
+    // results). Otherwise the arcs the steps moved with the ones they named are
+    // written now, as the end state has them.
     try {
-      await arcSession.finish();
-      if (!result.success) {
-        const undone = new Set(await arcSession.reconcile());
+      const arcStep = (step: { type: string }): boolean => /_arc$/.test(step.type);
+      if (result.results.some((step) => arcStep(step) && !step.success)) {
+        absorbArcMoves(touched, arcSession, []);
+        await arcSession.undo();
         for (const step of result.results) {
-          if (step.success && step.id !== undefined && /^(create|update)_arc$/.test(step.type) && undone.has(step.id)) {
+          if (arcStep(step) && step.success) {
             step.success = false;
-            step.error = 'Undone: the arc no longer fits the hierarchy, because a step it depended on failed';
+            step.error = ARC_STEPS_TOGETHER;
           }
         }
+        result.success = false;
+      } else {
+        await arcSession.finish();
       }
     } catch (error) {
       await arcSession.undo().catch((rollbackError) => logger.error('Rollback of the arc hierarchy failed', rollbackError));

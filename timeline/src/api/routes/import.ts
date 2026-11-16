@@ -945,7 +945,9 @@ export function createImportRouter(config: ImportRouterConfig): Router {
         const result = await importService.executeImport(data as AlthistoryExport, options);
 
         // FIX B#49: Add async: false for consistent response shape
-        const response = { ...result, async: false };
+        const rebuild = (req as unknown as { container?: { liveStoreSyncService?: { takeReport?(graphId: string): unknown } } }).container
+          ?.liveStoreSyncService?.takeReport?.(targetGraphId);
+        const response = { ...result, ...(rebuild ? { rebuild } : {}), async: false };
 
         // Set appropriate status code based on result
         if (result.success) {

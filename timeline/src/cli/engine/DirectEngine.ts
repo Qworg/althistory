@@ -818,7 +818,8 @@ export class DirectEngine implements IEngine {
         description: a.description || '',
         start_time: startTime,
         end_time: endTime,
-        level: a.level ?? 0,
+        // An extracted arc names no parent, so it is top level: an arc with no parent is level 0.
+        level: 0,
       });
       try {
         await container.graphWriteVersioningService.recordArc(targetGraphId, created, 'create');
@@ -1094,6 +1095,14 @@ export class DirectEngine implements IEngine {
       autoRepair,
       crossGraphLookup: this.createCrossGraphLookup(graphId),
       calendar: await this.calendarOf(graphId),
+      // A repair of an arc's dates is judged and versioned like any edit of it.
+      writeArc: (id, updates) =>
+        new ArcHierarchyService(container.graphWriteVersioningService).updateArc(
+          graphId,
+          { arcRepository: scoped.arcRepository, eventRepository: scoped.eventRepository },
+          id,
+          updates
+        ),
     });
   }
 

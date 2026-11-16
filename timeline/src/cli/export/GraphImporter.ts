@@ -5,6 +5,8 @@ import { ServiceContainer } from '@/container';
 import { CausalRelationshipType } from '@/models/relationships';
 import { ImportResultDto } from '../types';
 import { ValidationErrorCLI } from '../utils/exitCodes';
+import { ArcHierarchyService, type PlanStep } from '@/services/ArcHierarchyService';
+import { ValidationError } from '@/utils/errors';
 import type { StoredCausalRelationship } from '@/services/CausalService';
 import type { BatchLiveState, BatchStep } from '@/services/GraphWriteVersioningService';
 
@@ -151,57 +153,68 @@ export class GraphImporter {
     };
 
     // 1. Process Arcs
+    //
+    // The arcs go through the arc hierarchy, as every other write of an arc
+    // does: the document's arcs (and the ones it leaves alone) are judged
+    // together, as one end state, before any is written, so an import cannot
+    // leave an arc under a missing parent, at a level that does not fit it, or
+    // outside its parent's span; and an arc moved with another (a subtree)
+    // follows it.
+    type ArcRequest = {
+      name: string;
+      description: string | undefined;
+      start_time: Date;
+      end_time: Date;
+      level: number;
+      metadata: Record<string, unknown>;
+    };
+    const arcOps: Array<{ kind: 'create' | 'update'; id: string; request: ArcRequest }> = [];
     for (const arcData of arcs) {
       const origId = String(arcData.id || '');
       if (!origId) continue;
+      const request = (): ArcRequest => ({
+        name: String(arcData.name || ''),
+        description: arcData.description ? String(arcData.description) : undefined,
+        start_time: instantOfAxisTime(arcTimes.get(arcData)!.start.time) ?? new Date(NaN),
+        end_time: instantOfAxisTime(arcTimes.get(arcData)!.end.time) ?? new Date(NaN),
+        level: typeof arcData.level === 'number' ? arcData.level : 0,
+        metadata: arcMetadata(arcData),
+      });
 
       const existing = await scoped.arcRepository.findById(origId);
-      if (existing) {
-        conflicts++;
-        if (strategy === 'skip') {
-          skipped.arcs++;
-          continue;
-        } else if (strategy === 'overwrite') {
-          await scoped.arcRepository.update(origId, {
-            name: String(arcData.name || ''),
-            description: arcData.description ? String(arcData.description) : undefined,
-            start_time: instantOfAxisTime(arcTimes.get(arcData)!.start.time) ?? new Date(NaN),
-            end_time: instantOfAxisTime(arcTimes.get(arcData)!.end.time) ?? new Date(NaN),
-            level: typeof arcData.level === 'number' ? arcData.level : 0,
-            metadata: arcMetadata(arcData),
-          });
-          wrote('arc', origId, 'update');
-          imported.arcs++;
-          continue;
-        } else if (strategy === 'rename') {
-          const newId = idMap.get(origId)!;
-          await scoped.arcRepository.create({
-            id: newId,
-            name: String(arcData.name || ''),
-            description: arcData.description ? String(arcData.description) : undefined,
-            start_time: instantOfAxisTime(arcTimes.get(arcData)!.start.time) ?? new Date(NaN),
-            end_time: instantOfAxisTime(arcTimes.get(arcData)!.end.time) ?? new Date(NaN),
-            level: typeof arcData.level === 'number' ? arcData.level : 0,
-            metadata: arcMetadata(arcData),
-          });
-          wrote('arc', newId, 'create');
-          imported.arcs++;
-          continue;
-        }
-      } else {
-        await scoped.arcRepository.create({
-          id: origId,
-          name: String(arcData.name || ''),
-          description: arcData.description ? String(arcData.description) : undefined,
-          start_time: instantOfAxisTime(arcTimes.get(arcData)!.start.time) ?? new Date(NaN),
-          end_time: instantOfAxisTime(arcTimes.get(arcData)!.end.time) ?? new Date(NaN),
-          level: typeof arcData.level === 'number' ? arcData.level : 0,
-          metadata: arcMetadata(arcData),
-        });
-        wrote('arc', origId, 'create');
-        imported.arcs++;
+      if (!existing) {
+        arcOps.push({ kind: 'create', id: origId, request: request() });
+        continue;
+      }
+      conflicts++;
+      if (strategy === 'skip') {
+        skipped.arcs++;
+      } else if (strategy === 'overwrite') {
+        arcOps.push({ kind: 'update', id: origId, request: request() });
+      } else if (strategy === 'rename') {
+        arcOps.push({ kind: 'create', id: idMap.get(origId)!, request: request() });
       }
     }
+    const hierarchy = new ArcHierarchyService(container.graphWriteVersioningService).open(targetGraphId, scoped);
+    try {
+      await hierarchy.preflight(arcOps.map((op): PlanStep => (op.kind === 'create' ? { kind: 'create', data: { id: op.id, ...op.request } } : { kind: 'update', id: op.id, data: op.request })));
+    } catch (error) {
+      if (error instanceof ValidationError) throw new ValidationErrorCLI(`Import refused: ${error.message}`);
+      throw error;
+    }
+    try {
+      for (const op of arcOps) {
+        if (op.kind === 'create') await hierarchy.create({ id: op.id, ...op.request });
+        else await hierarchy.update(op.id, op.request);
+        wrote('arc', op.id, op.kind);
+        imported.arcs++;
+      }
+      await hierarchy.finish();
+    } catch (error) {
+      await hierarchy.undo().catch(() => undefined);
+      throw error;
+    }
+    for (const id of hierarchy.moved()) wrote('arc', id, 'update');
 
     // 2. Process Events
     for (const evtData of events) {
@@ -336,7 +349,7 @@ export class GraphImporter {
     // branch (which rebuild the live store from the head) lost the import.
     // What is recorded is what the live store now holds of what was written.
     if (steps.length > 0 || deletedLinks) {
-      const state: BatchLiveState = { deletesLinks: deletedLinks };
+      const state: BatchLiveState = { deletesLinks: deletedLinks, parents: hierarchy.parents() };
       if (wroteArcs.size > 0) {
         state.arcs = new Map();
         for (const id of wroteArcs) state.arcs.set(id, await scoped.arcRepository.findById(id));

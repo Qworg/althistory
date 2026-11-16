@@ -1081,7 +1081,8 @@ describe('ImportService', () => {
               start_time: '2023-05-01T00:00:00Z',
               end_time: '2023-08-01T00:00:00Z',
               level: 1,
-              parent_arc_id: null,
+              // Its own parent is the arc it overflows; arcs of other branches may overlap freely.
+              parent_arc_id: 'arc-1',
             },
           ],
           causalRelationships: [],

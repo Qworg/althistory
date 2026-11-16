@@ -62,4 +62,38 @@ describe('CLI: deleting an arc that has child arcs', () => {
 
     expect((await engine.listArcs(graphId)).map((a) => [a.name, a.level, a.parentArcId])).toEqual([['Age', 0, undefined]]);
   });
+
+  it('validate --fix expands an arc to hold its event, but never outside the parent the head names', async () => {
+    const container = await (engine as unknown as { getInitializedContainer(): Promise<import('@/container').Container> }).getInitializedContainer();
+    const iso = (year: number): string => `${year}-01-01T00:00:00.000Z`;
+    const arc = (id: string, level: number, from: number, to: number, parent: string | null) => ({
+      type: 'arc' as const,
+      id,
+      data: { id, name: id, description: id, start_time: iso(from), end_time: iso(to), level, parent_arc_id: parent },
+    });
+    const event = (id: string, year: number, arcId: string) => ({
+      type: 'event' as const,
+      id,
+      data: { id, description: id, actor: 'A', target: 'B', timestamp: iso(year), metadata: { arcId } },
+    });
+    // Imported arcs: their parents are in the head only.
+    await container.graphRepository.commitChanges(
+      graphId,
+      { added: [arc('G', 0, 1700, 1950, null), arc('P', 1, 1800, 1900, 'G'), arc('C1', 2, 1810, 1850, 'P'), arc('C2', 2, 1810, 1850, 'P'), event('e1', 1860, 'C1'), event('e2', 1920, 'C2')], modified: [], deleted: [] },
+      'import',
+      'An import'
+    );
+    await container.liveStoreSyncService.materialize(graphId, 'import');
+
+    const report = await engine.validateGraph(graphId, false, true);
+
+    expect(report.repairsApplied?.join('\n')).toMatch(/Expanded arc "C1"/);
+    expect(report.repairFailures?.join('\n')).toMatch(/Did not expand arc "C2".*must lie within its parent "P"/);
+    const head = await container.graphRepository.checkout(graphId);
+    // The repair is versioned, and the arc that could not grow is as it was.
+    expect(head.arcs.C1.end_time).toBe(iso(1860));
+    expect(head.arcs.C2.end_time).toBe(iso(1850));
+    const { arcRepository } = await container.graphScopedRepositories(graphId);
+    expect((await arcRepository.findById('C2'))?.end_time.toISOString()).toBe(iso(1850));
+  });
 });

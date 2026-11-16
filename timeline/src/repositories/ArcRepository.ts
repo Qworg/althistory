@@ -535,7 +535,14 @@ export class ArcRepository {
     }
 
     // Validate temporal boundaries
-    if (!options.validated) await this.validateTemporalBoundaries(updatedArc, existingArc);
+    // Judged when the arc's span or its recorded parent changes: an edit that
+    // moves neither (a rename, a description) must not be refused for how the
+    // arc already sat, as an arc stored before the rule does.
+    const placeChanged =
+      compareInstants(updatedArc.start_time, existingArc.start_time) !== 0 ||
+      compareInstants(updatedArc.end_time, existingArc.end_time) !== 0 ||
+      (updatedArc.metadata?.parentArcId ?? null) !== (existingArc.metadata?.parentArcId ?? null);
+    if (!options.validated && placeChanged) await this.validateTemporalBoundaries(updatedArc, existingArc);
 
     const parameters: Record<string, unknown> = {
       id,

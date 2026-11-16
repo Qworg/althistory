@@ -285,22 +285,26 @@ describe('the arc hierarchy, first review', () => {
           expect(await expectConsistent(graphId)).toEqual(before);
         });
 
-        it('a non-atomic transaction keeps the steps that stand on their own', async () => {
+        it('a non-atomic transaction keeps the steps that are not arc steps', async () => {
           const graphId = await graphOf(kind, tree);
+          const before = await expectConsistent(graphId);
           const response = await transaction(
             graphId,
             [
               { type: 'create_arc', data: { id: 'NP', name: '', start_time: iso(1800), end_time: iso(1900), level: 1, metadata: { parentArcId: 'G' } } },
               { type: 'update_arc', data: { id: 'C', level: 2, metadata: { parentArcId: 'NP' } } },
               { type: 'update_arc', data: { id: 'D', name: 'D renamed' } },
-              { type: 'update_arc', data: { id: 'S', level: 0 } },
+              { type: 'create_event', data: { description: 'Stands alone', actor: 'A', target: 'B', timestamp: iso(1850) } },
             ],
             false
           );
           expect(response.status).toBe(207);
-          expect(await expectConsistent(graphId)).toMatchObject({ C: [2, 'P'], S: [0, null] });
-          const { arcRepository } = await container.graphScopedRepositories(graphId);
-          expect((await arcRepository.findById('D'))?.name).toBe('D renamed');
+          // The arc steps land or fail together: D's rename went with the rest.
+          expect(response.body.results.map((step: { success: boolean }) => step.success)).toEqual([false, false, false, true]);
+          expect(await expectConsistent(graphId)).toEqual(before);
+          const { arcRepository, eventRepository } = await container.graphScopedRepositories(graphId);
+          expect((await arcRepository.findById('D'))?.name).toBe('D');
+          expect((await eventRepository.findAll()).map((event) => event.description)).toEqual(['Stands alone']);
         });
 
         it('POST /api/batch/arcs undoes a child whose parent failed, and reports it', async () => {

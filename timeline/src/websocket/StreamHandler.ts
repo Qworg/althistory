@@ -107,6 +107,7 @@ import { StreamSessionManager } from './StreamSession';
 import type { StreamSession, StreamSessionRefusalReason } from './StreamSession';
 import type { CreateEventRequest } from '@/models/Event';
 import type { CreateArcRequest } from '@/models/Arc';
+import { ArcHierarchySession } from '@/services/ArcHierarchyService';
 import type { CausalRelationshipType } from '@/models/relationships';
 import type { StoredCausalRelationship } from '@/services/CausalService';
 import {
@@ -248,6 +249,8 @@ export interface StreamWriteDeps {
     recordEvent(graphId: string, event: Awaited<ReturnType<GraphScopedRepositories['eventRepository']['create']>>, operation: 'create'): Promise<void>;
     recordArc(graphId: string, arc: Awaited<ReturnType<GraphScopedRepositories['arcRepository']['create']>>, operation: 'create'): Promise<void>;
     recordRelationship?(graphId: string, relationship: StoredCausalRelationship, operation: 'create'): Promise<void>;
+    /** The head's copy of some arcs, so a new arc's parent is read as the hierarchy reads it (an imported parent is only there). */
+    headArcs?(graphId: string, ids: string[]): Promise<Record<string, Record<string, unknown>>>;
   };
   /**
    * When present, every write message is charged against the key's request rate
@@ -1427,7 +1430,12 @@ export class StreamHandler {
       if (!this.mayPersist(ws, context, 'arc', requestId)) {
         return;
       }
-      const arc = await arcRepository.create(converted.value);
+      // As every write of an arc: its parent must be an arc of the graph, a child sits
+      // one level below it and within its span, and an arc with no parent is level 0.
+      const versioning = this.deps.graphWriteVersioningService;
+      const hierarchy = new ArcHierarchySession(context.graphId, { arcRepository }, { headArcs: versioning.headArcs?.bind(versioning) });
+      await hierarchy.preflight([{ kind: 'create', data: converted.value }]);
+      const arc = await hierarchy.create(converted.value);
       await this.ackPersistedEntity(
         ws,
         context,
@@ -1941,6 +1949,10 @@ async function toCreateArcRequest(
   }
   if (isRecord(data.metadata)) {
     value.metadata = data.metadata;
+  }
+  // A parent named as `parent_arc_id` is recorded where the CLI records one.
+  if (typeof data.parent_arc_id === 'string' && data.parent_arc_id !== '') {
+    value.metadata = { ...(value.metadata ?? {}), parentArcId: data.parent_arc_id };
   }
   return { ok: true, value };
 }

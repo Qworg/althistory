@@ -272,20 +272,30 @@ true:
 A batch (`/api/batch/transaction`, `/api/batch/arcs`) is judged **once, against
 the state it ends in**, not step by step, and whatever the order of its steps: a
 batch that promotes B and then puts its old parent A under it is valid, and so is
-one that creates a child before its parent (name the parent's `id`) or moves an
-arc under a parent created later in the batch. If the end state is not a valid
-hierarchy the whole batch is refused with a `400` (`VALIDATION_ERROR`) before any
-step runs, atomic or not, so nothing lands. A step that then fails anyway (a
-create that is refused by the store) never leaves an arc under a parent that was
-not made: an atomic transaction puts every arc it touched back as it was; a
-non-atomic one puts back the arcs that no longer fit and reports those steps as
-failed (`207`).
+one that creates a child before its parent (name the parent's `id`), moves an
+arc under a parent created later in the batch, or widens a parent after making
+its child. If the end state is not a valid hierarchy the whole batch is refused
+with a `400` (`VALIDATION_ERROR`) before any step runs, atomic or not, so nothing
+lands.
+
+**The arc steps of a batch land or fail together.** If any arc step fails when it
+is carried out (a create the store refuses, say), every arc write the batch made
+is put back, whether `atomic` is set or not, and every arc step that had
+succeeded is reported as failed with "not applied: another arc step in this batch
+failed" (`207`; `400` for an atomic transaction, which undoes the whole
+transaction). Event and link steps of a non-atomic transaction keep their own
+per-step results. `POST /api/batch/arcs` is the same for every `onError`
+(`collect` or `skip`): either every arc is made or none is.
 
 A graph rebuilt from its history (rollback, branch, merge, import) keeps every
 arc, including one that lies outside its parent's span because it was stored
-before that rule; the `replaced` message on the live feed then carries a
-`warnings` count, and a `skipped` count (with "could not be restored" in its
-summary) for anything the live store refused.
+before that rule. What it kept against the rule, and anything the live store
+refused, is reported three ways: the response of the rollback, merge or import
+carries `rebuild: { warnings: [...], skipped: [...] }` (absent when the graph was
+whole); the `replaced` message on the live feed carries `warnings` and `skipped`
+counts (with "could not be restored" in its summary); and the app shows a notice.
+Such an arc can still be renamed or described, but a change to its dates or
+parent is judged by the rule.
 
 ## Responses
 

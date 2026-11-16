@@ -69,7 +69,7 @@ export const scenario: Scenario = {
       description: 'Babbage, Lovelace and Clement turn the design into working brass.',
       start: '1834-01-01T00:00:00Z',
       end: '1844-06-30T00:00:00Z',
-      level: 1,
+      level: 0,
     },
     {
       key: 'offices',
@@ -77,7 +77,7 @@ export const scenario: Scenario = {
       description: 'Engines spread through the Admiralty, insurers and the census.',
       start: '1844-07-01T00:00:00Z',
       end: '1858-12-31T00:00:00Z',
-      level: 1,
+      level: 0,
     },
     {
       key: 'telegraph',
@@ -85,7 +85,7 @@ export const scenario: Scenario = {
       description: 'Telegraphy links the engines into a network of tabulating houses.',
       start: '1851-01-01T00:00:00Z',
       end: '1858-12-31T00:00:00Z',
-      level: 2,
+      level: 1,
       parent: 'offices',
     },
     {
@@ -94,7 +94,7 @@ export const scenario: Scenario = {
       description: 'Displaced clerks, rival powers and Parliament push back.',
       start: '1859-01-01T00:00:00Z',
       end: '1871-12-31T00:00:00Z',
-      level: 1,
+      level: 0,
     },
   ],
 

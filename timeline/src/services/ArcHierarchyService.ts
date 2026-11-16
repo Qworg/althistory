@@ -30,9 +30,9 @@
  * promotes B and then puts its old parent A under B, or creates a child before
  * its parent, is valid, and so is the same batch in the other order (an arc
  * moved without a level follows its parent's level, settled at the end).
- * Nothing is written until the plan is valid. If a step then fails (a
- * non-atomic batch) the arcs that no longer fit are put back (`reconcile`);
- * if an atomic batch fails, everything the session wrote is (`undo`).
+ * Nothing is written until the plan is valid. The arc steps of a batch land or
+ * fail together: if any of them fails, everything the session wrote is put back
+ * (`undo`), whether the batch is atomic or not.
  *
  * Reading cost: for a plain edit, the one arc and its head copy. For a real
  * move or a delete, the live arcs (never events or links) and the head's copy
@@ -411,12 +411,15 @@ export class ArcHierarchyPlan {
 
   /** Throws a 400 naming what is wrong, if anything is. */
   validate(): void {
-    const problems = this.problems();
+    const list = this.problemList();
+    const problems = [...new Set(list.map((problem) => problem.message))];
+    // The field the first problem is about: dates for a span, otherwise the level.
+    const field = list[0]?.kind === 'time-parent' || list[0]?.kind === 'time-child' ? 'start_time' : 'level';
     if (problems.length > 0) {
       const shown = problems.slice(0, 5).join(' ');
       throw new ValidationError(
         `The arc hierarchy would not be valid: ${shown}${problems.length > 5 ? ` (and ${problems.length - 5} more)` : ''}`,
-        'level',
+        field,
         undefined,
         problems
       );
@@ -458,8 +461,7 @@ function toCreateRequest(arc: Arc): CreateArcRequest & { id: string } {
  * end in. `create`, `update` and `delete` then carry them out one at a time
  * (each arc written as that end state has it), and `finish` writes the arcs
  * the steps moved with them. The session remembers everything it wrote, so a
- * caller can version it (`edit`), undo it (`undo`) or, after a failed step,
- * put back what no longer fits (`reconcile`).
+ * caller can version it (`edit`) or undo it (`undo`).
  */
 export class ArcHierarchySession {
   private base?: Map<string, ArcNode>;
@@ -478,25 +480,18 @@ export class ArcHierarchySession {
   constructor(
     private readonly graphId: string,
     private readonly repositories: ArcHierarchyRepositories,
-    private readonly versioning: Pick<GraphWriteVersioningService, 'headArcs'>
+    private readonly versioning: { headArcs?: (graphId: string, ids: string[], options?: { strict?: boolean }) => Promise<Record<string, Record<string, unknown>>> }
   ) {}
 
   /** Read the graph's arcs and their recorded parents, fresh. */
-  private async loadNodes(written: ReadonlyMap<string, ArcNode | null> = new Map()): Promise<Map<string, ArcNode>> {
+  private async loadNodes(): Promise<Map<string, ArcNode>> {
     const arcs = await this.repositories.arcRepository.findAll();
-    const head = await this.versioning.headArcs(this.graphId, arcs.map((arc) => arc.id));
+    const head = (await this.versioning.headArcs?.(this.graphId, arcs.map((arc) => arc.id))) ?? {};
     const nodes = new Map<string, ArcNode>();
     for (const arc of arcs) {
       this.current.set(arc.id, arc);
       const metaParent = recordedParent(arc.metadata);
-      const headParent = asParent(head[arc.id]?.parent_arc_id);
-      // An arc the session wrote is as the live store has it, and the head does
-      // not hold that yet: its metadata, or the head's parent where that is
-      // what the write decided (an imported arc keeps its parent in the head).
-      const decided = written.get(arc.id);
-      const parent = written.has(arc.id)
-        ? (metaParent ?? (decided ? (headParent === decided.parent ? headParent : null) : (headParent ?? metaParent)))
-        : (headParent ?? metaParent);
+      const parent = asParent(head[arc.id]?.parent_arc_id) ?? metaParent;
       nodes.set(arc.id, { id: arc.id, name: arc.name, level: arc.level, parent, metaParent, start: arc.start_time, end: arc.end_time });
     }
     return nodes;
@@ -526,7 +521,7 @@ export class ArcHierarchySession {
     // Not in the store: a step of this batch may create it.
     if (!existing) return true;
     // Strict, as the edit's own version is: an arc whose head copy cannot be read is not edited.
-    const head = (await this.versioning.headArcs(this.graphId, [id], { strict: true }))[id];
+    const head = ((await this.versioning.headArcs?.(this.graphId, [id], { strict: true })) ?? {})[id];
     const effective = asParent(head?.parent_arc_id) ?? recordedParent(existing.metadata);
     const named = namedParent(data);
     if (named !== undefined && named.value !== effective) return true;
@@ -583,7 +578,8 @@ export class ArcHierarchySession {
     const named = namedParent(data);
     const request = withoutParentField(data) as CreateArcRequest;
     if (named && named.value) request.metadata = withParent(request.metadata, named.value);
-    const created = await this.repositories.arcRepository.create(request);
+    // Judged by the preflight (against the end state) when there was one.
+    const created = await this.repositories.arcRepository.create(request, { validated: this.target !== undefined });
     this.current.set(created.id, created);
     this.arcWrites.set(created.id, { before: null });
     return created;
@@ -716,30 +712,6 @@ export class ArcHierarchySession {
     this.arcWrites.clear();
     this.deletedIds.clear();
     this.eventWrites.clear();
-  }
-
-  /**
-   * After a step failed (a non-atomic batch): judge the arcs the session wrote
-   * against the store as it now is, and put back each that no longer fits (a
-   * parent whose creation failed leaves its children under a missing arc), until
-   * every arc the session wrote fits. Returns the ids put back.
-   */
-  async reconcile(): Promise<string[]> {
-    const undone: string[] = [];
-    for (let round = 0; round < 25; round += 1) {
-      // The arcs the session wrote are judged as the live store has them: the head does not hold them yet.
-      const plan = new ArcHierarchyPlan(await this.loadNodes(new Map([...this.arcWrites.keys()].map((id) => [id, this.target?.get(id) ?? null] as const))));
-      for (const id of this.arcWrites.keys()) if (!this.deletedIds.has(id)) plan.touch(id);
-      const offenders = [...new Set(plan.problemList().map((problem) => problem.id))].filter((id) => this.arcWrites.has(id) && !this.deletedIds.has(id));
-      if (offenders.length === 0) return undone;
-      for (const id of offenders) {
-        await this.restoreOne(id);
-        this.arcWrites.delete(id);
-        undone.push(id);
-      }
-    }
-    logger.error('Could not settle the arc hierarchy after a failed batch step', undefined, { graphId: this.graphId });
-    return undone;
   }
 
   /** Containment problems of one arc against its parent and its children, for `validate-hierarchy`. */

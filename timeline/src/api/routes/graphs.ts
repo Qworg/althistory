@@ -512,10 +512,14 @@ graphRoutes.post('/:id/rollback/:version', ...writeGraphAuth, async (req: Reques
     // record alone.
     const graph = await service.getGraph(req.params.id);
 
+    // What the rebuild could not write, or kept against a rule (an arc outside its parent's span).
+    const rebuild = req.container.liveStoreSyncService?.takeReport?.(req.params.id);
+
     res.json({
       success: true,
       data: graph,
       version: versionRef,
+      ...(rebuild ? { rebuild } : {}),
       message: `Rolled back to version ${version}`,
       requestId: req.requestId,
     });
@@ -643,6 +647,10 @@ graphRoutes.post(
         success: true,
         data: result.mergedGraph,
         newVersion: result.newVersion,
+        ...(result.dryRun === true ? {} : (() => {
+          const rebuild = req.container.liveStoreSyncService?.takeReport?.(req.params.id);
+          return rebuild ? { rebuild } : {};
+        })()),
         conflicts: result.conflicts,
         anomalies: result.anomalies,
         // Present (and true) only for a preview, so a client that asked for a dry

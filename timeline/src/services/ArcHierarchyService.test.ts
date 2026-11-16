@@ -112,4 +112,14 @@ describe('ArcHierarchyPlan', () => {
     expect(levels(p, 'Y')).toEqual([[0, null]]);
     expect(p.problems()).toEqual([]);
   });
+
+  it('names the dates, not the level, when a span is what is wrong', () => {
+    const dated = (id: string, level: number, from: number, to: number, parent: string | null = null): ArcNode => ({ ...node(id, level, parent), start: new Date(Date.UTC(from, 0, 1)), end: new Date(Date.UTC(to, 0, 1)) });
+    const p = plan(dated('G', 0, 1700, 1950), dated('P', 1, 1800, 1900, 'G'));
+    p.update('P', { end_time: new Date(Date.UTC(1960, 0, 1)) });
+    expect(() => p.validate()).toThrow(expect.objectContaining({ field: 'start_time' }));
+    const q = plan(node('A', 0));
+    q.update('A', { level: 3 });
+    expect(() => q.validate()).toThrow(expect.objectContaining({ field: 'level' }));
+  });
 });

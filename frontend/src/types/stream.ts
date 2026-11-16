@@ -129,6 +129,10 @@ export type LiveChangeBody =
       reason: string
       summary: string
       counts?: { events: number; arcs: number; relationships: number }
+      /** Entities the rebuild could not write to the live store. */
+      skipped?: number
+      /** Arcs kept though they lie outside their parent's time span. */
+      warnings?: number
     }
   | {
       kind: 'graph'

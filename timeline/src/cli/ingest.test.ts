@@ -305,6 +305,8 @@ describe('DirectEngine Ingestion', () => {
 
     const persistedArcs = await engine.listArcs(result.graphId);
     expect(persistedArcs.length).toBeGreaterThanOrEqual(1);
+    // An ingested arc names no parent, so it is top level.
+    expect(persistedArcs.every((arc) => arc.level === 0 && arc.parentArcId === undefined)).toBe(true);
   });
 });
 

@@ -179,7 +179,9 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     responses: { 404: 'The graph or the version does not exist.' },
   },
   'POST /api/graphs/:id/rollback/:version': {
-    summary: 'Roll a graph back to an earlier version.',
+    summary:
+      'Roll a graph back to an earlier version. The response carries `rebuild: { warnings, skipped }` when the rebuild ' +
+      'kept arcs that lie outside their parent\'s span or could not write an entity (absent when the graph was whole).',
     response: 'Graph',
     auth: 'required',
   },
@@ -982,7 +984,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     summary:
       'Create many arcs at once, recorded as one version of the graph. The arcs\' parents and levels are judged ' +
       'once, against the state the whole batch ends in (a child may come before its parent); `400` if that is ' +
-      'not a valid hierarchy, with nothing created.',
+      'not a valid hierarchy, with nothing created. All or none: if any arc is not made, none is (`207`).',
     request: 'BatchArcsRequest',
     requestRequired: true,
     response: 'BatchResult',
@@ -1008,7 +1010,9 @@ export const OPERATIONS: Record<string, OperationSpec> = {
       'recorded as one version of the graph. Its arc steps are judged once, against the state they end in: ' +
       'a hierarchy that is not valid there (a parent that is the arc itself, its descendant or missing, a ' +
       'level that does not fit, dates outside the parent\'s span) is a `400` before any step runs, whatever ' +
-      'the order of the steps. `delete_arc` lifts the arc\'s children. An atomic failure puts every arc back.',
+      'the order of the steps. `delete_arc` lifts the arc\'s children. The arc steps land or fail together: if ' +
+      'one fails when carried out, every arc write is put back (atomic or not) and the arc steps that had ' +
+      'succeeded report "not applied: another arc step in this batch failed".',
     request: 'BatchTransactionRequest',
     requestRequired: true,
     response: 'BatchTransactionResult',
