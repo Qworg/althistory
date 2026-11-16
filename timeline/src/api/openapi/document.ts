@@ -677,9 +677,47 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
   IngestPreview: {
     type: 'object',
     properties: {
-      id: { type: 'string' },
+      jobId: { type: 'string' },
       status: { type: 'string' },
-      extraction: { type: 'object' },
+      extraction: {
+        type: 'object',
+        properties: {
+          events: { type: 'array', items: { type: 'object' } },
+          arcs: { type: 'array', items: { type: 'object' } },
+          relationships: { type: 'array', items: { type: 'object' } },
+          sources: { type: 'array', items: { type: 'object' } },
+          overallConfidence: { type: 'number' },
+          skippedSentences: { type: 'integer', description: 'Text extraction: sentences with no recognised date.' },
+          skippedSentenceTexts: { type: 'array', items: { type: 'string' } },
+          droppedRows: {
+            type: 'object',
+            description:
+              'Wikidata: results of the query that became no event, counted by reason. Absent when none were left out.',
+            properties: {
+              total: { type: 'integer', description: 'Results left out (one per binding, so one per place of an item).' },
+              reasons: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    reason: {
+                      type: 'string',
+                      enum: ['no-date', 'unreadable', 'before-timeline', 'after-timeline', 'outside-range', 'below-confidence'],
+                    },
+                    count: { type: 'integer' },
+                    items: { type: 'integer', description: 'Distinct Wikidata items among the results.' },
+                    itemIds: { type: 'array', items: { type: 'string' }, description: 'The first ten item ids.' },
+                    description: { type: 'string' },
+                  },
+                  required: ['reason', 'count', 'items', 'itemIds', 'description'],
+                },
+              },
+            },
+            required: ['total', 'reasons'],
+          },
+        },
+      },
+      validationIssues: { type: 'array', items: { type: 'object' } },
     },
   },
   Error: {

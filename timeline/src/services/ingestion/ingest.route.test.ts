@@ -593,3 +593,34 @@ describe('Ingestion routes: upstream failures', () => {
     consoleSpy.mockRestore();
   });
 });
+
+describe('Ingestion routes: Wikidata rows left out (#33)', () => {
+  it('puts the count and the reasons in the job preview, from the real extractor', async () => {
+    const { WikidataExtractor } = await import('@/services/ingestion/WikidataExtractor');
+    const deepTime = (await import('./fixtures/wikidata-deep-time.json')).default;
+    const orchestrator = new IngestionOrchestrator({
+      extractors: {
+        wikipedia: { sourceType: 'wikipedia', extract: vi.fn() } as Extractor<WikipediaExtractionInput>,
+        wikidata: new WikidataExtractor({
+          httpClient: { request: async () => ({ status: 200, body: JSON.stringify(deepTime), headers: {} }) },
+        }),
+        text: { sourceType: 'text', extract: vi.fn() } as Extractor<TextExtractionInput>,
+      },
+      importExecutor: makeImportExecutor(),
+      idFactory: () => 'job-1',
+    });
+    const app = express();
+    app.use(express.json());
+    app.use('/api/ingest', createIngestRouter({ dataDir: '/tmp/unused', orchestrator }));
+    app.use(errorHandler);
+
+    const response = await request(app).post('/api/ingest/wikidata').set('X-API-Key', INGEST_KEY).send({ queryType: 'historical-events' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.extraction.events).toHaveLength(7);
+    expect(response.body.extraction.droppedRows).toEqual({
+      total: 3,
+      reasons: [{ reason: 'before-timeline', count: 3, items: 3, itemIds: ['Q678023', 'Q1050953', 'Q1065985'], description: 'the date is beyond the timeline (older than about 285 million years)' }],
+    });
+  });
+});

@@ -188,7 +188,7 @@ and why (no date, no actor, below the confidence threshold).
 | --- | --- | --- |
 | `text` | A sentence stream. | Dated sentences become events. |
 | `wikipedia` | Article prose. | Link-following and depth are bounded (depth ≤ 3). |
-| `wikidata` | An item's claims. | Dates and participants come from the item, at the precision Wikidata gives (a day, a month, a year; a decade to a billion years as a year), BCE years included. A date beyond the timeline's range, about 285 million years either side of 1970 (the formation of the Earth, the Big Bang), is dropped. |
+| `wikidata` | An item's claims. | Dates and participants come from the item, at the precision Wikidata gives (a day, a month, a year; a decade to a billion years as a year), BCE years included. A date beyond the timeline's range, about 285 million years either side of 1970 (the formation of the Earth, the Big Bang), is left out of the events and counted: the preview's `extraction.droppedRows` (and the CLI result's `droppedRows`) holds the total number of Wikidata results (one per place of an item) and, per reason (`no-date`, `unreadable`, `before-timeline`, `after-timeline`, `outside-range`, and with `--min-confidence` `below-confidence`), the count, the number of distinct items and the first ten item ids. The review step says "3 Wikidata results (1 item) were left out: the date is beyond the timeline (older than about 285 million years)". |
 | `text` | Pasted text — or the text of a fetched page. | `ingest url` on a non-Wikipedia page reads it as a text document, so its events are `text`-sourced. |
 
 Events ingested **through the API** carry a `sourceRef` naming where they came
