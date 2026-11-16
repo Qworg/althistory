@@ -255,8 +255,8 @@ app's, with the app running; otherwise the server's), told
 that the world is not Earth and to date events in the world's own calendar; without a key it is a
 template of generic ages to rewrite. The result's `source` says which.
 
-Give `evidence` on every `althistory_link_events` call: it is required, and a
-call without it, or with a blank one, is refused. Ingesting prose about a world (`althistory_ingest_text`
+Give `evidence` (or its alias `reasoning`) on every `althistory_link_events`
+call: it is required, and a call without it, or with a blank one, is refused. Ingesting prose about a world (`althistory_ingest_text`
 into a graph with a calendar) tells the model the calendar too; the offline
 pattern reader cannot read invented years: in a world graph it leaves every
 sentence undated (nothing is created without a review), so use a model.
@@ -315,7 +315,8 @@ Put an existing event inside an arc.
 
 #### `althistory_link_events`
 Record that one event caused another.
-- `graphId`, `causeId`, `effectId`, `evidence` *(required)*: `evidence` is why the cause led to the effect, in a sentence. Missing, empty or whitespace-only evidence is refused.
+- `graphId`, `causeId`, `effectId` *(required)*
+- `evidence` *(required in effect)*: why the cause led to the effect, in a sentence. `reasoning` is accepted as an alias; one of the two must have something in it, and a call with neither (or only blank text) is refused with "evidence is required".
 - `type`: `"direct"` (default) | `"indirect"` | `"contributory"`
 - `weight`: 0 to 1 (default 1)
 

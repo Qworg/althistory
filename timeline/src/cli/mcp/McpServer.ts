@@ -278,8 +278,8 @@ export class McpServer {
           ) {
             throw new Error('weight must be a number from 0 to 1');
           }
-          // The schema already requires it; a blank one gets past the schema.
-          const evidence = readLinkEvidence(args.evidence);
+          // `reasoning` is the older name for `evidence`; one of the two must have something in it.
+          const evidence = readLinkEvidence(args.evidence) ?? readLinkEvidence(args.reasoning);
           if (evidence === undefined) {
             throw new Error(LINK_EVIDENCE_REQUIRED);
           }

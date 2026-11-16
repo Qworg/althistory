@@ -256,11 +256,26 @@ describe('CLI Phase 6: Model Context Protocol (MCP) Server & Tooling', () => {
         JSON.stringify({ jsonrpc: '2.0', id: 31, method: 'tools/call', params: { name: 'althistory_link_events', arguments: args } })
       );
 
-    it('marks evidence required in the tool schema', () => {
+    it('documents evidence and its alias reasoning in the tool schema', () => {
       const tool = MCP_TOOLS.find((t) => t.name === 'althistory_link_events')!;
-      expect((tool.inputSchema as { required: string[] }).required).toEqual(
-        expect.arrayContaining(['graphId', 'causeId', 'effectId', 'evidence'])
-      );
+      const schema = tool.inputSchema as { properties: Record<string, unknown> };
+      expect(Object.keys(schema.properties)).toEqual(expect.arrayContaining(['evidence', 'reasoning']));
+    });
+
+    it('accepts reasoning alone as the evidence', async () => {
+      const a = await engine.createEvent(testGraphId, { description: 'A', timestamp: '1700-01-01T00:00:00Z' });
+      const b = await engine.createEvent(testGraphId, { description: 'B', timestamp: '1701-01-01T00:00:00Z' });
+      const response = JSON.parse((await link({ graphId: testGraphId, causeId: a.id, effectId: b.id, reasoning: 'An older client' }))!);
+      expect(response.result.isError).toBeUndefined();
+      expect((await engine.listCausalLinks(testGraphId)).map((l) => l.reasoning)).toEqual(['An older client']);
+    });
+
+    it('refuses blank evidence even when reasoning is blank too', async () => {
+      const a = await engine.createEvent(testGraphId, { description: 'A', timestamp: '1700-01-01T00:00:00Z' });
+      const b = await engine.createEvent(testGraphId, { description: 'B', timestamp: '1701-01-01T00:00:00Z' });
+      const response = JSON.parse((await link({ graphId: testGraphId, causeId: a.id, effectId: b.id, evidence: ' ', reasoning: '' }))!);
+      expect(response.result.isError).toBe(true);
+      expect(response.result.content[0].text).toMatch(/evidence is required/);
     });
 
     it.each([['missing', {}], ['empty', { evidence: '' }], ['whitespace', { evidence: '   ' }]])(
@@ -270,7 +285,7 @@ describe('CLI Phase 6: Model Context Protocol (MCP) Server & Tooling', () => {
         const b = await engine.createEvent(testGraphId, { description: 'B', timestamp: '1701-01-01T00:00:00Z' });
         const response = JSON.parse((await link({ graphId: testGraphId, causeId: a.id, effectId: b.id, ...extra }))!);
         expect(response.result.isError).toBe(true);
-        expect(response.result.content[0].text).toMatch(/evidence/);
+        expect(response.result.content[0].text).toMatch(/evidence is required/);
         expect(await engine.listCausalLinks(testGraphId)).toEqual([]);
       }
     );

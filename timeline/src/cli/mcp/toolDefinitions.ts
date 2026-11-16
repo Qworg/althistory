@@ -250,10 +250,14 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         evidence: {
           type: 'string',
           description:
-            'Required. Why the cause led to the effect, in a sentence. A link without evidence, or with blank evidence, is refused.',
+            'Why the cause led to the effect, in a sentence. Required: give `evidence` or its older name `reasoning`; a link with neither, or with only blank text, is refused.',
+        },
+        reasoning: {
+          type: 'string',
+          description: 'The older name for `evidence`. Give one of the two.',
         },
       },
-      required: ['graphId', 'causeId', 'effectId', 'evidence'],
+      required: ['graphId', 'causeId', 'effectId'],
     },
   },
   {
