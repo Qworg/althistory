@@ -3,7 +3,7 @@ import { readDateBound, toAxisTime } from '@althistory/calendar'
 import { VAEL } from '@/test/fixtures/worldCalendars'
 import { instantScale } from '@/utils/timeScale'
 import { axisTicks } from '@/utils/d3Calculations'
-import { anchorInward, labelExtent, thinTickLabels } from '@/utils/axisLabelFit'
+import { labelExtent } from '@/utils/axisLabelFit'
 import { counterfactualAxisTicks, counterfactualMargin, counterfactualTickCount, formatTicks } from './counterfactualAxis'
 
 /**
@@ -71,34 +71,6 @@ describe('the counterfactual axis on a real history', () => {
         const indices = all.map((tick) => dates.findIndex((date) => +date === +tick.date))
         const steps = new Set(indices.slice(1).map((index, i) => index - indices[i]!))
         expect(steps.size, `${where}: ${JSON.stringify(all.map((t) => t.label))}`).toBeLessThanOrEqual(1)
-      }
-    }
-  })
-})
-
-describe('the counterfactual axis from 1 CE to 9999', () => {
-  it('draws the ticks the even stride from the first tick drew, at every width', () => {
-    const starts = ['0100-01-01', '1066-09-01', '1500-01-01', '1789-01-01', '1861-04-12', '1914-06-28', '1939-09-01', '1940-05-01', '1962-10-14', '1999-12-01', '5000-06-01']
-    const spans = [2, 3, 7, 13, 19, 30, 61, 120, 400, 1000, 1500, 3000, 6000, 20000]
-    for (const start of starts) {
-      for (const span of spans) {
-        for (const width of [320, 400, 480, 560, 640, 760, 900, 1100, 1400]) {
-          const a = new Date(`${start}T00:00:00Z`)
-          const b = new Date(+a + span * 86_400_000)
-          const margin = counterfactualMargin(width)
-          const innerWidth = Math.max(100, width - margin.left - margin.right)
-          const xScale = instantScale(true).domain([a, b]).range([0, innerWidth])
-          const drawn = counterfactualAxisTicks(xScale, innerWidth, margin, null)
-          const dates = xScale.ticks(counterfactualTickCount(innerWidth))
-          const labels = formatTicks(dates)
-          const placed = anchorInward(
-            dates.map((date, i) => ({ date, x: xScale(date), label: labels[i]! })),
-            7.2,
-            { left: -margin.left, right: innerWidth + margin.right }
-          )
-          const stride = thinTickLabels(placed, { charPx: 7.2, gapPx: 12 })
-          expect(drawn.map((t) => [+t.date, t.label, t.x, t.anchor]), `${start} +${span}d at ${width}`).toEqual(stride.map((t) => [+t.date, t.label, t.x, t.anchor]))
-        }
       }
     }
   })

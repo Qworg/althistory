@@ -61,22 +61,16 @@ function fits(a: Placed, b: Placed, { charPx, gapPx }: LabelFit): boolean {
  * first of them; a stride tick that would crowd one gives way. Two ticks are
  * kept whenever two fit.
  */
-export function thinTickLabels<T extends Placed>(
-  ticks: readonly T[],
-  fit: LabelFit,
-  mustKeep: (tick: T) => boolean = () => false,
-  options: { tryOffsets?: boolean } = {}
-): T[] {
+export function thinTickLabels<T extends Placed>(ticks: readonly T[], fit: LabelFit, mustKeep: (tick: T) => boolean = () => false): T[] {
   if (ticks.length <= 1) return [...ticks]
   const allFit = (kept: readonly T[]) => kept.every((tick, i) => i === 0 || fits(kept[i - 1]!, tick, fit))
   if (allFit(ticks)) return [...ticks]
   const must = new Set(ticks.flatMap((tick, index) => (mustKeep(tick) ? [index] : [])))
   const origin = must.size > 0 ? Math.min(...must) : 0
   const last = ticks.length - 1
-  // One stride from one starting tick: the ticks it keeps, or null when they do not fit.
-  const attempt = (stride: number, offset: number): T[] | null => {
+  for (let stride = 1; stride <= ticks.length; stride++) {
     const chosen = new Set(must)
-    for (let index = offset; index <= last; index += stride) chosen.add(index)
+    for (let index = origin % stride; index <= last; index += stride) chosen.add(index)
     let kept = [...chosen].sort((a, b) => a - b)
     // A stride tick that would crowd one that must stay gives way to it.
     kept = kept.filter((index, i) => {
@@ -99,27 +93,6 @@ export function thinTickLabels<T extends Placed>(
       if ((dropFirst && !droppable(kept[0])) || (dropLast && !droppable(kept[kept.length - 1]))) continue
       const trimmed = candidate.slice(dropFirst ? 1 : 0, dropLast ? -1 : undefined)
       if (trimmed.length >= 2 && allFit(trimmed)) return trimmed
-    }
-    return null
-  }
-  for (let stride = 1; stride <= ticks.length; stride++) {
-    if (!options.tryOffsets || must.size > 0) {
-      const found = attempt(stride, origin % stride)
-      if (found) return found
-      continue
-    }
-    // Before coarsening: the stride from every starting tick, keeping the one
-    // that keeps the most (the earliest on a tie, so a stride that fit from
-    // the first tick is unchanged).
-    let best: T[] | null = null
-    for (let offset = 0; offset < stride; offset++) {
-      const found = attempt(stride, offset)
-      if (found && (best === null || found.length > best.length)) best = found
-    }
-    if (best) {
-      // Never fewer than the plain stride from the first tick would keep.
-      const plain = thinTickLabels(ticks, fit, mustKeep)
-      return plain.length >= best.length ? plain : best
     }
   }
   const required = [...must].sort((a, b) => a - b).map((index) => ticks[index]!)

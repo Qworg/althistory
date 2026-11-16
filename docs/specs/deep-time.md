@@ -136,11 +136,9 @@ it is fitted again when the view zooms or pans, not on every render. Before 1 CE
 end label that would run past the SVG is anchored inward, and ticks whose
 labels would overprint are thinned to an even stride, keeping a label that
 names a day among times; the actor view fits such an axis the same way rather
-than turning its labels. The counterfactual canvas, before it coarsens its even
-stride, tries the stride from each starting tick and keeps the one that keeps
-most dates (the stride from the first tick unless another keeps more), so where
-the gaps can stay even it keeps as many dates as it did before the stride was
-made even. An axis from 1 CE to 9999 draws as it always did.
+than turning its labels. The counterfactual canvas keeps its even stride from the
+first tick: trying other starting ticks changed nothing on a real history
+(which must not change), so it is not done. An axis from 1 CE to 9999 draws as it always did.
 
 Full dates in prose (event labels, the inspector, arc spans, tooltips) are the
 locale's (Req 11), "Mar 15, 44 BC" in en-US: nobody types those back. The en-US "BC" of a full date beside

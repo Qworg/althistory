@@ -84,5 +84,5 @@ export function counterfactualAxisTicks(
     TICK_CHAR_PX,
     { left: -margin.left, right: innerWidth + margin.right }
   )
-  return thinTickLabels(placed, { charPx: TICK_CHAR_PX, gapPx: TICK_GAP_PX }, undefined, { tryOffsets: true })
+  return thinTickLabels(placed, { charPx: TICK_CHAR_PX, gapPx: TICK_GAP_PX })
 }
