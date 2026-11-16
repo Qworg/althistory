@@ -331,6 +331,9 @@ describe('CausalRelationshipModal', () => {
         const field = screen.getByRole('textbox', { name: /evidence/i })
         expect(field).toHaveAttribute('aria-invalid', 'true')
         expect(field).toHaveAttribute('aria-describedby', alert.id)
+        expect(field).toHaveFocus()
+        expect(alert).toHaveClass('text-danger')
+        expect(field).toHaveClass('border-danger')
         expect(onCreate).not.toHaveBeenCalled()
         expect(mockOnClose).not.toHaveBeenCalled()
       }

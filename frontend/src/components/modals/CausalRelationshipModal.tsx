@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { CausalRelationship, Event, CausalRelationshipData } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 import { apiClient } from '@/services/api'
@@ -50,6 +50,7 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
   // Evidence is required: shown inline, under the field, once a save was tried
   // without it, and cleared as soon as the person types some.
   const [evidenceError, setEvidenceError] = useState<string | null>(null)
+  const evidenceRef = useRef<HTMLTextAreaElement>(null)
   const [causeEvent, setCauseEvent] = useState<Event | null>(null)
   const [effectEvent, setEffectEvent] = useState<Event | null>(null)
 
@@ -150,6 +151,8 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
     // beside the field (the server refuses it too).
     if (!formData.evidence.trim()) {
       setEvidenceError('Evidence is required: say why the cause led to the effect.')
+      // Move to the field the error is about, so it is announced and typed into.
+      evidenceRef.current?.focus()
       return
     }
     setEvidenceError(null)
@@ -423,11 +426,12 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
               {/* Evidence */}
               <div>
                 <label htmlFor="relationship-evidence" className="block text-sm font-medium text-ink-secondary mb-2">
-                  Evidence <span aria-hidden="true" className="text-red-700 dark:text-red-300">*</span>
+                  Evidence <span aria-hidden="true" className="text-danger">*</span>
                   <span className="sr-only"> (required)</span>
                 </label>
                 <textarea
                   id="relationship-evidence"
+                  ref={evidenceRef}
                   value={formData.evidence}
                   onChange={(e) => {
                     handleInputChange('evidence', e.target.value)
@@ -439,13 +443,13 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
                   aria-invalid={evidenceError !== null}
                   aria-describedby={evidenceError ? 'relationship-evidence-error' : undefined}
                   className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-selected focus:border-transparent ${
-                    evidenceError ? 'border-red-300' : 'border-line'
+                    evidenceError ? 'border-danger' : 'border-line'
                   }`}
                   placeholder="Describe the evidence supporting this causal relationship..."
                   disabled={isLoading}
                 />
                 {evidenceError && (
-                  <p id="relationship-evidence-error" role="alert" className="mt-1 text-sm text-red-700 dark:text-red-300">
+                  <p id="relationship-evidence-error" role="alert" className="mt-1 text-sm text-danger">
                     {evidenceError}
                   </p>
                 )}
