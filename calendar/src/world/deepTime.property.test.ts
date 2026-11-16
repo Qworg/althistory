@@ -25,6 +25,7 @@ import {
   gregorianTicks,
   instantOfAxisTime,
   isoOfAxisTime,
+  labelsDistinctPerDay,
   legacyCalendarSet,
   parseWorldDate,
   positionOf,
@@ -226,7 +227,8 @@ describe('a timeline beyond a Date (Req 12)', () => {
           expect(tick.position).toBeLessThanOrEqual(hi)
           if (index > 0) expect(tick.position).toBeGreaterThan(ticks[index - 1]!.position)
         }
-        expect(new Set(ticks.map((tick) => tick.label)).size).toBe(ticks.length)
+        // Each labelled differently, a time of day alone excepted on either side of a dated midnight.
+        expect(labelsDistinctPerDay(ticks.map((tick) => tick.label))).toBe(true)
         // Each date tick is written as a person types it, and reads back as the moment it marks.
         for (const tick of ticks) {
           if (/^\d{2}:\d{2}$/.test(tick.label)) continue
@@ -267,6 +269,26 @@ describe('a timeline beyond a Date (Req 12)', () => {
     expect(first.ok && first.time).toBeGreaterThanOrEqual(MIN_AXIS_MS)
     // The start of that day, without a time, is still beyond the bound.
     expect(readHistoricalText('285196678-06-10 BCE', 'start').ok).toBe(false)
+  })
+
+  it('keeps short labels across midnight where a time repeats beside a dated tick, every one reading back', () => {
+    const noon = axisTimeOfCivil(-43, 3, 14) + 12n * 3_600_000n
+    for (const maxTicks of [3, 5, 8, 12]) {
+      const ticks = gregorianTicks([noon, noon + 86_400_000n], maxTicks)
+      const labels = ticks.map((tick) => tick.label)
+      expect(labels.some((label) => / \d{2}:\d{2}$/.test(label)), JSON.stringify(labels)).toBe(false)
+      expect(labelsDistinctPerDay(labels)).toBe(true)
+      let day = '44-03-14 BCE'
+      for (const tick of ticks) {
+        const bare = /^\d{2}:\d{2}$/.test(tick.label)
+        if (!bare) day = tick.label
+        const read = bare ? readHistoricalText(`${day} ${tick.label}`, 'start') : readDateBound(tick.label, 'start', null)
+        expect(read.ok && read.time, `${day} ${tick.label}`).toBe(tick.position)
+      }
+    }
+    expect(labelsDistinctPerDay(['12:00', '44-03-15 BCE', '12:00'])).toBe(true)
+    expect(labelsDistinctPerDay(['12:00', '15:00', '12:00'])).toBe(false)
+    expect(labelsDistinctPerDay(['44-03-15 BCE', '44-03-15 BCE'])).toBe(false)
   })
 
   it('labels a span within one day by its times, and a day\'s first moment by its date', () => {
