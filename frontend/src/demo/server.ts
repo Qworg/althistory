@@ -445,6 +445,10 @@ function causal(method: string, path: string, params: URLSearchParams, body: Jso
     const index = graph.relationships.findIndex((r) => r.cause_event_id === causeEventId && r.effect_event_id === effectEventId)
     const now = new Date().toISOString()
     if (method === 'POST') {
+      // The real server refuses a link without evidence; so does the demo.
+      if (typeof relationship.evidence !== 'string' || !relationship.evidence.trim()) {
+        return badRequest('evidence is required: say why the cause led to the effect, as a non-empty string')
+      }
       if (index >= 0) return { status: 409, body: { success: false, error: { code: 'CONFLICT', message: 'Those events are already linked' } } }
       const link: DemoRelationship = {
         id: newId('link'),
@@ -452,7 +456,7 @@ function causal(method: string, path: string, params: URLSearchParams, body: Jso
         effect_event_id: effectEventId,
         weight: relationship.strength ?? relationship.weight ?? 0.5,
         confidence: relationship.confidence ?? 0.5,
-        evidence: relationship.evidence ?? '',
+        evidence: relationship.evidence.trim(),
         relationship_type: relationship.type ?? relationship.relationship_type ?? 'direct',
         created_at: now,
         updated_at: now,
@@ -463,6 +467,9 @@ function causal(method: string, path: string, params: URLSearchParams, body: Jso
     if (index < 0) return notFound('Link')
     const current = graph.relationships[index] as DemoRelationship
     if (method === 'PUT') {
+      if (relationship.evidence !== undefined && !relationship.evidence.trim()) {
+        return badRequest('evidence is required: say why the cause led to the effect, as a non-empty string')
+      }
       const updated: DemoRelationship = {
         ...current,
         weight: relationship.weight ?? relationship.strength ?? current.weight,

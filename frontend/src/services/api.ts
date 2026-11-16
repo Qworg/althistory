@@ -125,6 +125,7 @@ interface APIErrorPayload {
 // create reads `strength`/`type`, update reads `weight`/`relationship_type`.
 // Every field is therefore optional and both spellings are declared.
 interface LinkRelationshipPayload {
+  id?: string
   type?: CausalRelationship['relationship_type']
   relationship_type?: CausalRelationship['relationship_type']
   weight?: number
@@ -433,7 +434,8 @@ class APIClient {
                 // Transform response back to frontend format
                 const now = new Date().toISOString()
                 const result: CausalRelationship = {
-                    id: `${causeId}_${effectId}`,
+                    // The id the server gave the link; two links on one pair differ.
+                    id: response.data.data.relationship.id ?? `${causeId}_${effectId}`,
                     cause_event_id: causeId,
                     effect_event_id: effectId,
                     weight: response.data.data.relationship.strength || relationshipData.weight,
