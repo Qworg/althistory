@@ -1,3 +1,4 @@
+import { ArcHierarchyService } from '@/services/ArcHierarchyService';
 import { IEngine, type GenerationRunHooks } from './IEngine';
 import type { GenerationHooks } from '../generator/GenerationHooks';
 import {
@@ -486,7 +487,13 @@ export class DirectEngine implements IEngine {
   async deleteArc(graphId: string, arcId: string): Promise<void> {
     const container = await this.getInitializedContainer();
     const scoped = await container.graphScopedRepositories(graphId);
-    const deleted = await scoped.arcRepository.delete(arcId);
+    // Its child arcs move up to its parent (or to the top), and the delete is
+    // versioned as the API's is: left alone, the version head kept the arc.
+    const { deleted } = await new ArcHierarchyService(container.graphWriteVersioningService).deleteArc(
+      graphId,
+      { arcRepository: scoped.arcRepository, eventRepository: scoped.eventRepository },
+      arcId
+    );
     if (!deleted) {
       throw new NotFoundErrorCLI(`Arc not found: ${arcId} in graph ${graphId}`);
     }

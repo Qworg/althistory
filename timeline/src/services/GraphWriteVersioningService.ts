@@ -365,6 +365,25 @@ function describeChanges(changes: EntityChanges): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+/**
+ * An edit of the arc hierarchy as the live store now holds it: arcs written
+ * (an arc and the descendants whose level moved with it, children lifted by a
+ * delete), arcs removed, and the events a deleted arc let go of.
+ */
+export interface ArcEdit {
+  updated: Arc[];
+  deleted: string[];
+  events?: Event[];
+  /** The Version history line. */
+  summary: string;
+  /**
+   * The parent each written arc ends with (null: none). Written to the
+   * version's `parent_arc_id` where the head records one, so the version never
+   * disagrees with the hierarchy that was decided.
+   */
+  parents?: ReadonlyMap<string, string | null>;
+}
+
 export class GraphWriteVersioningService {
   private readonly graphRepository: GraphRepository;
   private readonly logger: ILogger;
@@ -471,6 +490,56 @@ export class GraphWriteVersioningService {
       'delete',
       describeEntityWrite('delete', type, context)
     );
+  }
+
+  /**
+   * Some arcs as the head holds them, by id; an arc the head lacks is absent.
+   * Reads only those arcs, never the whole head, and never fails: the caller
+   * (the arc hierarchy) treats an unreadable arc as one with no recorded parent.
+   */
+  async headArcs(graphId: string, ids: string[]): Promise<Record<string, Record<string, unknown>>> {
+    return this.headEntities(graphId, 'arc', ids);
+  }
+
+  /**
+   * Record an arc hierarchy edit as one version: the arcs written, the arcs
+   * deleted, the events a deleted arc let go of. Reads from the head only the
+   * entities it names (not the whole head, as a batch does), so a run of
+   * single edits costs what the single arc write costs. A head read that
+   * fails fails the version, as for any edit (`commitWrite`).
+   */
+  async recordArcEdit(graphId: string, edit: ArcEdit, options: WriteOptions = {}): Promise<void> {
+    const changes: EntityChanges = { added: [], modified: [], deleted: [] };
+    try {
+      const arcIds = [...edit.updated.map((arc) => arc.id), ...edit.deleted];
+      const headArcs = await this.requireHeadEntities(graphId, 'arc', arcIds);
+      const headEvents = await this.requireHeadEntities(graphId, 'event', (edit.events ?? []).map((event) => event.id));
+      for (const arc of edit.updated) {
+        const head = headArcs[arc.id];
+        const data = overlay('arc', head, arcToVersionData(arc));
+        if (edit.parents?.has(arc.id) && ('parent_arc_id' in data || edit.parents.get(arc.id) !== null)) {
+          data.parent_arc_id = edit.parents.get(arc.id) ?? null;
+        }
+        if (!head) changes.added.push({ type: 'arc', id: arc.id, data });
+        else if (!sameData(head, data)) changes.modified.push({ type: 'arc', id: arc.id, data });
+      }
+      for (const event of edit.events ?? []) {
+        const head = headEvents[event.id];
+        const data = overlay('event', head, eventToVersionData(event));
+        if (!head) changes.added.push({ type: 'event', id: event.id, data });
+        else if (!sameData(head, data)) changes.modified.push({ type: 'event', id: event.id, data });
+      }
+      for (const id of edit.deleted) {
+        if (headArcs[id]) changes.deleted.push({ type: 'arc', id });
+      }
+    } catch (error) {
+      this.logger.error(`Could not read the head to version an arc edit in graph ${graphId}`, error);
+      if (!options.undoneOnFailure) this.announceNotVersioned(graphId, 'update', 'arc', edit.updated[0]?.id ?? edit.deleted[0] ?? '', {});
+      throw error;
+    }
+    if (changes.added.length + changes.modified.length + changes.deleted.length === 0) return;
+    const operation: EntityWriteOperation | 'delete' = changes.deleted.length > 0 ? 'delete' : changes.added.length > 0 && changes.modified.length === 0 ? 'create' : 'update';
+    await this.commit(graphId, changes, operation, edit.summary, options);
   }
 
   /**
@@ -781,7 +850,12 @@ export class GraphWriteVersioningService {
     summary: string
   ): void {
     if (!this.changeFeed) return;
-    const touched = operation === 'create' ? changes.added : operation === 'update' ? changes.modified : changes.deleted;
+    const touched = operation === 'create'
+      ? changes.added
+      : operation === 'update'
+        ? changes.modified
+        // An arc's delete also moves its children and unassigns its events.
+        : [...changes.deleted, ...changes.modified];
     const entities: ChangedEntity[] = touched.map((entity) => ({ type: entity.type, id: entity.id }));
     if (entities.length === 0) return;
     try {

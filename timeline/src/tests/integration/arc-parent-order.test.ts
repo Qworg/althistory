@@ -149,21 +149,26 @@ describe("an arc's parent when a subtree moves", () => {
 
       it(`${kind} arcs: two PUTs demote a subtree, ${order}`, async () => {
         const graphId = await graphOf(kind, demoteArcs);
-        const steps = childFirst ? [demoteChild, demoteParent] : [demoteParent, demoteChild];
-        for (const step of steps) {
-          const { id, ...body } = step.data as { id: string } & Record<string, unknown>;
-          await put(graphId, id, body).expect(200);
+        // The child alone cannot go to level 2 under a level-0 parent (a 400,
+        // and nothing changes); the parent moves its subtree, so one PUT does it.
+        if (childFirst) {
+          await put(graphId, 'C', { level: 2 }).expect(400);
+          expect(await exported(graphId)).toMatchObject({ valid: true });
         }
+        const { id, ...body } = demoteParent.data;
+        await put(graphId, id, body).expect(200);
         expect(await exported(graphId)).toEqual({ valid: true, errors: [], arcs: demoted });
       });
 
       it(`${kind} arcs: two PUTs promote a subtree to the top, ${order}`, async () => {
         const graphId = await graphOf(kind, promoteArcs);
-        const steps = childFirst ? [promoteChild, promoteParent] : [promoteParent, promoteChild];
-        for (const step of steps) {
-          const { id, ...body } = step.data as { id: string } & Record<string, unknown>;
-          await put(graphId, id, body).expect(200);
+        // Likewise: the child alone cannot go to level 1 under a level-1 parent.
+        if (childFirst) {
+          await put(graphId, 'C', { level: 1 }).expect(400);
+          expect(await exported(graphId)).toMatchObject({ valid: true });
         }
+        const { id, ...body } = promoteParent.data;
+        await put(graphId, id, body).expect(200);
         expect(await exported(graphId)).toEqual({ valid: true, errors: [], arcs: promoted });
       });
     }
@@ -204,8 +209,7 @@ describe("an arc's parent when a subtree moves", () => {
 
       await new GraphImporter().import(JSON.stringify(document), container as never, { strategy: 'overwrite', graphId });
 
-      // The importer writes the live store only (it records no version), so
-      // the live store is what is checked.
+      // The live store, and (the import is versioned) the export agree.
       const { arcRepository } = await container.graphScopedRepositories(graphId);
       const live = async (id: string): Promise<[number | undefined, unknown]> => {
         const arc = await arcRepository.findById(id);

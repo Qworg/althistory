@@ -565,6 +565,44 @@ export class ArcRepository {
   }
 
   /**
+   * Set an arc's level and metadata (where its parent is recorded) and nothing
+   * else. This is how the arc hierarchy moves a subtree: raising the children
+   * of a deleted arc, or following a parent whose level changed. It skips the
+   * temporal-boundary check `update` makes, because it carries out a hierarchy
+   * decision already made as a whole (`ArcHierarchyService`) rather than
+   * proposing a new arc, and refusing one arc of a subtree for how it nests
+   * against the others would strand the rest of it.
+   */
+  async setHierarchy(id: string, hierarchy: { level: number; metadata: Record<string, unknown> }): Promise<Arc | null> {
+    const existing = await this.findById(id);
+    if (!existing) return null;
+    const next = existing.update(hierarchy);
+
+    const parameters: Record<string, unknown> = {
+      id,
+      level: next.level,
+      metadata: JSON.stringify(next.metadata || {})
+    };
+    const graphProperty = graphPatternProperty(parameters, this.graphId);
+    const query = `
+      MATCH (a:Arc {id: $id${graphProperty}})
+      SET a.level = $level,
+          a.metadata = $metadata
+      RETURN a
+    `;
+
+    const session = this.getSession();
+    try {
+      const result = await runTemporal(session, query, parameters);
+      return result.records.length === 0 ? null : next;
+    } catch (error) {
+      throw new Error(`Failed to set arc hierarchy: ${error}`);
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
    * Delete an arc by ID
    */
   async delete(id: string): Promise<boolean> {
