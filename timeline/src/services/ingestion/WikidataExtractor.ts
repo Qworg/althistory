@@ -94,11 +94,30 @@ export interface WikidataFact {
  * which year a BCE date is (see {@link readWikidataTime}); the statement's
  * value node (`psv:`) carries `timePrecision` too. `wikibase:BestRank` keeps
  * what `wdt:` keeps: the preferred statements, or the normal ones when none
- * is preferred. Measured on query.wikidata.org on 2026-11-15, for the broad
- * `historical-events` query with LIMIT 25: the `wdt:`-only query answered in
- * 3.4 s, this form in 7 s; `?statement a wikibase:BestRank` outside the
- * branches in 11 s once and timed out once (60 s), and joining the value node
- * to the `wdt:` value took 51 s.
+ * is preferred.
+ *
+ * Measured on query.wikidata.org, for the broad `historical-events` query with
+ * LIMIT 25, one request every 8 s, a healthy service.
+ *
+ * On 2026-11-15, during a rate-limiting outage: the `wdt:`-only query 3.4 s,
+ * this form 7 s; `?statement a wikibase:BestRank` outside the branches 11 s
+ * once and a timeout (60 s) once; joining the value node to the `wdt:` value
+ * 51 s.
+ *
+ * On 2026-11-16, healthy (seconds per run, four runs each; the service caches,
+ * so the first run of a form is not the slowest):
+ *
+ * | Form | Runs | Same rows as this form? |
+ * | :-- | :-- | :-- |
+ * | the old `wdt:`-only query (no precision) | 1.2, 2.4, 2.8, 1.9; again 2.6, 3.8, 1.2, 0.8 | no precision, so BCE and coarse dates are wrong |
+ * | this form (`BestRank` in each branch) | 2.2, 4.1, 1.2, 4.4; again 4.7, 1.4, 1.9, 1.6 | -- |
+ * | `wdt:` date joined to `psv:` for the precision | 35.4, 65 (HTTP 504), 57.0, 65 (HTTP 504) | not usable |
+ * | `p:`/`psv:` with `FILTER(?rank != wikibase:DeprecatedRank)` | 2.3, 4.5, 9.2, 6.0 | not equivalent (a normal statement beside a preferred one stays); same rows on Thermopylae and the Norman conquest; slower |
+ * | `VALUES (?p ?psv)`-driven, `BestRank` | 6.2, 5.8, 2.7, 5.2 | same rows on Thermopylae and the Norman conquest; slower |
+ *
+ * So the 7 s of the outage was mostly the outage: this form runs in 1 to 5 s,
+ * about 1 s behind the form that cannot read a BCE year, and no other form
+ * that keeps the best-rank rule is faster. It stays.
  */
 function datedBy(subject: string, property: string): string {
   return `?${subject} p:${property} ?statement . ?statement a wikibase:BestRank ; psv:${property} [ wikibase:timeValue ?date ; wikibase:timePrecision ?precision ] .`;
