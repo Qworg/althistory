@@ -215,6 +215,20 @@ describe('a date with a time of day, to the second or the millisecond', () => {
     }
     expect(readHistoricalText('44-03-15 BCE 11:59:50', 'start')).toMatchObject({ ok: true, iso: '-000043-03-15T11:59:50.000Z' })
   })
+
+  it('reads the date before a malformed time, and names the date first', () => {
+    const why = (text: string) => {
+      const read = readHistoricalText(text, 'start')
+      return read.ok ? '' : read.error
+    }
+    expect(why('1843-02-31 9:3')).toBe('That month has no day 31.')
+    expect(why('yesterday 10:00:0')).toMatch(/^Write the year first/)
+    expect(why('1843 1:2')).toBe('A time needs a whole date: 1843-11-20 14:30.')
+    expect(why('1843-11 9:3')).toBe('A time needs a whole date: 1843-11-20 14:30.')
+    expect(why('1843-13-01 9:3')).toBe('The month must be 01 to 12.')
+    // A whole date with a malformed time still names the time.
+    expect(why('1843-11-20 9:3')).toMatch(/^The time must be/)
+  })
 })
 
 describe('a typed bound, for every year, month and day', () => {
