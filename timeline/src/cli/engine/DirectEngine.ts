@@ -36,6 +36,7 @@ import { createLLMClient } from '@/services/llm';
 import { clusterEventsIntoArcs } from '../generator/arcClustering';
 import { TimelineGenerator } from '../generator/TimelineGenerator';
 import { ExtractionResult } from '@/services/ingestion/types';
+import { DroppedRowCounts, countDropped, describeDroppedRows, mergeDroppedRows } from '@/services/ingestion/droppedRows';
 import {
   IngestUrlOptions,
   IngestWikidataOptions,
@@ -667,6 +668,10 @@ export class DirectEngine implements IEngine {
     const container = await this.getInitializedContainer();
     const minConf = options.minConfidence ?? 0;
     const events = extracted.events.filter((e) => e.confidence >= minConf);
+    // The events --min-confidence removed are part of what was left out, so the report accounts for every result.
+    const belowConfidence: DroppedRowCounts = {};
+    for (const e of extracted.events) if (e.confidence < minConf) countDropped(belowConfidence, 'below-confidence', e.source.wikidataId ?? '');
+    const droppedRows = mergeDroppedRows(extracted.droppedRows, describeDroppedRows(belowConfidence));
     let arcs = [...extracted.arcs];
     const relationships = [...extracted.relationships];
     // A world's days are its own length: the arcs below are padded, and the links' windows counted, in them.
@@ -733,7 +738,7 @@ export class DirectEngine implements IEngine {
         arcsCreated: arcs.length,
         relationshipsCreated: creatableRelationships.length,
         dryRun: true,
-        ...(extracted.droppedRows ? { droppedRows: extracted.droppedRows } : {}),
+        ...(droppedRows ? { droppedRows } : {}),
         entities: {
           events: events.map((e) => ({
             id: e.tempId,
@@ -881,7 +886,7 @@ export class DirectEngine implements IEngine {
         relationships: createdRelDtos,
       },
       ...(skippedRelationships.length > 0 ? { skippedRelationships } : {}),
-      ...(extracted.droppedRows ? { droppedRows: extracted.droppedRows } : {}),
+      ...(droppedRows ? { droppedRows } : {}),
     };
   }
 

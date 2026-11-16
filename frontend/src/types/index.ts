@@ -891,16 +891,21 @@ export interface ExtractionResult {
   skippedSentences?: number
   /** The skipped sentences themselves (up to 20), to show and date them. */
   skippedSentenceTexts?: string[]
-  /** Wikidata: rows that became no event, counted by reason. Absent when none were left out. */
+  /** Wikidata: results that became no event, counted by reason. Absent when none were left out. */
   droppedRows?: DroppedRows
 }
 
 export interface DroppedRows {
+  /** Wikidata results left out (one per place of an item, so possibly more than the items). */
   total: number
   reasons: Array<{
-    reason: 'no-date' | 'unreadable' | 'before-timeline' | 'after-timeline' | 'outside-range'
+    reason: 'no-date' | 'unreadable' | 'before-timeline' | 'after-timeline' | 'outside-range' | 'below-confidence'
     count: number
-    /** Completes "N rows were left out: ...". */
+    /** Distinct Wikidata items among the results. */
+    items: number
+    /** Wikidata ids of those items, the first ten. */
+    itemIds: string[]
+    /** Completes "N Wikidata results were left out: ...". */
     description: string
   }>
 }

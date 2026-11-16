@@ -398,12 +398,30 @@ describe('DirectEngine Ingestion from the web', () => {
     expect(result.droppedRows).toBeUndefined();
   });
 
-  it('reports the rows a Wikidata ingest left out, on a dry run and on a real one (#33)', async () => {
+  it('reports the results a Wikidata ingest left out, on a dry run and on a real one (#33)', async () => {
     http = new FixtureHttpClient(() => ({ body: JSON.stringify(deepTimeFixture), headers: {} }));
     engine = new DirectEngine({ httpClient: http });
 
     const dry = await engine.ingestWikidata(undefined, { preset: 'historical-events', dryRun: true });
     expect(dry.eventsCreated).toBe(7);
-    expect(dry.droppedRows).toMatchObject({ total: 3, reasons: [{ reason: 'before-timeline', count: 3 }] });
+    expect(dry.droppedRows).toMatchObject({ total: 3, reasons: [{ reason: 'before-timeline', count: 3, items: 3 }] });
+
+    const real = await engine.ingestWikidata(undefined, { preset: 'historical-events', graphName: 'Deep time' });
+    expect(real.dryRun).toBe(false);
+    expect(real.eventsCreated).toBe(7);
+    expect(real.droppedRows).toMatchObject({ total: 3, reasons: [{ reason: 'before-timeline', count: 3, items: 3 }] });
+  });
+
+  it('counts what --min-confidence removes as a reason of its own, so the report accounts for every result', async () => {
+    http = new FixtureHttpClient(() => ({ body: JSON.stringify(deepTimeFixture), headers: {} }));
+    engine = new DirectEngine({ httpClient: http });
+
+    // Every event is read at 0.9, so a minimum of 0.95 removes all seven.
+    const result = await engine.ingestWikidata(undefined, { preset: 'historical-events', dryRun: true, minConfidence: 0.95 });
+    expect(result.eventsCreated).toBe(0);
+    expect(result.droppedRows?.total).toBe(10);
+    expect(result.droppedRows?.reasons.map((r) => [r.reason, r.count, r.items])).toEqual(
+      expect.arrayContaining([['below-confidence', 7, 7], ['before-timeline', 3, 3]])
+    );
   });
 });

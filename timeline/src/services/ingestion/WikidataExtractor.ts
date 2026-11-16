@@ -28,7 +28,7 @@
  * start, not its conclusion.
  */
 
-import { compareAxisTime, parseIsoInstant, toAxisTime } from '@althistory/calendar';
+import { compareAxisTime, isoBeyondRange, parseIsoInstant, toAxisTime } from '@althistory/calendar';
 import { DataSource } from '../ExportService';
 import { HttpClient, JsonValue, parseJsonBody, wikimediaUserAgent } from './http';
 import { newTempId } from './ids';
@@ -39,9 +39,8 @@ import {
   ExtractionResult,
   Extractor,
   WikidataExtractionInput,
-  DroppedRowReason,
-  DroppedRows,
 } from './types';
+import { DroppedRowCounts, countDropped, describeDroppedRows } from './droppedRows';
 
 const WIKIDATA_ENDPOINT = 'https://query.wikidata.org/sparql';
 const DEFAULT_LIMIT = 50;
@@ -97,14 +96,14 @@ export interface WikidataFact {
  * is preferred.
  *
  * Measured on query.wikidata.org, for the broad `historical-events` query with
- * LIMIT 25, one request every 8 s, a healthy service.
+ * LIMIT 25, one request every 8 s.
  *
  * On 2026-11-15, during a rate-limiting outage: the `wdt:`-only query 3.4 s,
  * this form 7 s; `?statement a wikibase:BestRank` outside the branches 11 s
  * once and a timeout (60 s) once; joining the value node to the `wdt:` value
  * 51 s.
  *
- * On 2026-11-16, healthy (seconds per run, four runs each; the service caches,
+ * On 2026-11-16, a healthy service (seconds per run, four runs each; the service caches,
  * so the first run of a form is not the slowest):
  *
  * | Form | Runs | Same rows as this form? |
@@ -116,7 +115,8 @@ export interface WikidataFact {
  * | `VALUES (?p ?psv)`-driven, `BestRank` | 6.2, 5.8, 2.7, 5.2 | same rows on Thermopylae and the Norman conquest; slower |
  *
  * So the 7 s of the outage was mostly the outage: this form runs in 1 to 5 s,
- * about 1 s behind the form that cannot read a BCE year, and no other form
+ * about half a second behind the form that cannot read a BCE year (means of
+ * 2.7 s and 2.1 s over the eight runs each), and no other form
  * that keeps the best-rank rule is faster. It stays.
  */
 function datedBy(subject: string, property: string): string {
@@ -237,7 +237,8 @@ export function classifyWikidataTime(
   precision?: number
 ): { ok: true; time: WikidataTime } | { ok: false; reason: UnreadableWikidataTime } {
   const fail = (reason: UnreadableWikidataTime) => ({ ok: false as const, reason });
-  if (value.trim() === '') return fail('no-date');
+  // Nothing, or Wikidata's "unknown value": a blank node, which the query service writes as a URI.
+  if (value.trim() === '' || /^https?:\/\/.*genid/i.test(value.trim())) return fail('no-date');
   const match = value.trim().match(/^([+-]?)(\d{4,})-(\d{2})-(\d{2})(?:T[\d:.]+Z?)?$/);
   if (!match) return fail('unreadable');
   const [, sign, yearText, monthText, dayText] = match;
@@ -256,8 +257,9 @@ export function classifyWikidataTime(
   const isoYear = year >= 0 && year <= 9999 ? String(year).padStart(4, '0') : `${year < 0 ? '-' : '+'}${String(Math.abs(year)).padStart(6, '0')}`;
   const timestamp = `${isoYear}-${pad2(month)}-${pad2(day)}T00:00:00Z`;
   if (!parseIsoInstant(timestamp)) {
-    // A moment beyond the timeline (its year has no first day on the axis either) or a month or day that does not exist.
-    if (!parseIsoInstant(`${isoYear}-01-01T00:00:00Z`)) return fail(year < 0 ? 'before-timeline' : 'after-timeline');
+    // A moment past the axis's bound (even within its last year), or a month or day that does not exist.
+    // A year with too many digits for ISO to scan has no first day on the axis either.
+    if (isoBeyondRange(timestamp) || !parseIsoInstant(`${isoYear}-01-01T00:00:00Z`)) return fail(year < 0 ? 'before-timeline' : 'after-timeline');
     return fail('unreadable');
   }
   return { ok: true, time: { timestamp, precision: stated } };
@@ -276,9 +278,6 @@ export function parseWikidataResponse(payload: unknown, entityType: 'event' | 'p
   return readWikidataRows(payload, entityType).facts;
 }
 
-/** Why each row that became no fact was left out, counted. */
-export type DroppedRowCounts = Partial<Record<DroppedRowReason, number>>;
-
 /** {@link parseWikidataResponse}, and the rows it left out, counted by reason. */
 export function readWikidataRows(
   payload: unknown,
@@ -294,18 +293,16 @@ export function readWikidataRows(
 
   const facts: WikidataFact[] = [];
   const dropped: DroppedRowCounts = {};
-  const drop = (reason: DroppedRowReason): void => {
-    dropped[reason] = (dropped[reason] ?? 0) + 1;
-  };
+  const idKey = entityType === 'event' ? 'event' : 'person';
   for (const rawBinding of results.bindings) {
     if (!isJsonObject(rawBinding)) {
-      drop('unreadable');
+      countDropped(dropped, 'unreadable', '');
       continue;
     }
     const precisionText = bindingValue(rawBinding, 'precision');
     const read = classifyWikidataTime(bindingValue(rawBinding, 'date'), precisionText === '' ? undefined : Number(precisionText));
     if (!read.ok) {
-      drop(read.reason);
+      countDropped(dropped, read.reason, (bindingValue(rawBinding, idKey).split('/').pop() ?? ''));
       continue;
     }
     const { timestamp: date, precision: datePrecision } = read.time;
@@ -342,24 +339,6 @@ export function readWikidataRows(
   return { facts, dropped };
 }
 
-const DROPPED_ROW_TEXT: Record<DroppedRowReason, string> = {
-  'no-date': 'there is no date',
-  unreadable: 'the date could not be read',
-  'before-timeline': 'the date is beyond the timeline (older than about 285 million years)',
-  'after-timeline': 'the date is beyond the timeline (more than about 285 million years ahead)',
-  'outside-range': 'the date is outside the time range asked for',
-};
-
-/** The counts as the report every front end shows; undefined when no row was left out. */
-export function describeDroppedRows(counts: DroppedRowCounts): DroppedRows | undefined {
-  const reasons = (Object.keys(DROPPED_ROW_TEXT) as DroppedRowReason[])
-    .map((reason) => ({ reason, count: counts[reason] ?? 0, description: DROPPED_ROW_TEXT[reason] }))
-    .filter((entry) => entry.count > 0)
-    .sort((a, b) => b.count - a.count);
-  if (reasons.length === 0) return undefined;
-  return { total: reasons.reduce((sum, entry) => sum + entry.count, 0), reasons };
-}
-
 export class WikidataExtractor implements Extractor<WikidataExtractionInput> {
   readonly sourceType = 'wikidata' as const;
   private readonly httpClient: HttpClient;
@@ -394,7 +373,7 @@ export class WikidataExtractor implements Extractor<WikidataExtractionInput> {
     const payload = parseJsonBody(response.body, 'Wikidata');
     const { facts, dropped } = readWikidataRows(payload, entityType);
     const filtered = this.applyTimeRange(facts, context);
-    if (filtered.length < facts.length) dropped['outside-range'] = facts.length - filtered.length;
+    for (const fact of facts) if (!filtered.includes(fact)) countDropped(dropped, 'outside-range', fact.entityId);
     const droppedRows = describeDroppedRows(dropped);
     const extractedAt = this.now().toISOString();
 

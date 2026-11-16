@@ -85,7 +85,7 @@ export interface ExtractionResult {
   /**
    * Wikidata: rows the query returned that became no event, counted by why
    * (no date, an unreadable one, one beyond the timeline, one outside the
-   * requested range). Absent when every row was kept.
+   * requested range, or a confidence below the minimum). Absent when every row was kept.
    */
   droppedRows?: DroppedRows;
 }
@@ -95,7 +95,8 @@ export type DroppedRowReason =
   | 'unreadable'
   | 'before-timeline'
   | 'after-timeline'
-  | 'outside-range';
+  | 'outside-range'
+  | 'below-confidence';
 
 export interface DroppedRows {
   /** Every row left out. */
@@ -103,8 +104,13 @@ export interface DroppedRows {
   /** One entry per reason that occurred, most common first. */
   reasons: Array<{
     reason: DroppedRowReason;
+    /** Wikidata results (one per binding of the answer, so one per place of an item). */
     count: number;
-    /** The reason as it completes "N rows were left out: ...". */
+    /** How many distinct items those results belong to. */
+    items: number;
+    /** Wikidata ids of those items, the first ten. */
+    itemIds: string[];
+    /** The reason as it completes "N Wikidata results were left out: ...". */
     description: string;
   }>;
 }

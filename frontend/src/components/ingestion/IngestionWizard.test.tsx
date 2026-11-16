@@ -246,30 +246,13 @@ describe('IngestionWizard', () => {
     })
   })
 
-  it('says how many Wikidata rows were left out, and why, in the review step (#33)', async () => {
-    const user = userEvent.setup()
-    const preview = makePreview()
-    preview.extraction.droppedRows = {
-      total: 3,
-      reasons: [{ reason: 'before-timeline', count: 3, description: 'the date is beyond the timeline (older than about 285 million years)' }],
-    }
-    mockedWikidata.mockResolvedValue(preview)
-
-    renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} />)
-    await user.click(screen.getByRole('tab', { name: 'Wikidata' }))
-    await user.click(screen.getByRole('button', { name: /Extract events/ }))
-
-    expect(await screen.findByText('3 rows were left out: the date is beyond the timeline (older than about 285 million years)')).toBeInTheDocument()
-  })
-
-  it('lists each reason when rows were left out for several', async () => {
+  it('says how many Wikidata results (and items) were left out, and why, in the review step (#33)', async () => {
     const user = userEvent.setup()
     const preview = makePreview()
     preview.extraction.droppedRows = {
       total: 3,
       reasons: [
-        { reason: 'no-date', count: 2, description: 'there is no date' },
-        { reason: 'after-timeline', count: 1, description: 'the date is beyond the timeline (more than about 285 million years ahead)' },
+        { reason: 'before-timeline', count: 3, items: 1, itemIds: ['Q5'], description: 'the date is beyond the timeline (older than about 285 million years)' },
       ],
     }
     mockedWikidata.mockResolvedValue(preview)
@@ -278,8 +261,49 @@ describe('IngestionWizard', () => {
     await user.click(screen.getByRole('tab', { name: 'Wikidata' }))
     await user.click(screen.getByRole('button', { name: /Extract events/ }))
 
-    expect(await screen.findByText('3 rows were left out:')).toBeInTheDocument()
-    expect(screen.getByText('2: there is no date')).toBeInTheDocument()
+    const notice = await screen.findByTestId('dropped-rows-notice')
+    expect(notice).toHaveTextContent(
+      '3 Wikidata results (1 item) were left out: the date is beyond the timeline (older than about 285 million years)'
+    )
+    expect(within(notice).getByRole('link', { name: 'Q5' })).toHaveAttribute('href', 'https://www.wikidata.org/wiki/Q5')
+  })
+
+  it('says "was" for one result, and folds a long list of items away', async () => {
+    const user = userEvent.setup()
+    const preview = makePreview()
+    preview.extraction.droppedRows = {
+      total: 1,
+      reasons: [{ reason: 'no-date', count: 1, items: 1, itemIds: ['Q1'], description: 'there is no date' }],
+    }
+    mockedWikidata.mockResolvedValue(preview)
+    renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} />)
+    await user.click(screen.getByRole('tab', { name: 'Wikidata' }))
+    await user.click(screen.getByRole('button', { name: /Extract events/ }))
+    expect(await screen.findByTestId('dropped-rows-notice')).toHaveTextContent('1 Wikidata result (1 item) was left out: there is no date')
+  })
+
+  it('lists each reason when results were left out for several, with a disclosure for many items', async () => {
+    const user = userEvent.setup()
+    const preview = makePreview()
+    const ids = ['Q1', 'Q2', 'Q3', 'Q4', 'Q5']
+    preview.extraction.droppedRows = {
+      total: 3,
+      reasons: [
+        { reason: 'no-date', count: 2, items: 12, itemIds: ids, description: 'there is no date' },
+        { reason: 'after-timeline', count: 1, items: 1, itemIds: ['Q9'], description: 'the date is beyond the timeline (more than about 285 million years ahead)' },
+      ],
+    }
+    mockedWikidata.mockResolvedValue(preview)
+
+    renderWithProviders(<IngestionWizard isOpen onClose={vi.fn()} />)
+    await user.click(screen.getByRole('tab', { name: 'Wikidata' }))
+    await user.click(screen.getByRole('button', { name: /Extract events/ }))
+
+    const notice = await screen.findByTestId('dropped-rows-notice')
+    expect(notice).toHaveTextContent('3 Wikidata results were left out:')
+    expect(notice).toHaveTextContent('2 Wikidata results (12 items): there is no date')
+    expect(within(notice).getByText('Show the items')).toBeInTheDocument()
+    expect(notice).toHaveTextContent('and 7 more')
   })
 
   it('shows no notice when nothing was left out', async () => {

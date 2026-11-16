@@ -36,8 +36,12 @@ import {
   parseWikidataResponse,
   normalizeWikidataDate,
   readWikidataTime,
+  classifyWikidataTime,
 } from './WikidataExtractor';
-import { axisTimeOfCivil, formatDateEntry, toAxisTime } from '@althistory/calendar';
+import { MAX_AXIS_MS, axisTimeOfCivil, civilOfAxisTime, formatDateEntry, toAxisTime } from '@althistory/calendar';
+
+// The last year the axis reaches into: its 31 December is past the bound.
+const topYear = Number(civilOfAxisTime(MAX_AXIS_MS).year);
 import historicalEvents from './fixtures/wikidata-historical-events.json';
 import normanConquest from './fixtures/wikidata-norman-conquest.json';
 import caesar from './fixtures/wikidata-bce-person-caesar.json';
@@ -78,6 +82,19 @@ describe('normalizeWikidataDate', () => {
  * JSON's value for the same statement (Special:EntityData), which counts back
  * from 1 CE with no year 0. See `readWikidataTime` for the table.
  */
+describe('classifyWikidataTime', () => {
+  it('calls a day inside the last year but past the bound beyond the timeline, not unreadable', () => {
+    for (const precision of [11, 10, undefined]) {
+      expect(classifyWikidataTime(`+${topYear}-12-31T00:00:00Z`, precision), String(precision)).toEqual({ ok: false, reason: 'after-timeline' });
+    }
+  });
+
+  it('keeps a date that does not exist unreadable, and an unknown value no date', () => {
+    expect(classifyWikidataTime('1066-02-30T00:00:00Z', 11)).toEqual({ ok: false, reason: 'unreadable' });
+    expect(classifyWikidataTime('http://www.wikidata.org/.well-known/genid/abc')).toEqual({ ok: false, reason: 'no-date' });
+  });
+});
+
 describe('readWikidataTime: years before 1 CE, as the query service writes them', () => {
   it('at a year or finer, reads XSD 1.1 years (0 is 1 BCE): the query service has already added one', () => {
     // Q1048 P570: JSON -0044-03-15 (Julian, precision 11) is 15 March 44 BC; the query service converts it to Gregorian.
@@ -409,7 +426,7 @@ describe('WikidataExtractor', () => {
     // Three are older than the timeline's 285 million years.
     expect(result.droppedRows).toMatchObject({
       total: 3,
-      reasons: [{ reason: 'before-timeline', count: 3, description: 'the date is beyond the timeline (older than about 285 million years)' }],
+      reasons: [{ reason: 'before-timeline', count: 3, items: 3, itemIds: ['Q678023', 'Q1050953', 'Q1065985'], description: 'the date is beyond the timeline (older than about 285 million years)' }],
     });
   });
 
@@ -430,6 +447,9 @@ describe('WikidataExtractor', () => {
           row('Q5', '-13787000000-01-01T00:00:00Z', '0'),
           row('Q6', '+13787000000-01-01T00:00:00Z', '0'),
           row('Q7', '1900-01-01T00:00:00Z', '9'),
+          row('Q8', 'http://www.wikidata.org/.well-known/genid/abc'),
+          // The last day of the last year the axis holds, past its bound: beyond the timeline, not unreadable.
+          row('Q9', `+${topYear}-12-31T00:00:00Z`, '11'),
           'not a row',
         ],
       },
@@ -440,8 +460,24 @@ describe('WikidataExtractor', () => {
     );
     expect(result.events.map((event) => event.description)).toEqual(['Q1']);
     const counts = Object.fromEntries(result.droppedRows!.reasons.map((r) => [r.reason, r.count]));
-    expect(counts).toEqual({ 'no-date': 1, unreadable: 3, 'before-timeline': 1, 'after-timeline': 1, 'outside-range': 1 });
-    expect(result.droppedRows!.total).toBe(7);
+    expect(counts).toEqual({ 'no-date': 2, unreadable: 3, 'before-timeline': 1, 'after-timeline': 2, 'outside-range': 1 });
+    expect(result.droppedRows!.total).toBe(9);
+  });
+
+  it('counts the distinct items and names them, ten at most, one result per place', async () => {
+    const row = (id: string, place: string) => ({
+      event: { type: 'uri', value: `http://www.wikidata.org/entity/${id}` },
+      eventLabel: { type: 'literal', value: id },
+      placeLabel: { type: 'literal', value: place },
+      date: { type: 'literal', value: '-13787000000-01-01T00:00:00Z' },
+      precision: { type: 'literal', value: '0' },
+    });
+    const bindings = [row('Q1', 'a'), row('Q1', 'b'), row('Q1', 'c')];
+    for (let i = 2; i <= 14; i++) bindings.push(row(`Q${i}`, 'x'));
+    const result = await new WikidataExtractor({ httpClient: new SingleResponseHttpClient({ results: { bindings } }) }).extract({ queryType: 'historical-events' });
+    const [entry] = result.droppedRows!.reasons;
+    expect(entry).toMatchObject({ reason: 'before-timeline', count: 16, items: 14 });
+    expect(entry.itemIds).toEqual(['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q9', 'Q10']);
   });
 
   it('reports nothing when nothing was dropped', async () => {
