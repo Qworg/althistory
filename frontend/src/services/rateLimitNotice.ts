@@ -52,6 +52,7 @@ export function describeRefusedRequest(request: RefusedRequest): string {
   const method = (request.method ?? 'get').toUpperCase()
   const path = (request.url ?? '').split('?')[0] ?? ''
 
+  if (isStatusPoll(request)) return 'Checking on the job'
   if (/\/graphs\/[^/]+\/activate$/.test(path)) return 'Switching graphs'
   if (/\/stream\/token$/.test(path)) return 'Starting live sync'
   if (/\/batch(\/|$)/.test(path)) return 'The batch update'
@@ -67,27 +68,68 @@ export function describeRefusedRequest(request: RefusedRequest): string {
   return 'Saving your change'
 }
 
+/** Whether a request is a job-status poll (`GET .../jobs/:id`). */
+export function isStatusPoll(request: RefusedRequest): boolean {
+  const path = (request.url ?? '').split('?')[0] ?? ''
+  return (request.method ?? 'get').toUpperCase() === 'GET' && /\/jobs\/[^/]+\/?$/.test(path)
+}
+
+/** What was refused, without the wait: the identity of a notice. */
+export function refusalStem(request: RefusedRequest): string {
+  return `${describeRefusedRequest(request)} was refused because too many requests were sent.`
+}
+
 /** The sentence shown to the person. */
 export function rateLimitedMessage(request: RefusedRequest, retryAfter: number | null): string {
-  const what = describeRefusedRequest(request)
   const when =
     retryAfter === null
       ? 'Try again in a moment.'
       : `Try again in ${retryAfter} ${retryAfter === 1 ? 'second' : 'seconds'}.`
-  return `${what} was refused because too many requests were sent. ${when}`
+  return `${refusalStem(request)} ${when}`
 }
+
+/** A notice goes away once the wait has passed (a little after, so it is read). */
+const EXPIRY_GRACE_MS = 3000
+const DEFAULT_EXPIRY_MS = 8000
+const expiry = new Map<string, ReturnType<typeof setTimeout>>()
 
 /**
  * Show a 429 to the person. Returns the message, or null when the response is
- * anything else. A notice already on screen with the same words is not added
- * again, so a burst of refused requests is one notice, not twenty.
+ * anything else or a status poll (the caller is already waiting on the job and
+ * polls again; saying "refused" there would be noise).
+ *
+ * One refusal is one notice: a notice for the same thing (the same request
+ * class) is updated with the new wait, not added again, and it expires when the
+ * wait has passed.
  */
 export function noticeRateLimited(response: RefusedResponse | undefined, request: RefusedRequest | undefined): string | null {
   if (response?.status !== 429) return null
-  const message = rateLimitedMessage(request ?? {}, retryAfterSeconds(response))
+  const req = request ?? {}
+  if (isStatusPoll(req)) return null
+
+  const stem = refusalStem(req)
+  const wait = retryAfterSeconds(response)
+  const message = rateLimitedMessage(req, wait)
   const store = useGlobalStore.getState()
-  if (!store.errors.some((e) => e.message === message)) {
-    store.addError({ type: 'general', message })
+
+  const existing = store.errors.find((e) => e.refusal === stem)
+  if (existing) {
+    if (existing.message !== message) store.updateError(existing.id, { message })
+  } else {
+    store.addError({ type: 'general', message, refusal: stem })
+  }
+
+  const id = (existing ?? useGlobalStore.getState().errors.find((e) => e.refusal === stem))?.id
+  if (id) {
+    const previous = expiry.get(stem)
+    if (previous) clearTimeout(previous)
+    expiry.set(
+      stem,
+      setTimeout(() => {
+        expiry.delete(stem)
+        useGlobalStore.getState().removeError(id)
+      }, wait === null ? DEFAULT_EXPIRY_MS : wait * 1000 + EXPIRY_GRACE_MS)
+    )
   }
   return message
 }

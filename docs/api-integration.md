@@ -318,6 +318,16 @@ withdraws it. Costs that are not request rates still apply to it, such as the
 generation-job caps below. For an exempt key `GET /api/keys/:id/usage` answers
 `"rateLimitExempt": true` and empty `currentUsage` windows (its requests are not
 counted); `rateLimit` still shows the stored numbers, which are not applied.
+The same holds for the import routes' own per-IP limiter (10 a minute; polling
+`GET /api/import/jobs/:id` has a separate 600 a minute), which skips the app key,
+and which sends `Retry-After` like every other `429`. The stream token and
+`auth_result` report `concurrentStreams: null` for the app key.
+
+**A minted key built into the bundled UI is not exempt.** The read-only key that
+[production-deployment.md](production-deployment.md) tells operators to bake
+into the browser bundle keeps the limits above, so size its `rateLimit` for the
+tabs and reloads you expect.
+
 Anything else that gets a `429` should show it to the person and honour
 `Retry-After`; the bundled UI does.
 

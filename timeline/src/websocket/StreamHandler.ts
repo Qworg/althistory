@@ -773,7 +773,7 @@ export class StreamHandler {
       sessionId: session.id,
       apiKeyId: apiKey.id,
       graphId,
-      concurrentStreams: apiKey.rateLimit.concurrentStreams,
+      concurrentStreams: apiKey.rateLimitExempt ? null : apiKey.rateLimit.concurrentStreams,
       mode: context.mode,
     });
 

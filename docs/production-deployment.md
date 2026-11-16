@@ -50,6 +50,14 @@ admin key manages other keys, so shipping it in the bundle would give every
 visitor key-management rights over the deployment. The UI only needs to read;
 anything that writes should use a key held by the client, not the bundle.
 
+The browser key is a minted key, so it is **not** exempt from rate limits (only
+the key configured as `ADMIN_API_KEY` is; see
+[api-integration.md](api-integration.md#rate-limits)). It has the default 60
+requests a minute and 5 live streams. A person with several tabs open, or one
+who reloads and switches graphs quickly, can reach them; the UI then shows a
+message saying what was refused and when to retry. Raise the limits when you
+create it, e.g. `"rateLimit":{"requestsPerMinute":300,"concurrentStreams":10}`.
+
 If no key is configured the UI still loads, but every entity request answers
 `401`, the interceptor discards the stored key, and each view shows its own
 error or empty state — there is no prompt asking for one.

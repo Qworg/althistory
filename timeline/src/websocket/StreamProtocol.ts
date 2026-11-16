@@ -108,7 +108,8 @@ export interface ServerAuthResultMessage {
   sessionId?: string;
   apiKeyId?: string;
   graphId?: string;
-  concurrentStreams?: number;
+  /** The key's stream cap; null for the app's own key, which has none. */
+  concurrentStreams?: number | null;
   /** `write` or `feed`; see `StreamToken.mode`. */
   mode?: 'write' | 'feed';
   error?: string;

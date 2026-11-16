@@ -344,3 +344,23 @@ describe('offline sync', () => {
     stop()
   })
 })
+
+describe('replaying a queued write that the server rate limits', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('shows the refusal to the person and keeps the write retryable', async () => {
+    useGlobalStore.setState({ errors: [] })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('{}', { status: 429, headers: { 'Retry-After': '20' } })),
+    )
+    const { createHttpMutationSender } = await import('./offlineSync')
+    const send = createHttpMutationSender('http://x/api')
+    await expect(send({ method: 'POST', url: '/events', body: {} } as never)).rejects.toBeInstanceOf(HttpMutationError)
+    const messages = useGlobalStore.getState().errors.map((e) => e.message)
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toContain('Try again in 20 seconds')
+  })
+})

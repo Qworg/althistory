@@ -48,6 +48,8 @@ function exportDocument(): AlthistoryExport {
   };
 }
 
+const APP_KEY = `ak_import_app_${'z'.repeat(32)}`;
+
 describe('Import routes (real auth)', () => {
   let app: Express;
   let router: ImportRouter;
@@ -72,6 +74,7 @@ describe('Import routes (real auth)', () => {
     await fs.mkdir(path.join(testDataDir, 'graphs'), { recursive: true });
     await fs.mkdir(path.join(testDataDir, 'jobs'), { recursive: true });
 
+    process.env.ADMIN_API_KEY = APP_KEY;
     const config = loadConfig();
     const dbManager = initializeDatabaseManager(config.database);
     container = initializeContainer(dbManager, config);
@@ -103,6 +106,7 @@ describe('Import routes (real auth)', () => {
   });
 
   afterAll(async () => {
+    delete process.env.ADMIN_API_KEY;
     await router?.cleanup?.();
     await cleanupContainer();
     await fs.rm(testDataDir, { recursive: true, force: true }).catch(() => undefined);
@@ -207,6 +211,46 @@ describe('Import routes (real auth)', () => {
         .set('X-API-Key', importAnyKey)
         .expect(200);
       expect(own.body.id).toBe(jobId);
+    });
+  });
+
+  describe('the per-IP limiter', () => {
+    let limited: Express;
+    let limitedRouter: ImportRouter;
+
+    beforeAll(() => {
+      limitedRouter = createImportRouter({ dataDir: testDataDir, rateLimitMaxRequests: 2 }) as ImportRouter;
+      limited = express();
+      limited.use(express.json({ limit: '50mb' }));
+      limited.use(injectContainer);
+      limited.use('/api/import', limitedRouter);
+      limited.use(errorHandler);
+    });
+
+    afterAll(async () => {
+      await limitedRouter?.cleanup?.();
+    });
+
+    it('never refuses the app key, and refuses a minted admin key with Retry-After', async () => {
+      for (let i = 0; i < 6; i++) {
+        const response = await request(limited)
+          .post('/api/import/validate')
+          .set('X-API-Key', APP_KEY)
+          .send(exportDocument());
+        expect(response.status).toBe(200);
+      }
+
+      const minted = (
+        await container.authService.createApiKey({ name: 'minted admin', permissions: ['admin', 'import'] })
+      ).key;
+      const statuses: number[] = [];
+      let last: request.Response | undefined;
+      for (let i = 0; i < 4; i++) {
+        last = await request(limited).post('/api/import/validate').set('X-API-Key', minted).send(exportDocument());
+        statuses.push(last.status);
+      }
+      expect(statuses).toContain(429);
+      expect(Number(last!.headers['retry-after'])).toBeGreaterThan(0);
     });
   });
 });

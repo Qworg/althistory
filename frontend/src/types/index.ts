@@ -280,6 +280,12 @@ export interface ErrorState {
   /** `info` is a notice, not a failure: the app changed something the user should know about. */
   type: 'network' | 'validation' | 'visualization' | 'general' | 'info'
   timestamp: Date
+  /**
+   * Set on a rate-limit notice: what was refused, without the changing wait.
+   * A later error whose message contains it is the same refusal told again by
+   * a caller, and `addError` drops it.
+   */
+  refusal?: string
 }
 
 // User preferences that should be persisted

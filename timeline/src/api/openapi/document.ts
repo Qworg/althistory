@@ -946,7 +946,7 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
         enum: ['write', 'feed'],
         description: '`write`: a session that may write entities. `feed`: a read-only session for the live change feed.',
       },
-      concurrentStreams: { type: 'number' },
+      concurrentStreams: { type: 'number', nullable: true, description: 'The key\'s cap on concurrent streams; null for the app\'s own key (ADMIN_API_KEY), which has none.' },
     },
     required: ['token', 'expiresIn', 'graphId', 'permissions', 'mode'],
   },

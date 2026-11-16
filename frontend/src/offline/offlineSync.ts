@@ -43,6 +43,7 @@
  */
 
 import { useGlobalStore } from '@/stores/globalStore'
+import { noticeRateLimited, retryAfterSeconds } from '@/services/rateLimitNotice'
 import { isOnline, subscribeConnectivity } from './connectivity'
 import {
   enqueueMutation,
@@ -74,6 +75,9 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000
  */
 const MUTATION_REQUEST_TIMEOUT_MS = 30000
 
+/** How long the server last asked a replay to wait (`Retry-After` on a 429). */
+let serverRetryAfterMs = 0
+
 function requestSignal(): AbortSignal | undefined {
   if (typeof AbortSignal === 'undefined') return undefined
   if (typeof AbortSignal.timeout !== 'function') return undefined
@@ -101,6 +105,13 @@ export function createHttpMutationSender(baseURL: string = API_BASE_URL): Mutati
     })
 
     if (!response.ok) {
+      if (response.status === 429) {
+        // Tell the person (the same notice the API client shows), and let the
+        // next retry wait at least as long as the server asked.
+        const wait = retryAfterSeconds({ status: 429, headers: response.headers })
+        noticeRateLimited({ status: 429, headers: response.headers }, { method: mutation.method, url: mutation.url })
+        if (wait !== null) serverRetryAfterMs = Math.max(serverRetryAfterMs, wait * 1000)
+      }
       throw new HttpMutationError(
         response.status,
         `${mutation.method} ${mutation.url} failed with status ${response.status}`,
@@ -275,7 +286,9 @@ function cancelScheduledReplay(): void {
 function nextRetryDelay(): number {
   const base = activeSyncOptions?.retryBaseDelayMs ?? DEFAULT_RETRY_BASE_DELAY_MS
   const max = activeSyncOptions?.retryMaxDelayMs ?? DEFAULT_RETRY_MAX_DELAY_MS
-  const delay = Math.min(base * 2 ** retryAttempt, max)
+  // The server's own wait beats the schedule when it is longer.
+  const delay = Math.max(Math.min(base * 2 ** retryAttempt, max), serverRetryAfterMs)
+  serverRetryAfterMs = 0
   retryAttempt += 1
   return delay
 }

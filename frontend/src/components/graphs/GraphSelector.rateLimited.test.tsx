@@ -5,7 +5,7 @@
  * picker are all exercised together.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import axios from 'axios'
@@ -116,5 +116,41 @@ describe('GraphSelector when a switch is refused with 429', () => {
     expect(localStorage.getItem('active_graph_id')).toBe('g1')
     expect(screen.getByRole('button', { name: /Main Timeline/ })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Switching/ })).not.toBeInTheDocument()
+  })
+
+  async function refuseASwitch(sheet = false) {
+    const { GraphSelector } = await import('./GraphSelector')
+    const { useGlobalStore } = await import('@/stores/globalStore')
+    useGlobalStore.setState({ errors: [] })
+    const user = userEvent.setup()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <GraphSelector sheet={sheet} />
+      </QueryClientProvider>
+    )
+    const button = await screen.findByRole('button', { name: /Main Timeline/ })
+    await waitFor(() => expect(button).toBeEnabled())
+    await user.click(button)
+    // On a phone the choices are in a dialog sheet.
+    await user.click(await screen.findByRole('button', { name: /Alternative Branch/ }))
+    return screen.findByRole('alert')
+  }
+
+  it('hides the alert once the graph it could not open is the open one', async () => {
+    await refuseASwitch()
+    // A switch made elsewhere (the Graph Manager, another tab) lands on g2.
+    act(() => {
+      localStorage.setItem('active_graph_id', 'g2')
+      window.dispatchEvent(new CustomEvent('graph-switched', { detail: { graphId: 'g2' } }))
+    })
+    await waitFor(() => expect(screen.queryByTestId('graph-switch-error')).not.toBeInTheDocument())
+  })
+
+  it("pins the alert to the screen with a gutter on a phone, not to the selector's edge", async () => {
+    const alert = await refuseASwitch(true)
+    expect(alert.className).toContain('fixed')
+    expect(alert.className).toContain('inset-x-4')
+    expect(alert.className).not.toContain('w-80')
   })
 })

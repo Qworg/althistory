@@ -96,6 +96,7 @@ interface GlobalState {
   
   // Error handling actions
   addError: (error: Omit<ErrorState, 'id' | 'timestamp'>) => void
+  updateError: (id: string, patch: Partial<Pick<ErrorState, 'message' | 'refusal'>>) => void
   clearErrors: () => void
   removeError: (id: string) => void
 
@@ -366,12 +367,20 @@ export const useGlobalStore = create<GlobalState>()(
       }),
       
       // Error handling actions
-      addError: (error) => set((state) => ({
-        errors: [...state.errors, {
-          ...error,
-          id: crypto.randomUUID(),
-          timestamp: new Date()
-        }]
+      addError: (error) => set((state) => {
+        // A caller reporting a refusal the API client already showed (its
+        // message carries the client's wording) would stack a second notice.
+        if (state.errors.some((e) => e.refusal && error.message.includes(e.refusal))) return state
+        return {
+          errors: [...state.errors, {
+            ...error,
+            id: crypto.randomUUID(),
+            timestamp: new Date()
+          }]
+        }
+      }),
+      updateError: (id, patch) => set((state) => ({
+        errors: state.errors.map((e) => (e.id === id ? { ...e, ...patch, timestamp: new Date() } : e))
       })),
       
       clearErrors: () => set({ errors: [] }),

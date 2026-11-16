@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { useGlobalStore } from '@/stores/globalStore'
 import { noticeRateLimited, retryAfterSeconds, describeRefusedRequest } from './rateLimitNotice'
 
@@ -48,5 +48,43 @@ describe('noticeRateLimited', () => {
   it('ignores other statuses', () => {
     expect(noticeRateLimited({ status: 500 }, { method: 'get', url: '/events' })).toBeNull()
     expect(useGlobalStore.getState().errors).toHaveLength(0)
+  })
+
+  it('updates one notice with the new wait instead of stacking a notice per second', () => {
+    for (const wait of [30, 29, 28, 27]) {
+      noticeRateLimited(refused({}, { error: { retryAfter: wait } }), { method: 'post', url: '/graphs/g2/activate' })
+    }
+    const notices = useGlobalStore.getState().errors
+    expect(notices).toHaveLength(1)
+    expect(notices[0]?.message).toContain('Try again in 27 seconds')
+  })
+
+  it('does not notify for a job-status poll, and words it as a check if it is ever shown', () => {
+    expect(noticeRateLimited(refused({}, { error: { retryAfter: 3 } }), { method: 'get', url: '/import/jobs/job_1' })).toBeNull()
+    expect(useGlobalStore.getState().errors).toHaveLength(0)
+    expect(describeRefusedRequest({ method: 'get', url: '/import/jobs/job_1' })).toBe('Checking on the job')
+  })
+
+  it("drops a caller's own report of a refusal the client already showed", () => {
+    const shown = noticeRateLimited(refused({}, { error: { retryAfter: 12 } }), { method: 'post', url: '/events' })
+    // What a caller writes: its own prefix plus the thrown APIError's message.
+    useGlobalStore.getState().addError({ type: 'network', message: `Failed to create event: ${shown}` })
+    expect(useGlobalStore.getState().errors).toHaveLength(1)
+    useGlobalStore.getState().addError({ type: 'network', message: 'Failed to create event: disk full' })
+    expect(useGlobalStore.getState().errors).toHaveLength(2)
+  })
+
+  describe('expiry', () => {
+    beforeEach(() => vi.useFakeTimers())
+    afterEach(() => vi.useRealTimers())
+
+    it('clears the notice once the wait has passed', () => {
+      noticeRateLimited(refused({}, { error: { retryAfter: 10 } }), { method: 'post', url: '/events' })
+      expect(useGlobalStore.getState().errors).toHaveLength(1)
+      vi.advanceTimersByTime(9000)
+      expect(useGlobalStore.getState().errors).toHaveLength(1)
+      vi.advanceTimersByTime(5000)
+      expect(useGlobalStore.getState().errors).toHaveLength(0)
+    })
   })
 })

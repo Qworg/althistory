@@ -77,7 +77,8 @@ export interface ServerAuthResultMessage {
   sessionId?: string
   apiKeyId?: string
   graphId?: string
-  concurrentStreams?: number
+  /** The key's stream cap; null for the app's own key, which has none. */
+  concurrentStreams?: number | null
   mode?: 'write' | 'feed'
   error?: string
   code?: StreamErrorCode

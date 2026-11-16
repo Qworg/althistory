@@ -85,6 +85,19 @@ describe('the app key and rate limits', () => {
     expect(old?.rateLimitExempt).toBe(false);
   });
 
+  it('does not exempt a different key stored under the configured key\'s prefix', async () => {
+    // Same first 11 characters, different secret: the prefix alone must not
+    // grant the exemption; the hash comparison does.
+    const impostor = APP_KEY.slice(0, 11) + 'z'.repeat(30);
+    process.env.TEST_APP_ADMIN_KEY = impostor;
+    const again = new ApiKeyRepository({ dataDir: dir, bcryptRounds: 4, adminKeyEnvVar: 'TEST_APP_ADMIN_KEY' });
+    await again.initialize();
+    const stored = await again.validateKey(APP_KEY);
+    expect(stored).not.toBeNull();
+    expect(stored?.rateLimitExempt).toBe(false);
+    expect(await again.validateKey(impostor)).toBeNull();
+  });
+
   it('lets only the app key hold unlimited streams', async () => {
     const app = (await repo.validateKey(APP_KEY))!;
     expect(app.maxConcurrentStreams()).toBe(Infinity);

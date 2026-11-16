@@ -453,10 +453,19 @@ export const GraphSelector = memo(function GraphSelector({
 
       {/* A refused switch (a 429, say) changed nothing: the button above still
           names the graph that is open. Say so, so the click is not silent. */}
-      {switchError && !isOpen && (
+      {/* Hidden once the graph it could not open is the open one (a switch made
+          from the Graph Manager or another tab). On a phone the selector sits
+          at the right of a narrow header, so the alert is pinned to the screen
+          with a 16px gutter instead of hanging off the selector's edge. */}
+      {switchError && !isOpen && activeGraphId !== switchTargetId && (
         <div
           role="alert"
-          className="absolute top-full right-0 z-40 mt-1 flex w-80 max-w-[calc(100vw-2rem)] items-start gap-2 rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink shadow-lg"
+          data-testid="graph-switch-error"
+          className={`z-40 flex items-start gap-2 rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink shadow-lg ${
+            sheet
+              ? 'fixed inset-x-4 top-[calc(env(safe-area-inset-top,0px)+4rem)]'
+              : 'absolute top-full right-0 mt-1 w-80 max-w-[calc(100vw-2rem)]'
+          }`}
         >
           <p className="min-w-0 flex-1 break-words">
             Couldn’t switch to {graphs.find((g) => g.id === switchTargetId)?.name ?? 'that graph'}; still on{' '}
