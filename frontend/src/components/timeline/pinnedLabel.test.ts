@@ -1,0 +1,61 @@
+import { describe, expect, it } from 'vitest'
+import { PLATE_ASCENT, PLATE_DESCENT, PLATE_PAD, planPinnedLabel, type PlacedLabelBox } from './pinnedLabel'
+
+const ROWS = [-20, -34, -48, -62]
+const label = (id: string, left: number, right: number, offset: number, extra: Partial<PlacedLabelBox> = {}): PlacedLabelBox => ({
+  id,
+  left,
+  right,
+  top: 100 + offset - 9.6,
+  bottom: 100 + offset + 3,
+  length: Math.round((right - left) / 6.72),
+  ...extra,
+})
+const plan = (labels: PlacedLabelBox[], x = 300, width = 160, innerWidth = 700) => planPinnedLabel({ x, markY: 100, width, innerWidth, rows: ROWS, labels })
+
+describe('planPinnedLabel', () => {
+  it('takes the nearest row and the centred extent where nothing is in the way', () => {
+    expect(plan([])).toMatchObject({ offset: -20, anchor: 'middle', hidden: [] })
+  })
+
+  it('never covers a label by less than half: it moves to a row or extent that leaves it alone', () => {
+    // A label sticking 40px into the first row's centred plate (a quarter of it) is not covered or hidden.
+    const found = plan([label('near', 330, 480, -20)])
+    expect(found).not.toBeNull()
+    expect(found!.hidden).toEqual([])
+    expect(found!.offset !== -20 || found!.anchor !== 'middle').toBe(true)
+  })
+
+  it('hides a label it covers by half or more, whole, when that is the way to a place', () => {
+    // Every row is taken across the plate's width by one wide label under it; row 0's is a short one the plate covers wholly.
+    const rows = [label('short', 270, 340, -20), label('b', 150, 470, -34), label('c', 150, 470, -48), label('d', 150, 470, -62)]
+    // Extents: centred 220..380 covers b, c, d by half or more of ... they are wider than the plate, so covered 160/320 = half.
+    const found = plan(rows)
+    expect(found).not.toBeNull()
+    expect(found!.hidden.length).toBeGreaterThan(0)
+    // The labels it keeps are untouched: none overlaps the plate.
+    const plate = { left: found!.left - PLATE_PAD, right: found!.right + PLATE_PAD, top: 100 + found!.offset - PLATE_ASCENT, bottom: 100 + found!.offset + PLATE_DESCENT }
+    for (const l of rows) if (!found!.hidden.includes(l.id)) expect(l.right <= plate.left || l.left >= plate.right || l.bottom <= plate.top || l.top >= plate.bottom).toBe(true)
+  })
+
+  it('never covers a protected label, and gives no plate when every place would', () => {
+    const wall = ROWS.map((offset, i) => label(`p${i}`, 150, 470, offset, { protectedLabel: true }))
+    expect(plan(wall)).toBeNull()
+  })
+
+  it('refuses a row whose leader would cross a label that stays', () => {
+    // A wide label over the mark in row 0 is covered by less than half by a plate there, and a plate in any row above would hang its leader across it.
+    const wide = label('over', 100, 500, -20)
+    expect(plan([wide])).toBeNull()
+    // A narrow one the row-0 plate covers wholly is hidden instead, and the plate stays in the nearest row.
+    const narrow = label('under', 290, 330, -20)
+    expect(plan([narrow])).toMatchObject({ offset: -20, hidden: ['under'] })
+  })
+
+  it('keeps the plate inside the plot at both edges', () => {
+    const left = plan([], 4, 200, 700)
+    expect(left!.left).toBeGreaterThanOrEqual(0)
+    const right = plan([], 698, 200, 700)
+    expect(right!.right).toBeLessThanOrEqual(700)
+  })
+})

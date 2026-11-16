@@ -188,7 +188,6 @@ export const TimelineEvent = memo(function TimelineEvent({
       data-confidence-tier={tier}
       data-dimmed={isDimmed ? 'true' : undefined}
       data-fresh={isFresh ? 'true' : undefined}
-      opacity={isDimmed ? DIMMED_OPACITY : undefined}
       transform={`translate(${x}, ${y})`}
       tabIndex={isTabStop ? 0 : -1}
       role="button"
@@ -207,6 +206,10 @@ export const TimelineEvent = memo(function TimelineEvent({
     >
       {/* Transparent hit area (at least 24px), under everything else. */}
       <circle className="event-hit-area" r={Math.max(HIT_RADIUS, markRadius + 3)} fill="transparent" pointerEvents="all" />
+      {/* The mark (stem, rings, dot) dims while another event's ripple is
+          traced; the label does not fade with it, it takes a muted ink that
+          still reads (DIMMED_OPACITY, and the label fill below). */}
+      <g className="event-mark" opacity={isDimmed ? DIMMED_OPACITY : undefined}>
       {/* The stem is drawn before the dot so the dot covers its top end. */}
       <line
         className="event-stem"
@@ -277,6 +280,7 @@ export const TimelineEvent = memo(function TimelineEvent({
           pointerEvents="none"
         />
       )}
+      </g>
       {placement && (
         <text
           className="event-label"
@@ -291,7 +295,9 @@ export const TimelineEvent = memo(function TimelineEvent({
               ? 'var(--accent-selected)'
               : isHighlighted
                 ? 'var(--text-primary)'
-                : 'var(--text-secondary)'
+                : isDimmed
+                  ? 'var(--text-muted)'
+                  : 'var(--text-secondary)'
           }
           // A card-coloured halo keeps the label legible where it crosses an
           // arc's dashed edge, another mark's stem, or a leader passing behind.

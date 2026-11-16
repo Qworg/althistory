@@ -11,6 +11,7 @@ import { Timeline } from './Timeline'
 import { TIMELINE_BELOW_ROW_OFFSETS } from './eventLabelLayout'
 import type { Event } from '@/types'
 import type { TimelineLink } from './timelineLinks'
+import { expectPlateClean, labelBoxes } from './labelTestUtils'
 
 const event = (id: string, timestamp: string, description = `Event ${id}`): Event => ({
   id,
@@ -46,85 +47,89 @@ const drawnLabels = (container: HTMLElement) =>
     ])
   )
 
-/** A pinned name: on a card plate, in a layer after every mark, and inside the plot (the SVG's width less its margins). */
-function expectPinnedInsidePlot(container: HTMLElement, id: string) {
-  const pinned = container.querySelector(`[data-pinned-label-for="${id}"]`)
-  expect(pinned, `${id} is named`).not.toBeNull()
-  const text = pinned!.querySelector('text')!
-  const plate = pinned!.querySelector('rect.event-label-plate')
-  expect(plate, `${id} has a plate`).not.toBeNull()
-  expect(plate!.getAttribute('style')).toContain('var(--surface-card)')
-  const marks = Array.from(container.querySelectorAll('[data-event-id]'))
-  const layer = pinned!.parentElement!
-  expect(layer.compareDocumentPosition(marks[marks.length - 1]!) & Node.DOCUMENT_POSITION_PRECEDING, 'drawn after every mark').toBeTruthy()
-  const x = Number(text.getAttribute('x'))
-  const width = text.textContent!.length * 12 * 0.56
-  const anchor = text.getAttribute('text-anchor')
-  const left = anchor === 'start' ? x : anchor === 'end' ? x - width : x - width / 2
-  const innerWidth = 1000 - 56 - 16
-  expect(left, `${id} runs off the left`).toBeGreaterThanOrEqual(-0.001)
-  expect(left + width, `${id} runs off the right`).toBeLessThanOrEqual(innerWidth + 0.001)
-}
-
 describe('labels stay put when an event is selected or highlighted', () => {
   it('keeps every label where it was, and styles the selected one in place', () => {
     const events = crowd(40)
     const { container, rerender } = render(<Timeline events={events} arcs={[]} width={1000} height={500} />)
     const before = drawnLabels(container)
+    const boxes = labelBoxes(container)
     expect(before.size).toBeGreaterThan(4)
     const named = [...before.keys()]
     const unnamed = events.map((ev) => ev.id).filter((id) => !before.has(id))
     expect(unnamed.length).toBeGreaterThan(0)
-    for (const id of [named[0]!, named[named.length - 1]!, unnamed[0]!, unnamed[unnamed.length - 1]!]) {
+    for (const id of [named[0]!, named[named.length - 1]!, ...unnamed]) {
       rerender(<Timeline events={events} arcs={[]} width={1000} height={500} selectedEventId={id} />)
-      const after = drawnLabels(container)
-      for (const [key, where] of before) expect(after.get(key), `selecting ${id} moved ${key}`).toEqual(where)
-      // The selection is named: in place where it had a label, pinned over its neighbours where it had none.
       const own = container.querySelector(`[data-event-id="${id}"] text.event-label`)
       if (before.has(id)) {
+        // In place, as it was, in the selection's style; no plate, nothing hidden.
+        expect(drawnLabels(container).get(id), id).toEqual(before.get(id))
         expect(own!.getAttribute('font-weight')).toBe('600')
         expect(own!.getAttribute('fill')).toBe('var(--accent-selected)')
         expect(container.querySelector(`[data-pinned-label-for="${id}"]`)).toBeNull()
+        for (const [key, where] of before) expect(drawnLabels(container).get(key), `selecting ${id} moved ${key}`).toEqual(where)
       } else {
         expect(own).toBeNull()
-        expectPinnedInsidePlot(container, id)
+        expectPlateClean(container, id, boxes)
       }
     }
-    // Nothing else is named because of it.
-    rerender(<Timeline events={events} arcs={[]} width={1000} height={500} selectedEventId={unnamed[0]!} />)
-    expect(drawnLabels(container).size).toBe(before.size)
   })
 
-  it('keeps every label where it was when events are highlighted', () => {
+  it('draws a clean plate for some unnamed selection in each of several crowds', () => {
+    let plates = 0
+    let hiddenWhole = 0
+    for (const count of [10, 14, 18, 22, 26, 30]) {
+      const events = crowd(count)
+      const base = render(<Timeline events={events} arcs={[]} width={1000} height={500} />)
+      const before = labelBoxes(base.container)
+      cleanup()
+      for (const ev of events) {
+        if (before.has(ev.id)) continue
+        const { container } = render(<Timeline events={events} arcs={[]} width={1000} height={500} selectedEventId={ev.id} />)
+        expectPlateClean(container, ev.id, before)
+        if (container.querySelector('[data-pinned-label-for]')) {
+          plates++
+          hiddenWhole += before.size - labelBoxes(container).size
+        }
+        cleanup()
+      }
+    }
+    expect(plates).toBeGreaterThan(0)
+    expect(hiddenWhole).toBeGreaterThanOrEqual(0)
+  })
+
+  it('keeps every label where it was when events are highlighted, and gives those with no room no plate', () => {
     const events = crowd(40)
     const { container, rerender } = render(<Timeline events={events} arcs={[]} width={1000} height={500} />)
     const before = drawnLabels(container)
+    const unnamed = events.map((ev) => ev.id).filter((id) => !before.has(id))
     const highlighted = new Set([...before.keys()].slice(0, 3))
     rerender(<Timeline events={events} arcs={[]} width={1000} height={500} highlightedEventIds={highlighted} />)
     const after = drawnLabels(container)
     for (const [key, where] of before) expect(after.get(key), key).toEqual(where)
     for (const id of highlighted) expect(container.querySelector(`[data-event-id="${id}"] text.event-label`)!.getAttribute('font-weight')).toBe('600')
+    // Highlighted events with no room stay unnamed on the canvas.
+    rerender(<Timeline events={events} arcs={[]} width={1000} height={500} highlightedEventIds={new Set(unnamed.slice(0, 4))} />)
+    expect(container.querySelector('[data-pinned-label-for]')).toBeNull()
+    expect(drawnLabels(container).size).toBe(before.size)
   })
 
-  it('names the highlighted events that had no room, pinned and kept inside the plot, without moving anything', () => {
+  it('never covers a highlighted or traced label with the selection\'s plate', () => {
     const events = crowd(40)
-    const { container, rerender } = render(<Timeline events={events} arcs={[]} width={1000} height={500} />)
-    const before = drawnLabels(container)
-    const unnamed = events.map((ev) => ev.id).filter((id) => !before.has(id))
-    const highlighted = new Set([unnamed[0]!, unnamed[1]!, unnamed[unnamed.length - 1]!])
-    rerender(<Timeline events={events} arcs={[]} width={1000} height={500} highlightedEventIds={highlighted} selectedEventId={unnamed[2]!} />)
-    for (const [key, where] of drawnLabels(container)) if (before.has(key)) expect(where).toEqual(before.get(key))
-    for (const id of [...highlighted, unnamed[2]!]) expectPinnedInsidePlot(container, id)
-  })
-
-  it('names the causes and effects of a trace that had no room', () => {
-    const events = crowd(40)
-    const links: TimelineLink[] = [{ id: 'l1', causeId: 'e01', effectId: 'e38', type: 'direct', weight: 0.8 }]
-    const { container } = render(<Timeline events={events} arcs={[]} links={links} width={1000} height={500} selectedEventId="e01" />)
-    const named = new Set(Array.from(container.querySelectorAll('[data-event-id] text.event-label')).map((t) => t.closest('[data-event-id]')!.getAttribute('data-event-id')))
-    for (const id of ['e01', 'e38']) {
-      if (!named.has(id)) expectPinnedInsidePlot(container, id)
-      else expect(container.querySelector(`[data-pinned-label-for="${id}"]`)).toBeNull()
+    const links: TimelineLink[] = [
+      { id: 'l1', causeId: 'e03', effectId: 'e30', type: 'direct', weight: 0.8 },
+      { id: 'l2', causeId: 'e03', effectId: 'e12', type: 'direct', weight: 0.8 },
+    ]
+    const plain = render(<Timeline events={events} arcs={[]} links={links} width={1000} height={500} />)
+    const before = labelBoxes(plain.container)
+    const named = new Set(before.keys())
+    cleanup()
+    const unnamed = events.map((ev) => ev.id).filter((id) => !named.has(id))
+    for (const id of unnamed) {
+      const { container } = render(<Timeline events={events} arcs={[]} links={links} width={1000} height={500} selectedEventId={id} highlightedEventIds={new Set(['e00', 'e20'])} />)
+      // Protected: the highlighted events' labels, and the traced causes and effects of the selection.
+      const traced = ['e03', 'e30', 'e12'].filter((key) => key === id || links.some((l) => (l.causeId === id && l.effectId === key) || (l.effectId === id && l.causeId === key)))
+      expectPlateClean(container, id, before, ['e00', 'e20', ...traced])
+      cleanup()
     }
   })
 
@@ -194,6 +199,32 @@ describe('labels under the track', () => {
           expect(inside, `"${text.textContent}" at ${left.toFixed(0)}..${(left + width).toFixed(0)} is crossed at ${point.x.toFixed(1)},${point.y.toFixed(1)}`).toBe(false)
         }
       }
+    }
+  })
+})
+
+describe('the dimmed state while a ripple is traced', () => {
+  it('fades the marks of events off the ripple, keeps their labels legible, and leaves the ripple at full strength', () => {
+    const events = crowd(8).map((ev, i) => ({ ...ev, timestamp: new Date(Date.UTC(2024, 0, 1 + i * 30)).toISOString() }))
+    const links: TimelineLink[] = [
+      { id: 'l1', causeId: 'e00', effectId: 'e01', type: 'direct', weight: 0.8 },
+      { id: 'l2', causeId: 'e01', effectId: 'e02', type: 'direct', weight: 0.8 },
+    ]
+    const { container } = render(<Timeline events={events} arcs={[]} links={links} width={1000} height={500} selectedEventId="e01" />)
+    const mark = (id: string) => container.querySelector(`[data-event-id="${id}"]`)!
+    for (const id of ['e00', 'e01', 'e02']) {
+      expect(mark(id).hasAttribute('data-dimmed'), id).toBe(false)
+      expect(mark(id).querySelector('.event-mark')!.getAttribute('opacity'), id).toBeNull()
+    }
+    for (const id of ['e05', 'e06']) {
+      expect(mark(id).getAttribute('data-dimmed'), id).toBe('true')
+      // The mark fades to about a third; the label keeps the muted ink at full opacity (it is outside the faded group).
+      expect(Number(mark(id).querySelector('.event-mark')!.getAttribute('opacity'))).toBeLessThanOrEqual(0.35)
+      const label = mark(id).querySelector('text.event-label')
+      expect(label, id).not.toBeNull()
+      expect(label!.getAttribute('fill')).toBe('var(--text-muted)')
+      expect(label!.closest('.event-mark')).toBeNull()
+      expect(mark(id).getAttribute('opacity')).toBeNull()
     }
   })
 })

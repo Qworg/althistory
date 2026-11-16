@@ -129,23 +129,22 @@ describe('text on a filled accent (WCAG AA, 4.5:1)', () => {
   })
 })
 
-// A dimmed mark's label (a ripple traced from another event) is the ink at
-// DIMMED_OPACITY over the card: still readable, still clearly fainter.
-describe('dimmed event labels (3:1 at least, and clearly dimmer than at rest)', () => {
-  const channels = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
-  const blend = (ink: string, surface: string) => {
-    const [fg, bg] = [channels(ink), channels(surface)]
-    return `#${fg.map((v, i) => Math.round(v * DIMMED_OPACITY + bg[i]! * (1 - DIMMED_OPACITY)).toString(16).padStart(2, '0')).join('')}`
-  }
+// A dimmed mark (a ripple traced from another event) fades to DIMMED_OPACITY,
+// but its label keeps --text-muted, which must read on the card in both
+// schemes and still be clearly lighter than the label at rest.
+describe('dimmed event labels (4.5:1 in --text-muted, lighter than at rest)', () => {
   for (const [theme, tokens] of Object.entries(themes)) {
-    it(`${theme}: secondary ink at the dimmed opacity on the card`, () => {
+    it(`${theme}: the muted ink on the card`, () => {
       const card = resolve(tokens, '--surface-card')
-      const ink = resolve(tokens, '--text-secondary')
-      const dimmed = contrast(blend(ink, card), card)
-      expect(dimmed).toBeGreaterThanOrEqual(3)
-      expect(dimmed).toBeLessThan(contrast(ink, card) * 0.7)
+      const muted = contrast(resolve(tokens, '--text-muted'), card)
+      expect(muted).toBeGreaterThanOrEqual(4.5)
+      expect(muted).toBeLessThan(contrast(resolve(tokens, '--text-secondary'), card))
     })
   }
+  it('fades the mark itself to about a third', () => {
+    expect(DIMMED_OPACITY).toBeGreaterThan(0.2)
+    expect(DIMMED_OPACITY).toBeLessThanOrEqual(0.35)
+  })
 })
 
 // Status ink (success / warning / danger) is used for message text.

@@ -513,6 +513,51 @@ describe('ActorTimeline', () => {
       expect(pinnedCount).toBeGreaterThan(0)
     })
 
+    it('puts the selection\'s plate where it covers no label by less than half, hides what it covers whole, and crosses none with its leader', () => {
+      const crowd = ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8'].map((id, i) => ({ ...actorEvent(id, 'actor', 'Britain'), timestamp: `1800-01-0${(i % 4) + 1}T00:00:00Z` }))
+      const { container } = render(<ActorTimeline actor="U.S." layoutMode="chronological" events={crowd} arcs={[]} width={700} />)
+      const boxes = () =>
+        new Map(
+          Array.from(container.querySelectorAll<SVGTextElement>('.actor-event .actor-event-label')).map((text) => {
+            const mark = text.closest('.actor-event')!
+            const [mx, my] = /translate\(\s*([-\d.e]+)[ ,]+([-\d.e]+)/.exec(mark.getAttribute('transform')!)!.slice(1).map(Number) as [number, number]
+            const width = text.textContent!.length * 12 * 0.56
+            const anchor = text.getAttribute('text-anchor')
+            const left = anchor === 'start' ? mx : anchor === 'end' ? mx - width : mx - width / 2
+            const base = my + Number(text.getAttribute('y'))
+            return [mark.getAttribute('data-event-id')!, { left, right: left + width, top: base - 9.6, bottom: base + 3 }]
+          })
+        )
+      const before = boxes()
+      let plates = 0
+      for (const event of crowd) {
+        fireEvent.click(container.querySelector(`.actor-event[data-event-id="${event.id}"]`)!)
+        const pinned = container.querySelector(`[data-pinned-label-for="${event.id}"]`)
+        const after = boxes()
+        if (!pinned) {
+          if (!before.has(event.id)) for (const key of before.keys()) expect(after.has(key), `${key} vanished with no plate`).toBe(true)
+        } else {
+          plates++
+          const rect = pinned.querySelector('rect')!
+          const plate = { left: +rect.getAttribute('x')!, right: +rect.getAttribute('x')! + +rect.getAttribute('width')!, top: +rect.getAttribute('y')!, bottom: +rect.getAttribute('y')! + +rect.getAttribute('height')! }
+          const covered = (b: { left: number; right: number; top: number; bottom: number }) =>
+            (Math.max(0, Math.min(b.right, plate.right) - Math.max(b.left, plate.left)) * Math.max(0, Math.min(b.bottom, plate.bottom) - Math.max(b.top, plate.top))) / ((b.right - b.left) * (b.bottom - b.top))
+          for (const [key, box] of before) {
+            if (after.has(key)) {
+              expect(after.get(key)).toEqual(box)
+              expect(covered(box), `${key} is partly covered`).toBe(0)
+            } else expect(covered(box), `${key} hidden but barely covered`).toBeGreaterThanOrEqual(0.5)
+          }
+          const line = pinned.querySelector('line')!
+          const [y1, y2] = [+line.getAttribute('y1')!, +line.getAttribute('y2')!].sort((p, q) => p - q) as [number, number]
+          const lx = +line.getAttribute('x1')!
+          for (const [key, box] of after) expect(lx >= box.left - 1 && lx <= box.right + 1 && box.bottom > y1 && box.top < y2, `the leader crosses ${key}`).toBe(false)
+        }
+        fireEvent.click(container.querySelector(`.actor-event[data-event-id="${event.id}"]`)!)
+      }
+      expect(plates).toBeGreaterThanOrEqual(0)
+    })
+
     it('keeps every other label where it was when a mark is selected', () => {
       const sameDay = ['e1', 'e2', 'e3', 'e4', 'e5', 'e6'].map((id) => actorEvent(id, 'actor', 'Britain'))
       const { container } = render(
@@ -530,7 +575,12 @@ describe('ActorTimeline', () => {
       for (const id of ['e6', 'e1', 'e3']) {
         fireEvent.click(container.querySelector(`.actor-event[data-event-id="${id}"]`)!)
         const after = drawn()
-        for (const [key, where] of before) expect(after.get(key), `${id} selected moved ${key}`).toEqual(where)
+        // None moves; one the selection's plate covers by half or more is hidden whole (and then there is a plate).
+        const plate = container.querySelector('[data-pinned-label-for]')
+        for (const [key, where] of before) {
+          if (after.has(key)) expect(after.get(key), `${id} selected moved ${key}`).toEqual(where)
+          else expect(plate, `${key} vanished with no plate`).not.toBeNull()
+        }
         fireEvent.click(container.querySelector(`.actor-event[data-event-id="${id}"]`)!)
       }
     })

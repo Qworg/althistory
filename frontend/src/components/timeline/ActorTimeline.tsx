@@ -6,7 +6,9 @@ import { axisTicks, fitAxis, formatTimeAxisTickSet, getTimeAxisInterval } from '
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import { formatEventDate } from '@/utils/historicalTime'
 import { truncateToWidth } from '@/utils'
-import { layoutEventLabels, extentFor, truncateLabel, TIMELINE_LABEL_CONFIG, type EventLabelPlacement, type LabelLayoutConfig } from './eventLabelLayout'
+import { measureLabelWidth } from './labelWidth'
+import { PLATE_ASCENT, PLATE_DESCENT, PLATE_PAD, planPinnedLabel, type PlacedLabelBox } from './pinnedLabel'
+import { layoutEventLabels, truncateLabel, TIMELINE_LABEL_CONFIG, type EventLabelPlacement, type LabelLayoutConfig } from './eventLabelLayout'
 import { DEFAULT_ACTOR_MARGIN, actorAxisMaxTicks } from './timelineLayout'
 import { compareInstants, msApart, toAxisTime, toInstant } from '@althistory/calendar'
 
@@ -364,16 +366,45 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     return placements
   }, [events.length, groups, layoutMode, innerHeight, innerWidth, timeScale, yScale, arcLabelFloor])
 
-  // The selected mark's name when the layout had no room for it (see markLabels).
+  // The selected mark's name when the layout had no room for it (see
+  // markLabels): on a plate over the marks, where it hides least (pinnedLabel.ts).
+  // A label the plate covers by half or more is hidden whole; none is left as a
+  // fragment, and none moves.
   const pinnedSelection = useMemo(() => {
     const selected = events.find((event) => event.id === state.selectedEventId)
     if (!selected || markLabels.has(selected.id)) return null
     const x = timeScale(toInstant(selected.timestamp))
     if (!(x >= 0 && x <= innerWidth)) return null
     const text = truncateLabel(selected.description, 32)
-    const { left, right, anchor } = extentFor(x, text.length * 12 * 0.56, innerWidth)
-    return { id: selected.id, x, y: yFor(selected), text, left, right, anchor }
+    const labels: PlacedLabelBox[] = []
+    for (const event of events) {
+      const placement = markLabels.get(event.id)
+      if (!placement) continue
+      const markX = timeScale(toInstant(event.timestamp))
+      const baseline = yFor(event) + placement.offset
+      const width = measureLabelWidth(placement.text, 12)
+      const left = placement.anchor === 'start' ? markX : placement.anchor === 'end' ? markX - width : markX - width / 2
+      labels.push({ id: event.id, left, right: left + width, top: baseline - 9.6, bottom: baseline + 3, length: placement.text.length })
+    }
+    const y = yFor(selected)
+    const plan = planPinnedLabel({
+      x,
+      markY: y,
+      width: measureLabelWidth(text, 12, 600),
+      innerWidth,
+      rows: [-16, -30, 24, 38],
+      labels,
+      markRadius: 10,
+    })
+    return plan ? { id: selected.id, x, y, text, plan } : null
   }, [events, state.selectedEventId, markLabels, timeScale, innerWidth, yFor])
+
+  // The labels drawn: the layout's, less any the selection's plate hides whole.
+  const shownLabels = useMemo(() => {
+    if (!pinnedSelection || pinnedSelection.plan.hidden.length === 0) return markLabels
+    const hidden = new Set(pinnedSelection.plan.hidden)
+    return new Map([...markLabels].filter(([id]) => !hidden.has(id)))
+  }, [markLabels, pinnedSelection])
 
   const selectEvent = useCallback((event: ActorEventData) => {
     setState(prev => ({
@@ -666,7 +697,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
                       const isHovered = state.hoveredEventId === event.id
                       const roleColor = ROLE_COLOR[event.role]
                       const placed = { event, x, y }
-                      const label = markLabels.get(event.id)
+                      const label = shownLabels.get(event.id)
                       return (
                         <g
                           key={event.id}
@@ -750,21 +781,29 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
                 without moving any other label. */}
             {pinnedSelection && (
               <g className="actor-pinned-label" data-pinned-label-for={pinnedSelection.id} aria-hidden="true" pointerEvents="none">
+                <line
+                  x1={pinnedSelection.x}
+                  x2={pinnedSelection.x}
+                  y1={pinnedSelection.y + (pinnedSelection.plan.offset < 0 ? pinnedSelection.plan.offset + PLATE_DESCENT : 10)}
+                  y2={pinnedSelection.y + (pinnedSelection.plan.offset < 0 ? -10 : pinnedSelection.plan.offset - PLATE_ASCENT)}
+                  stroke="var(--accent-selected)"
+                  strokeWidth={1}
+                />
                 <rect
                   className="event-label-plate"
-                  x={pinnedSelection.left - 3}
-                  y={pinnedSelection.y - 16 - 12}
-                  width={pinnedSelection.right - pinnedSelection.left + 6}
-                  height={17}
+                  x={pinnedSelection.plan.left - PLATE_PAD}
+                  y={pinnedSelection.y + pinnedSelection.plan.offset - PLATE_ASCENT}
+                  width={pinnedSelection.plan.right - pinnedSelection.plan.left + 2 * PLATE_PAD}
+                  height={PLATE_ASCENT + PLATE_DESCENT}
                   rx={3}
                   style={{ fill: 'var(--surface-card)', stroke: 'var(--accent-selected)' }}
                   strokeWidth={1}
                 />
                 <text
                   className="actor-event-label"
-                  x={pinnedSelection.anchor === 'start' ? pinnedSelection.left : pinnedSelection.anchor === 'end' ? pinnedSelection.right : pinnedSelection.x}
-                  y={pinnedSelection.y - 16}
-                  textAnchor={pinnedSelection.anchor}
+                  x={pinnedSelection.plan.anchor === 'start' ? pinnedSelection.plan.left : pinnedSelection.plan.anchor === 'end' ? pinnedSelection.plan.right : pinnedSelection.x}
+                  y={pinnedSelection.y + pinnedSelection.plan.offset}
+                  textAnchor={pinnedSelection.plan.anchor}
                   fontSize={12}
                   fontWeight={600}
                   style={{ fill: 'var(--accent-selected)' }}

@@ -113,6 +113,8 @@ const LEADER_GAP_PX = 3
 export const BESIDE_PX = 8
 /** The clear space between a link's blocked span and a title set beside it. */
 const BESIDE_GAP_PX = 2
+/** The furthest a title set beside its mark may start from it: its own link's first stretch and a little more. */
+export const BESIDE_MAX_PX = 18
 /** Inset from the plot edge when a label is anchored to one side. */
 const EDGE_INSET_PX = 2
 
@@ -159,7 +161,12 @@ export function extentFor(x: number, width: number, innerWidth: number): Extent 
  * then starting at it (running right), then ending at it (running left). The
  * mark's x is inside every extent, so a leader from the mark always meets it.
  */
-function extentsFor(x: number, width: number, innerWidth: number, blocked?: ReadonlyArray<readonly [number, number]>): Extent[] {
+export function extentsFor(
+  x: number,
+  width: number,
+  innerWidth: number,
+  under?: { blocked: ReadonlyArray<readonly [number, number]>; marks: readonly number[] }
+): Extent[] {
   const centred = extentFor(x, width, innerWidth)
   if (centred.anchor !== 'middle') return [centred]
   const extents: Extent[] = [centred]
@@ -170,14 +177,18 @@ function extentsFor(x: number, width: number, innerWidth: number, blocked?: Read
     extents.push({ left: x + EDGE_INSET_PX - width, right: x + EDGE_INSET_PX, anchor: 'end' })
   }
   // Under the track a linked mark's link leaves it straight down, so every
-  // extent holding its x is crossed: beside it, clear of the stem and of the
-  // link's first stretch (the blocked span around x), is where its title can go.
-  if (blocked) {
-    const own = blocked.find(([l, r]) => x >= l && x <= r)
+  // extent holding its x is crossed: beside it, clear of the stem and of its
+  // own link's first stretch (the blocked span around x), is where its title
+  // can go. It must start right next to its mark (within BESIDE_MAX_PX), and
+  // the dash that joins them must not pass another mark: a title that would
+  // have to sit further off, or across another mark, goes unnamed here.
+  if (under) {
+    const own = under.blocked.find(([l, r]) => x >= l && x <= r)
     const from = own ? own[1] + BESIDE_GAP_PX : x + BESIDE_PX
     const to = own ? own[0] - BESIDE_GAP_PX : x - BESIDE_PX
-    if (from + width <= innerWidth) extents.push({ left: from, right: from + width, anchor: 'start', beside: true })
-    if (to - width >= 0) extents.push({ left: to - width, right: to, anchor: 'end', beside: true })
+    const clearOf = (a: number, b: number) => !under.marks.some((mark) => Math.abs(mark - x) >= 1 && mark > Math.min(a, b) - 1 && mark < Math.max(a, b) + 1)
+    if (from - x <= BESIDE_MAX_PX && from + width <= innerWidth && clearOf(x, from)) extents.push({ left: from, right: from + width, anchor: 'start', beside: true })
+    if (x - to <= BESIDE_MAX_PX && to - width >= 0 && clearOf(to, x)) extents.push({ left: to - width, right: to, anchor: 'end', beside: true })
   }
   return extents
 }
@@ -217,6 +228,7 @@ export function layoutEventLabels(
   /** Where each label went, so a second pass can lengthen it in place. */
   const placedAt = new Map<string, { rowIndex: number; interval: [number, number]; anchor: LabelAnchor; item: EventLabelInput }>()
   const inView = items.filter((item) => item.x >= 0 && item.x <= innerWidth)
+  const markXs = inView.map((item) => item.x)
 
   /**
    * Try every row and side for the label. With `clean`, a placement whose
@@ -226,7 +238,7 @@ export function layoutEventLabels(
    */
   const tryPlace = (item: EventLabelInput, text: string, width: number, rowIndices: number[], clean: boolean) => {
     for (const rowIndex of rowIndices) {
-            const extents = extentsFor(item.x, width, innerWidth, rowIndex >= rowOffsets.length ? blockedSpans[rowIndex] : undefined)
+            const extents = extentsFor(item.x, width, innerWidth, rowIndex >= rowOffsets.length ? { blocked: blockedSpans[rowIndex] ?? [], marks: markXs } : undefined)
       const row = rows[rowIndex]
       const offset = offsets[rowIndex]
       if (!row || offset === undefined) continue

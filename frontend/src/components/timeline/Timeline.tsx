@@ -19,7 +19,9 @@ import {
   filterPressuresInWindow
 } from './timelineVirtualization'
 import { formatHistoricalTimestamp, formatEventDate, formatHistoricalEnd } from '@/utils/historicalTime'
-import { layoutEventLabels, truncateLabel, PRIORITY_LABEL_MAX_CHARS, extentFor, BESIDE_PX, LABEL_FONT_SIZE, TIMELINE_BELOW_ROW_OFFSETS, TIMELINE_LABEL_CONFIG } from './eventLabelLayout'
+import { measureLabelWidth } from './labelWidth'
+import { PLATE_ASCENT, PLATE_DESCENT, PLATE_PAD, planPinnedLabel, type PlacedLabelBox } from './pinnedLabel'
+import { layoutEventLabels, truncateLabel, PRIORITY_LABEL_MAX_CHARS, BESIDE_PX, LABEL_FONT_SIZE, TIMELINE_BELOW_ROW_OFFSETS, TIMELINE_LABEL_CONFIG } from './eventLabelLayout'
 import { tooltipPlacement } from './tooltipPlacement'
 import { useLiveChangesStore } from '@/stores/liveChangesStore'
 import {
@@ -599,40 +601,49 @@ const Timeline = memo(function Timeline({
     [visibleEvents, xScale, innerWidth, reach, labelBelowRows]
   )
 
-  // Names for the marks the user is working with that the layout had no room
-  // for: the selection, the highlighted events, and the selection's causes and
-  // effects. They are drawn on a card-coloured plate in a layer of their own,
-  // over every label and mark, so neighbours never show through or paint over
-  // them; and the layout is not run again, so no other label moves. Each is
-  // kept inside the plot, and one that would overlap another of these takes the
-  // next row up (the selection first, then highlights, then the trace).
-  const pinnedLabels = useMemo(() => {
-    const wanted: Array<{ ev: Event; kind: 'selected' | 'marked' }> = []
-    const seen = new Set<string>()
-    const want = (ev: Event | undefined, kind: 'selected' | 'marked') => {
-      if (!ev || seen.has(ev.id) || eventLabels.has(ev.id)) return
-      seen.add(ev.id)
-      wanted.push({ ev, kind })
+  // The selected event's name where the layout had no room for it: on a plate
+  // over the marks, in its own layer (so nothing paints over it), inside the
+  // plot, in the selection's style. The layout is not run again, so no label
+  // moves; the plate goes where it hides least (see pinnedLabel.ts), and a
+  // label it would cover by half or more is hidden whole rather than left as a
+  // fragment. Highlighted and traced events with no room stay unnamed on the
+  // canvas (the inspector lists them, and each mark has a tooltip).
+  const pinned = useMemo(() => {
+    const selected = selectedEventId ? visibleEvents.find((ev) => ev.id === selectedEventId) : undefined
+    if (!selected || eventLabels.has(selected.id)) return null
+    const x = xScale(toInstant(selected.timestamp))
+    if (!(x >= 0 && x <= innerWidth)) return null
+    const text = truncateLabel(selected.description, PRIORITY_LABEL_MAX_CHARS)
+    const width = measureLabelWidth(text, LABEL_FONT_SIZE, 600)
+    const labels: PlacedLabelBox[] = []
+    for (const ev of visibleEvents) {
+      const placement = eventLabels.get(ev.id)
+      if (!placement) continue
+      const markX = xScale(toInstant(ev.timestamp))
+      const emphasised = highlightedEventIds?.has(ev.id) ?? false
+      const labelWidth = measureLabelWidth(placement.text, LABEL_FONT_SIZE, emphasised ? 600 : 400)
+      const anchorX = markX + (placement.dx ?? 0)
+      const left = placement.anchor === 'start' ? anchorX : placement.anchor === 'end' ? anchorX - labelWidth : anchorX - labelWidth / 2
+      labels.push({
+        id: ev.id,
+        left,
+        right: left + labelWidth,
+        top: eventY + placement.offset - LABEL_FONT_SIZE * 0.8,
+        bottom: eventY + placement.offset + 3,
+        length: placement.text.length,
+        protectedLabel: emphasised || ripple.causes.has(ev.id) || ripple.effects.has(ev.id),
+      })
     }
-    const inWindow = new Map(visibleEvents.map((ev) => [ev.id, ev]))
-    want(selectedEventId ? inWindow.get(selectedEventId) : undefined, 'selected')
-    for (const ev of visibleEvents) if (highlightedEventIds?.has(ev.id)) want(ev, 'marked')
-    for (const ev of visibleEvents) if (ripple.causes.has(ev.id) || ripple.effects.has(ev.id)) want(ev, 'marked')
-    const taken: Array<Array<[number, number]>> = TIMELINE_LABEL_CONFIG.rowOffsets.map(() => [])
-    const pinned: Array<{ id: string; x: number; offset: number; anchor: 'start' | 'middle' | 'end'; text: string; left: number; right: number; selected: boolean }> = []
-    for (const { ev, kind } of wanted) {
-      const x = xScale(toInstant(ev.timestamp))
-      if (!(x >= 0 && x <= innerWidth)) continue
-      const text = truncateLabel(ev.description, PRIORITY_LABEL_MAX_CHARS)
-      const width = text.length * TIMELINE_LABEL_CONFIG.fontSize * 0.56
-      const { left, right, anchor } = extentFor(x, width, innerWidth)
-      const row = taken.findIndex((spans) => !spans.some(([l, r]) => left < r + 6 && right + 6 > l))
-      if (row < 0) continue
-      taken[row]!.push([left, right])
-      pinned.push({ id: ev.id, x, offset: TIMELINE_LABEL_CONFIG.rowOffsets[row]!, anchor, text, left, right, selected: kind === 'selected' })
-    }
-    return pinned
-  }, [eventLabels, visibleEvents, selectedEventId, highlightedEventIds, ripple, xScale, innerWidth])
+    const plan = planPinnedLabel({ x, markY: eventY, width, innerWidth, rows: TIMELINE_LABEL_CONFIG.rowOffsets, labels, markRadius: markBaseRadius(selected.id) + 4 })
+    return plan ? { id: selected.id, x, text, plan } : null
+  }, [eventLabels, visibleEvents, selectedEventId, highlightedEventIds, ripple, xScale, innerWidth, eventY, markBaseRadius])
+
+  // The labels drawn: the layout's, less any the selection's plate hides whole.
+  const shownLabels = useMemo(() => {
+    if (!pinned || pinned.plan.hidden.length === 0) return eventLabels
+    const hidden = new Set(pinned.plan.hidden)
+    return new Map([...eventLabels].filter(([id]) => !hidden.has(id)))
+  }, [eventLabels, pinned])
 
   // The mark that last had focus; the tab stop follows it.
   const [activeMarkKey, setActiveMarkKey] = useState<MarkKey | null>(null)
@@ -1660,7 +1671,7 @@ const Timeline = memo(function Timeline({
                 label's halo knocks out any leader that passes behind it. */}
             <g className="timeline-label-leaders" aria-hidden="true" pointerEvents="none">
               {visibleEvents.map(ev => {
-                const placement = eventLabels.get(ev.id)
+                const placement = shownLabels.get(ev.id)
                 const firstRow = TIMELINE_LABEL_CONFIG.rowOffsets[0] ?? -20
                 if (!placement) return null
                 const x = xScale(toInstant(ev.timestamp))
@@ -1674,12 +1685,13 @@ const Timeline = memo(function Timeline({
                     <line
                       key={ev.id}
                       className="event-label-leader"
+                      data-leader-for={ev.id}
                       x1={x + side}
                       x2={x + dx - side}
                       y1={eventY + placement.offset - 4}
                       y2={eventY + placement.offset - 4}
                       stroke="var(--text-muted)"
-                      strokeOpacity={dimmed ? 0.12 : 0.6}
+                      strokeOpacity={dimmed ? 0.12 : 1}
                       strokeWidth={1}
                     />
                   )
@@ -1691,6 +1703,7 @@ const Timeline = memo(function Timeline({
                     <line
                       key={ev.id}
                       className="event-label-leader"
+                      data-leader-for={ev.id}
                       x1={x}
                       x2={x}
                       y1={eventY + EVENT_STEM_LENGTH}
@@ -1709,6 +1722,7 @@ const Timeline = memo(function Timeline({
                   <line
                     key={ev.id}
                     className="event-label-leader"
+                    data-leader-for={ev.id}
                     x1={x}
                     x2={x}
                     y1={eventY + placement.offset + 4}
@@ -1745,7 +1759,7 @@ const Timeline = memo(function Timeline({
                   isTabStop={tabStopKey === eventMarkKey(ev.id)}
                   // No room for its title: null (the mark keeps its tooltip and
                   // name; the selection and highlights are named in the pinned layer).
-                  label={eventLabels.get(ev.id) ?? null}
+                  label={shownLabels.get(ev.id) ?? null}
                   onClick={handleEventClick}
                   onContextMenu={handleEventContextMenu}
                   onDragStart={handleEventDragStart}
@@ -1755,44 +1769,41 @@ const Timeline = memo(function Timeline({
               )
             })}
 
-            {/* Names pinned over the rest (see pinnedLabels). Decorative: each
-                mark carries its own accessible name. */}
-            {pinnedLabels.length > 0 && (
+            {/* The selection's name pinned over the rest (see `pinned`).
+                Decorative: the mark carries its own accessible name. */}
+            {pinned && (
               <g className="timeline-pinned-labels" aria-hidden="true" pointerEvents="none">
-                {pinnedLabels.map((label) => (
-                  <g key={label.id} data-pinned-label-for={label.id}>
-                    <line
-                      x1={label.x}
-                      x2={label.x}
-                      y1={eventY + label.offset + 4}
-                      y2={eventY - 8}
-                      stroke="var(--text-muted)"
-                      strokeOpacity={0.6}
-                      strokeWidth={1}
-                    />
-                    <rect
-                      className="event-label-plate"
-                      x={label.left - 3}
-                      y={eventY + label.offset - LABEL_FONT_SIZE}
-                      width={label.right - label.left + 6}
-                      height={LABEL_FONT_SIZE + 5}
-                      rx={3}
-                      style={{ fill: 'var(--surface-card)', stroke: label.selected ? 'var(--accent-selected)' : 'var(--border-subtle)' }}
-                      strokeWidth={1}
-                    />
-                    <text
-                      className="event-label event-label-pinned"
-                      x={label.anchor === 'start' ? label.left : label.anchor === 'end' ? label.right : label.x}
-                      y={eventY + label.offset}
-                      textAnchor={label.anchor}
-                      fontSize={LABEL_FONT_SIZE}
-                      fontWeight={600}
-                      style={{ fill: label.selected ? 'var(--accent-selected)' : 'var(--text-primary)' }}
-                    >
-                      {label.text}
-                    </text>
-                  </g>
-                ))}
+                <g data-pinned-label-for={pinned.id}>
+                  <line
+                    x1={pinned.x}
+                    x2={pinned.x}
+                    y1={eventY + pinned.plan.offset + PLATE_DESCENT}
+                    y2={eventY - markBaseRadius(pinned.id) - 4}
+                    stroke="var(--accent-selected)"
+                    strokeWidth={1}
+                  />
+                  <rect
+                    className="event-label-plate"
+                    x={pinned.plan.left - PLATE_PAD}
+                    y={eventY + pinned.plan.offset - PLATE_ASCENT}
+                    width={pinned.plan.right - pinned.plan.left + 2 * PLATE_PAD}
+                    height={PLATE_ASCENT + PLATE_DESCENT}
+                    rx={3}
+                    style={{ fill: 'var(--surface-card)', stroke: 'var(--accent-selected)' }}
+                    strokeWidth={1}
+                  />
+                  <text
+                    className="event-label event-label-pinned"
+                    x={pinned.plan.anchor === 'start' ? pinned.plan.left : pinned.plan.anchor === 'end' ? pinned.plan.right : pinned.x}
+                    y={eventY + pinned.plan.offset}
+                    textAnchor={pinned.plan.anchor}
+                    fontSize={LABEL_FONT_SIZE}
+                    fontWeight={600}
+                    style={{ fill: 'var(--accent-selected)' }}
+                  >
+                    {pinned.text}
+                  </text>
+                </g>
               </g>
             )}
 
