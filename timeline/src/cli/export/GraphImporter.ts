@@ -5,6 +5,8 @@ import { ServiceContainer } from '@/container';
 import { CausalRelationshipType } from '@/models/relationships';
 import { ImportResultDto } from '../types';
 import { ValidationErrorCLI } from '../utils/exitCodes';
+import type { StoredCausalRelationship } from '@/services/CausalService';
+import type { BatchLiveState, BatchStep } from '@/services/GraphWriteVersioningService';
 
 /**
  * The calendar an export carries. A field that does not check out is dropped
@@ -114,6 +116,40 @@ export class GraphImporter {
     const skipped = { events: 0, arcs: 0, relationships: 0 };
     let conflicts = 0;
 
+    // What the import wrote, to record as one version once it is done.
+    const wroteArcs = new Set<string>();
+    const wroteEvents = new Set<string>();
+    const wroteLinks = new Map<string, { cause_event_id: string; effect_event_id: string }>();
+    const steps: BatchStep[] = [];
+    let deletedLinks = false;
+    const wrote = (type: 'arc' | 'event', id: string, operation: 'create' | 'update'): void => {
+      (type === 'arc' ? wroteArcs : wroteEvents).add(id);
+      steps.push({ operation, type, id });
+    };
+
+    // A renamed arc's new id is settled before any arc is written, so a child
+    // listed before its parent still names the parent's new id.
+    if (strategy === 'rename') {
+      for (const arcData of arcs) {
+        const origId = String(arcData.id || '');
+        if (origId && (await scoped.arcRepository.findById(origId))) {
+          idMap.set(origId, `arc_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`);
+        }
+      }
+    }
+
+    // An arc's metadata with its parent recorded where the live store keeps
+    // one (`metadata.parentArcId`): the export's `parent_arc_id` field when it
+    // carries one, else the metadata's own, either remapped by the id map the
+    // same way. Left naming the original, a renamed copy sent its subtree back
+    // to the original parent.
+    const arcMetadata = (arcData: Record<string, unknown>): Record<string, unknown> => {
+      const metadata = { ...((arcData.metadata as Record<string, unknown> | undefined) || {}) };
+      const named = [arcData.parent_arc_id, metadata.parentArcId].find((value): value is string => typeof value === 'string' && value !== '');
+      if (named !== undefined) metadata.parentArcId = idMap.get(named) ?? named;
+      return metadata;
+    };
+
     // 1. Process Arcs
     for (const arcData of arcs) {
       const origId = String(arcData.id || '');
@@ -132,13 +168,13 @@ export class GraphImporter {
             start_time: instantOfAxisTime(arcTimes.get(arcData)!.start.time) ?? new Date(NaN),
             end_time: instantOfAxisTime(arcTimes.get(arcData)!.end.time) ?? new Date(NaN),
             level: typeof arcData.level === 'number' ? arcData.level : 0,
-            metadata: (arcData.metadata as Record<string, unknown>) || {},
+            metadata: arcMetadata(arcData),
           });
+          wrote('arc', origId, 'update');
           imported.arcs++;
           continue;
         } else if (strategy === 'rename') {
-          const newId = `arc_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-          idMap.set(origId, newId);
+          const newId = idMap.get(origId)!;
           await scoped.arcRepository.create({
             id: newId,
             name: String(arcData.name || ''),
@@ -146,8 +182,9 @@ export class GraphImporter {
             start_time: instantOfAxisTime(arcTimes.get(arcData)!.start.time) ?? new Date(NaN),
             end_time: instantOfAxisTime(arcTimes.get(arcData)!.end.time) ?? new Date(NaN),
             level: typeof arcData.level === 'number' ? arcData.level : 0,
-            metadata: (arcData.metadata as Record<string, unknown>) || {},
+            metadata: arcMetadata(arcData),
           });
+          wrote('arc', newId, 'create');
           imported.arcs++;
           continue;
         }
@@ -159,8 +196,9 @@ export class GraphImporter {
           start_time: instantOfAxisTime(arcTimes.get(arcData)!.start.time) ?? new Date(NaN),
           end_time: instantOfAxisTime(arcTimes.get(arcData)!.end.time) ?? new Date(NaN),
           level: typeof arcData.level === 'number' ? arcData.level : 0,
-          metadata: (arcData.metadata as Record<string, unknown>) || {},
+          metadata: arcMetadata(arcData),
         });
+        wrote('arc', origId, 'create');
         imported.arcs++;
       }
     }
@@ -191,6 +229,7 @@ export class GraphImporter {
             target: String(evtData.target || 'None'),
             metadata: meta,
           });
+          wrote('event', origId, 'update');
           imported.events++;
           continue;
         } else if (strategy === 'rename') {
@@ -204,6 +243,7 @@ export class GraphImporter {
             target: String(evtData.target || 'None'),
             metadata: meta,
           });
+          wrote('event', newId, 'create');
           imported.events++;
           continue;
         }
@@ -216,6 +256,7 @@ export class GraphImporter {
           target: String(evtData.target || 'None'),
           metadata: meta,
         });
+        wrote('event', origId, 'create');
         imported.events++;
       }
     }
@@ -254,12 +295,15 @@ export class GraphImporter {
         } else if (strategy === 'overwrite') {
           try {
             await scoped.causalService.deleteCausalLink(causeId, effectId);
+            deletedLinks = true;
+            wroteLinks.set(JSON.stringify([causeId, effectId]), { cause_event_id: causeId, effect_event_id: effectId });
             await scoped.causalService.createCausalLink(causeExists, effectExists, {
               weight: typeof relData.weight === 'number' ? relData.weight : 0.8,
               confidence: typeof relData.confidence === 'number' ? relData.confidence : 0.8,
               evidence: String(relData.evidence || 'Imported causal relationship'),
               relationship_type: relType,
             });
+            steps.push({ operation: 'update', type: 'relationship', id: `${causeId}_${effectId}` });
             imported.relationships++;
           } catch {
             skipped.relationships++;
@@ -276,12 +320,39 @@ export class GraphImporter {
             evidence: String(relData.evidence || 'Imported causal relationship'),
             relationship_type: relType,
           });
+          wroteLinks.set(JSON.stringify([causeId, effectId]), { cause_event_id: causeId, effect_event_id: effectId });
+          steps.push({ operation: 'create', type: 'relationship', id: `${causeId}_${effectId}` });
           imported.relationships++;
         } catch {
           conflicts++;
           skipped.relationships++;
         }
       }
+    }
+
+    // Record the import as one version, as the API importer and the batch
+    // routes do. The live store is written directly above, so without this the
+    // head and every export stayed as they were, and a rollback, merge or
+    // branch (which rebuild the live store from the head) lost the import.
+    // What is recorded is what the live store now holds of what was written.
+    if (steps.length > 0 || deletedLinks) {
+      const state: BatchLiveState = { deletesLinks: deletedLinks };
+      if (wroteArcs.size > 0) {
+        state.arcs = new Map();
+        for (const id of wroteArcs) state.arcs.set(id, await scoped.arcRepository.findById(id));
+      }
+      if (wroteEvents.size > 0) {
+        state.events = new Map();
+        for (const id of wroteEvents) state.events.set(id, await scoped.eventRepository.findById(id));
+      }
+      if (wroteLinks.size > 0) {
+        const all = (await scoped.causalService.getAllRelationships()) as StoredCausalRelationship[];
+        state.links = [...wroteLinks.values()].map((pair) => ({
+          ...pair,
+          live: all.filter((link) => link.cause_event_id === pair.cause_event_id && link.effect_event_id === pair.effect_event_id),
+        }));
+      }
+      await container.graphWriteVersioningService.recordBatch(targetGraphId, state, steps);
     }
 
     return {
