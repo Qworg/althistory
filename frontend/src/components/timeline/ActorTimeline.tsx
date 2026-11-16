@@ -7,6 +7,7 @@ import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import { formatEventDate } from '@/utils/historicalTime'
 import { truncateToWidth } from '@/utils'
 import { layoutEventLabels, type EventLabelPlacement, type LabelLayoutConfig } from './eventLabelLayout'
+import { DEFAULT_ACTOR_MARGIN, actorAxisMaxTicks } from './timelineLayout'
 import { compareInstants, msApart, toAxisTime, toInstant } from '@althistory/calendar'
 
 /** Two rows of 12px labels (the 12px floor); the pitch is the font plus leading. */
@@ -44,7 +45,7 @@ export interface ActorTimelineState {
   hoveredEventId: string | null
 }
 
-const DEFAULT_MARGIN = { top: 20, right: 20, bottom: 60, left: 80 }
+const DEFAULT_MARGIN = DEFAULT_ACTOR_MARGIN
 
 /** Approximate advance of one character of the 11px monospace tick labels. */
 const TICK_CHAR_PX = 6.6
@@ -225,7 +226,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     const [domainStart, domainEnd] = timeScale.domain()
     const deepDomain = usesArithmeticTicks(domainStart, domainEnd)
     const [start = 0, end = 0] = timeScale.range()
-    const maxTicks = Math.max(2, Math.floor(Math.abs(end - start) / 96))
+    const maxTicks = actorAxisMaxTicks(end - start)
     const countTicks = () => axisTicks(timeScale.domain(), maxTicks, worldCalendar).map(({ date, label }) => ({
       key: String(toAxisTime(date)),
       date,

@@ -3,7 +3,7 @@ import type React from 'react'
 import { clampedAddInstantMs, instantExtent, instantScale } from '@/utils/timeScale'
 import { Event, Arc, GraphCalendar } from '@/types'
 import { formatHistoricalTimestamp, formatEventDate } from '@/utils/historicalTime'
-import { counterfactualAxisTicks } from './counterfactualAxis'
+import { counterfactualAxisTicks, counterfactualMargin } from './counterfactualAxis'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import {
   analyzeEventDivergence,
@@ -55,10 +55,6 @@ interface HoveredItem {
   readonly y: number
 }
 
-const DEFAULT_MARGIN = { top: 32, right: 32, bottom: 48, left: 140 }
-/** Below COMPACT_WIDTH (a phone's full-screen sheet) the margins give the plot more room. */
-const COMPACT_MARGIN = { top: 32, right: 16, bottom: 36, left: 96 }
-const COMPACT_WIDTH = 560
 
 /** "Halifax Appointed, King → Halifax, May 10, 1940, 12:00 UTC (Halifax Government lane)". */
 function eventLabel(event: Event, laneName: string, calendar: GraphCalendar | null): string {
@@ -280,7 +276,7 @@ export const CounterfactualTimelineCanvas = memo(function CounterfactualTimeline
   const canvasRef = useRef<HTMLDivElement>(null)
   const measuredWidth = useContainerWidth(canvasRef)
   const width = Math.max(MIN_WIDTH, measuredWidth ?? fallbackWidth)
-  const margin = marginProp ?? (width < COMPACT_WIDTH ? COMPACT_MARGIN : DEFAULT_MARGIN)
+  const margin = marginProp ?? counterfactualMargin(width)
 
   const innerWidth = Math.max(100, width - margin.left - margin.right)
   const innerHeight = Math.max(100, height - margin.top - margin.bottom)

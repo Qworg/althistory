@@ -25,6 +25,7 @@ import { useLiveChangesStore } from '@/stores/liveChangesStore'
 import {
   ARC_BAR_HEIGHT,
   DEFAULT_TIMELINE_MARGIN,
+  mainAxisMaxTicks,
   DIVERGENCE_BAND_HEIGHT,
   EVENT_STEM_LENGTH,
   arcRowY,
@@ -406,6 +407,28 @@ const Timeline = memo(function Timeline({
       .domain([currentRange.start, currentRange.end])
       .range([0, innerWidth])
   }, [currentRange, innerWidth])
+
+  // The axis's ticks and day caption. Ticks and labels in UTC, as the event
+  // labels read every date (local-time ticks put 1 January 1843 (UTC) on the
+  // wrong side of the "1843" tick west of Greenwich); in a world calendar, on
+  // its own years, months, days and hours. Labelled as a set, so two ticks
+  // never share a label. A set before 1 CE writes long labels ("9000-03-01
+  // BCE"): an end label is anchored inside the SVG, ticks that would overprint
+  // are dropped, and times of day get a caption naming their day. Any other
+  // set is drawn whole, as it always was. Memoised on the scale, so it is
+  // fitted again when the view zooms or pans, not on every render.
+  const marginLeft = margin.left
+  const marginRight = margin.right
+  const { ticks: axisTickMarks, caption: axisCaption } = useMemo(() => {
+    const maxTicks = mainAxisMaxTicks(innerWidth)
+    const [start, end] = xScale.domain()
+    return fitAxis(
+      axisTicks([start!, end!], maxTicks > 0 ? maxTicks : 5, worldCalendar).map((tick) => ({ ...tick, x: xScale(tick.date) })),
+      worldCalendar,
+      { left: -marginLeft, right: innerWidth + marginRight },
+      [start!, end!]
+    )
+  }, [xScale, innerWidth, marginLeft, marginRight, worldCalendar])
 
   // Windowing: render only the marks whose time falls inside the current
   // viewport (plus a fixed multiple of the visible span either side). This
@@ -1717,54 +1740,31 @@ const Timeline = memo(function Timeline({
           {/* Time axis */}
           <g transform={`translate(0,${axisY})`}>
             <line x1={0} y1={0} x2={innerWidth} y2={0} style={{ stroke: 'var(--text-muted)' }} strokeWidth={1} />
-            {(() => {
-              // 12px monospace labels need about 96px each.
-              const maxTicks = Math.min(10, Math.floor(innerWidth / 96))
-              // Ticks and labels in UTC, as the event labels read every date
-              // (local-time ticks put 1 January 1843 (UTC) on the wrong side
-              // of the "1843" tick west of Greenwich); in a world calendar, on
-              // its own years, months, days and hours. Labelled as a set, so
-              // two ticks never share a label.
-              // A set before 1 CE writes long labels ("9000-03-01 BCE"): an end
-              // label is anchored inside the SVG, ticks that would overprint are
-              // dropped, and times of day get a caption naming their day. Any
-              // other set is drawn whole, as it always was.
-              const { ticks, caption } = fitAxis(
-                axisTicks(xScale.domain(), maxTicks > 0 ? maxTicks : 5, worldCalendar).map((tick) => ({ ...tick, x: xScale(tick.date) })),
-                worldCalendar,
-                { left: -margin.left, right: innerWidth + margin.right },
-                [xScale.domain()[0]!, xScale.domain()[1]!]
-              )
-              return (
-                <>
-                  {ticks.map(({ x, label, anchor }, i) => (
-                    <g key={i} transform={`translate(${x},0)`}>
-                      <line y1={0} y2={6} style={{ stroke: 'var(--text-muted)' }} strokeWidth={1} />
-                      <text
-                        y={20}
-                        textAnchor={anchor}
-                        fontSize={LABEL_FONT_SIZE}
-                        className="font-mono-code axis-tick"
-                        style={{ fill: 'var(--text-muted)' }}
-                      >
-                        {label}
-                      </text>
-                    </g>
-                  ))}
-                  {caption && (
-                    <text
-                      y={35}
-                      textAnchor="start"
-                      fontSize={LABEL_FONT_SIZE}
-                      className="axis-day-caption"
-                      style={{ fill: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}
-                    >
-                      {caption}
-                    </text>
-                  )}
-                </>
-              )
-            })()}
+            {axisTickMarks.map(({ x, label, anchor }, i) => (
+              <g key={i} transform={`translate(${x},0)`}>
+                <line y1={0} y2={6} style={{ stroke: 'var(--text-muted)' }} strokeWidth={1} />
+                <text
+                  y={20}
+                  textAnchor={anchor}
+                  fontSize={LABEL_FONT_SIZE}
+                  className="font-mono-code axis-tick"
+                  style={{ fill: 'var(--text-muted)' }}
+                >
+                  {label}
+                </text>
+              </g>
+            ))}
+            {axisCaption && (
+              <text
+                y={35}
+                textAnchor="start"
+                fontSize={LABEL_FONT_SIZE}
+                className="axis-day-caption"
+                style={{ fill: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}
+              >
+                {axisCaption}
+              </text>
+            )}
           </g>
         </g>
       </svg>

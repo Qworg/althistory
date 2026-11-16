@@ -31,6 +31,19 @@ export interface TimelineMargin {
 
 export const DEFAULT_TIMELINE_MARGIN: TimelineMargin = { top: 16, right: 16, bottom: 40, left: 56 }
 
+/** The actor timeline's default margin. */
+export const DEFAULT_ACTOR_MARGIN: TimelineMargin = { top: 20, right: 20, bottom: 60, left: 80 }
+
+/** The most ticks the main timeline's axis draws: 12px monospace labels need about 96px each. */
+export function mainAxisMaxTicks(innerWidth: number): number {
+  return Math.min(10, Math.floor(innerWidth / 96))
+}
+
+/** The most ticks the actor timeline's axis asks for over a plot of `plotWidth` px (at least 2). */
+export function actorAxisMaxTicks(plotWidth: number): number {
+  return Math.max(2, Math.floor(Math.abs(plotWidth) / 96))
+}
+
 /** Height of an arc bar. */
 export const ARC_BAR_HEIGHT = 16
 /** Pitch of the arc rows: a 12px label above a 16px bar, with clear space between rows. */
