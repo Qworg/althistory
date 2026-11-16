@@ -293,6 +293,59 @@ describe('Validate Routes', () => {
     });
   });
 
+  describe('order a second apart near 200 million years BCE, where a double holds no whole seconds', () => {
+    // One double: getTime() calls them the same moment (docs/specs/deep-time.md, Req 3).
+    const EARLIER = '-200000001-12-31T23:59:59.500Z';
+    const LATER = '-200000000-01-01T00:00:00.500Z';
+    const LAST = '-199999999-01-01T00:00:00.000Z';
+
+    it('tells an arc a second long from one a second inside-out, and a child that starts a second before its parent', async () => {
+      const arcs = [
+        { id: 'parent', name: 'Parent', start_time: LATER, end_time: LAST, level: 0 },
+        { id: 'child', name: 'Child', start_time: EARLIER, end_time: LAST, level: 1, parent_arc_id: 'parent' },
+        { id: 'short', name: 'Short', start_time: EARLIER, end_time: LATER, level: 0 },
+        { id: 'inverted', name: 'Inverted', start_time: LATER, end_time: EARLIER, level: 0 },
+      ];
+      const response = await request(app)
+        .post('/api/validate/graph')
+        .set('X-API-Key', 'valid-read-key')
+        .send({ events: [], arcs, relationships: [], checks: ['temporal'] })
+        .expect(200);
+      const about = (id: string) =>
+        response.body.errors.temporal.filter((error: { entityId: string }) => error.entityId === id).map((error: { message: string }) => error.message);
+      expect(about('short')).toEqual([]);
+      expect(about('parent')).toEqual([]);
+      expect(about('inverted')).toEqual(['Arc start_time must be before end_time']);
+      expect(about('child')).toEqual(['Arc must be contained within parent arc time range']);
+    });
+
+    it("checks an addition's arc a second long as in order, and one a second inside-out as not", async () => {
+      const response = await request(app)
+        .post('/api/validate/incremental')
+        .set('X-API-Key', 'valid-read-key')
+        .send({
+          additions: {
+            arcs: [
+              { name: 'Short', start_time: EARLIER, end_time: LATER, level: 0 },
+              { name: 'Inverted', start_time: LATER, end_time: EARLIER, level: 0 },
+            ],
+          },
+        })
+        .expect(200);
+      expect(response.body.conflicts.map((conflict: { message: string }) => conflict.message)).toEqual(['start_time must be before end_time']);
+    });
+
+    it('does not call an arc with an unreadable end inside-out', async () => {
+      const response = await request(app)
+        .post('/api/validate/graph')
+        .set('X-API-Key', 'valid-read-key')
+        .send({ events: [], arcs: [{ id: 'bad', name: 'Bad', start_time: 'garbage', end_time: 'rubbish', level: 0 }], relationships: [], checks: ['temporal'] })
+        .expect(200);
+      const messages = response.body.errors.temporal.map((error: { message: string }) => error.message);
+      expect(messages).not.toContain('Arc start_time must be before end_time');
+    });
+  });
+
   describe('POST /api/validate/incremental', () => {
     it('reads existing entities from the graph resolved by context', async () => {
       const response = await request(app)

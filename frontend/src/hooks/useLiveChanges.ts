@@ -6,7 +6,7 @@ import { CLIENT_ID } from '@/services/clientIdentity'
 import { GRAPH_LIST_CHANNEL, LiveFeedClient } from '@/services/liveFeedClient'
 import { LiveChangeApplier } from '@/services/liveChangeApplier'
 import { useLiveChangesStore } from '@/stores/liveChangesStore'
-import { getWebSocketStreamUrl } from '@/hooks/useStreamingWrite'
+import { getWebSocketStreamUrl } from '@/services/streamUrl'
 import { useActiveGraphId } from '@/hooks/useGraphs'
 
 /**
@@ -28,6 +28,9 @@ export function useLiveChanges(): void {
   const enabled = useLiveChangesStore((state) => state.enabled)
   const retries = useLiveChangesStore((state) => state.retries)
   const clientRef = useRef<LiveFeedClient | null>(null)
+  // Channels already reported as lost, so a Retry that finds them still lost
+  // says nothing new; one watched again in between may be reported again.
+  const reported = useRef(new Set<string>())
   // The applier reads the graph on screen at the moment a batch is applied.
   const activeRef = useRef<string | null>(activeGraphId)
   activeRef.current = activeGraphId
@@ -45,19 +48,29 @@ export function useLiveChanges(): void {
       clientId: CLIENT_ID,
     })
     const client = new LiveFeedClient({
-      getToken: (graphId) => apiClient.stream.getToken(graphId, 'feed'),
+      getToken: (channel) =>
+        channel === GRAPH_LIST_CHANNEL ? apiClient.stream.getGraphListToken() : apiClient.stream.getToken(channel, 'feed'),
       urlFor: getWebSocketStreamUrl,
       onChange: (change) => applier.push(change),
       onResync: (graphId) => applier.resync(graphId),
       onStatus: (status, detail) => useLiveChangesStore.getState().setStatus(status, detail ?? null),
-      onAccessRevoked: (channel) =>
-        useLiveChangesStore
-          .getState()
-          .addNotices([
-            channel === GRAPH_LIST_CHANNEL
-              ? 'Live sync stopped for the graph list: this key may no longer read graphs.'
+      onAccessRevoked: (channel, reason) => {
+        const live = useLiveChangesStore.getState()
+        if (channel !== GRAPH_LIST_CHANNEL) live.setRevokedReason(reason)
+        if (reported.current.has(channel)) return
+        reported.current.add(channel)
+        live.addNotices([
+          channel === GRAPH_LIST_CHANNEL
+            ? 'Live sync stopped for the graph list: this key may no longer read graphs.'
+            : reason === 'missing'
+              ? 'Live sync stopped for this graph: it no longer exists.'
               : 'Live sync stopped for this graph: this key may no longer read it.',
-          ]),
+        ])
+      },
+      onWatching: (channel) => {
+        reported.current.delete(channel)
+        if (channel !== GRAPH_LIST_CHANNEL) useLiveChangesStore.getState().setRevokedReason(null)
+      },
     })
     clientRef.current = client
     client.setGraph(activeRef.current)

@@ -1333,6 +1333,45 @@ describe('ExportService', () => {
       expect(embedded?.embeddedEntity).toMatchObject({ id: 'remote-event' });
     });
 
+    // A document is "1.1" when any date in `data` is beyond a Date, and an
+    // embedded entity's dates are in `data` (docs/export-format.md). Both
+    // paths used to look at the graph's own events and arcs only.
+    const deepRemoteTree = (): ResolvedGraphData => ({
+      ...remoteTree(),
+      events: {
+        'remote-event': { ...remoteTree().events['remote-event'], timestamp: '+300000-01-01T00:00:00.000Z' },
+      },
+    });
+
+    it('marks an in-memory document "1.1" when an embedded entity is beyond a Date, and "1.0" when not', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValueOnce(treeWithRef()).mockResolvedValueOnce(deepRemoteTree());
+      const options = { graphId: 'graph_123', scope: 'full' as const, includeProvenance: false, embedReferences: true, canReadGraph: () => true };
+
+      const deep = await exportService.exportGraph(options);
+      expect(deep.export.data.crossGraphRefs?.[0].embeddedEntity).toMatchObject({ timestamp: '+300000-01-01T00:00:00.000Z' });
+      expect(deep.export.version).toBe('1.1');
+
+      mockGraphRepository.checkout.mockResolvedValueOnce(treeWithRef()).mockResolvedValueOnce(remoteTree());
+      expect((await exportService.exportGraph(options)).export.version).toBe('1.0');
+    });
+
+    it('marks a streamed document "1.1" when an embedded entity is beyond a Date, and "1.0" when not', async () => {
+      mockGraphRepository.findById.mockResolvedValue(createMockGraph());
+      mockGraphRepository.checkout.mockResolvedValueOnce(treeWithRef()).mockResolvedValueOnce(deepRemoteTree());
+      const options = { graphId: 'graph_123', scope: 'full' as const, includeProvenance: false, embedReferences: true, canReadGraph: () => true };
+
+      await exportService.exportToFile(options);
+      const deep = JSON.parse(written.chunks.join('')) as AlthistoryExport;
+      expect(deep.data.crossGraphRefs?.[0].embeddedEntity).toMatchObject({ timestamp: '+300000-01-01T00:00:00.000Z' });
+      expect(deep.version).toBe('1.1');
+
+      written.chunks.length = 0;
+      mockGraphRepository.checkout.mockResolvedValueOnce(treeWithRef()).mockResolvedValueOnce(remoteTree());
+      await exportService.exportToFile(options);
+      expect((JSON.parse(written.chunks.join('')) as AlthistoryExport).version).toBe('1.0');
+    });
+
     it('should withhold the payload in the streamed document too', async () => {
       mockGraphRepository.findById.mockResolvedValue(createMockGraph());
       mockGraphRepository.checkout.mockResolvedValue(treeWithRef());

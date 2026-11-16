@@ -2,7 +2,7 @@
  * Batch operations API routes
  */
 
-import { type WorldCalendarSet, toInstant } from '@althistory/calendar';
+import { type WorldCalendarSet, compareAxisTime, toAxisTime } from '@althistory/calendar';
 import { newDateMetadata, readRequestTime } from '../worldDates';
 import { ValidationError } from '@/utils/errors';
 import { Router, Request, Response, RequestHandler } from 'express';
@@ -20,58 +20,188 @@ import {
 import { Permission } from '@/models/ApiKey';
 import { IEvent } from '@/models/Event';
 import { IArc } from '@/models/Arc';
-import { CausalService } from '@/services/CausalService';
+import type { EventRepository } from '@/repositories/EventRepository';
+import type { ArcRepository } from '@/repositories/ArcRepository';
+import { CausalService, StoredCausalRelationship } from '@/services/CausalService';
 import { createLogger } from '@/utils/logger';
-import type { ChangedEntity, ChangedEntityType, ChangeOperation } from '@/services/ChangeFeedService';
+import type { BatchLiveState, BatchStep } from '@/services/GraphWriteVersioningService';
 
 const logger = createLogger('BatchRoutes');
 
-/**
- * Tell the live change feed what a batch wrote. A batch writes the live store
- * directly (it does not go through the versioning bridge, which is where every
- * other write is announced), so it announces for itself, once per kind of
- * change, after the batch is done. Never fails the batch.
- */
-function announceBatch(
-  req: Request,
-  graphId: string,
-  steps: Array<{ operation: ChangeOperation; type: ChangedEntityType; id: string }>
-): void {
-  try {
-    const groups = new Map<string, ChangedEntity[]>();
-    for (const step of steps) {
-      const key = `${step.operation}:${step.type}`;
-      groups.set(key, [...(groups.get(key) ?? []), { type: step.type, id: step.id }]);
-    }
-    for (const [key, entities] of groups) {
-      const operation = key.split(':')[0] as ChangeOperation;
-      const noun = entities[0].type === 'relationship' ? 'link' : entities[0].type;
-      const verb = operation === 'create' ? 'Added' : operation === 'update' ? 'Edited' : 'Deleted';
-      req.container.changeFeedService.publish(graphId, {
-        kind: 'entities',
-        operation,
-        entities,
-        summary: `${verb} ${entities.length} ${noun}${entities.length === 1 ? '' : 's'} in a batch`,
-      });
-    }
-  } catch (error) {
-    logger.warn('Could not announce a batch to the live feed', {
-      error: error instanceof Error ? error.message : String(error),
+/** A link as the batch routes name it: by its two events. */
+interface LinkPair {
+  cause_event_id: string;
+  effect_event_id: string;
+}
+
+/** What a batch touched, to read back from the live store once it is done. */
+class Touched {
+  readonly events = new Set<string>();
+  readonly arcs = new Set<string>();
+  readonly links = new Map<string, LinkPair>();
+  /** An event or a link was deleted: the version must read every head link (`BatchLiveState.deletesLinks`). */
+  deletesLinks = false;
+
+  link(pair: LinkPair): void {
+    this.links.set(JSON.stringify([pair.cause_event_id, pair.effect_event_id]), {
+      cause_event_id: pair.cause_event_id,
+      effect_event_id: pair.effect_event_id,
     });
   }
 }
 
-/** The writes a transaction's steps made, in the form `announceBatch` takes. */
+/** The request graph's live store, as a batch reads back what it touched. */
+interface LiveReaders {
+  eventRepository?: Pick<EventRepository, 'findById'>;
+  arcRepository?: Pick<ArcRepository, 'findById'>;
+  causalService?: Pick<CausalService, 'getAllRelationships'>;
+}
+
+/**
+ * Record a batch as one version of its graph, and announce it on the live feed.
+ *
+ * Every other entity write goes through the versioning bridge; a batch used to
+ * write the live store alone, so a rollback, merge or branch (which rebuild the
+ * live store from the version head) deleted what it wrote, and an export never
+ * held it. What is recorded is what the live store holds once the batch is done,
+ * read back entity by entity, so a step a failure or an atomic rollback undid,
+ * or a rollback that itself failed, is versioned as it stands. The bridge also
+ * makes the batch's one announcement per kind of change (`steps`).
+ *
+ * Any failure -- reading the store back, reading the head, committing -- is
+ * announced as "(not versioned)" and rethrown, unless `undoOnFailure` says the
+ * caller will undo the writes: then nothing is announced, because nothing
+ * stays (the caller announces whatever its undo could not remove).
+ */
+async function versionBatch(
+  req: Request,
+  live: LiveReaders,
+  touched: Touched,
+  steps: BatchStep[],
+  { undoOnFailure = false }: { undoOnFailure?: boolean } = {}
+): Promise<void> {
+  const graphId = requireGraphId(req);
+  const versioning = req.container.graphWriteVersioningService;
+  let state: BatchLiveState;
+  try {
+    state = await readBack(live, touched);
+  } catch (error) {
+    if (!undoOnFailure) versioning.announceBatch(graphId, steps, { notVersioned: true });
+    throw error;
+  }
+  await versioning.recordBatch(graphId, state, steps, { announceIfNotVersioned: !undoOnFailure });
+}
+
+/** What the live store now holds of what a batch touched. */
+async function readBack(live: LiveReaders, touched: Touched): Promise<BatchLiveState> {
+  const { eventRepository, arcRepository, causalService } = live;
+  const state: BatchLiveState = { deletesLinks: touched.deletesLinks };
+  if (touched.events.size > 0 && eventRepository) {
+    state.events = new Map();
+    for (const id of touched.events) state.events.set(id, await eventRepository.findById(id));
+  }
+  if (touched.arcs.size > 0 && arcRepository) {
+    state.arcs = new Map();
+    for (const id of touched.arcs) state.arcs.set(id, await arcRepository.findById(id));
+  }
+  if (touched.links.size > 0 && causalService) {
+    const all = (await causalService.getAllRelationships()) as StoredCausalRelationship[];
+    state.links = [...touched.links.values()].map((pair) => ({
+      ...pair,
+      live: all.filter((link) => link.cause_event_id === pair.cause_event_id && link.effect_event_id === pair.effect_event_id),
+    }));
+  }
+  return state;
+}
+
+/**
+ * Version what a batch left after it failed and undid itself (an abort, an
+ * atomic transaction). The response is the documented 400 whatever happens
+ * here: a versioning failure is logged and announced, and does not replace it.
+ */
+async function versionAfterFailure(req: Request, live: LiveReaders, touched: Touched, steps: BatchStep[]): Promise<void> {
+  try {
+    await versionBatch(req, live, touched, steps);
+  } catch (error) {
+    logger.error('Could not version what a failed batch left in the store', error, { graphId: requireGraphId(req) });
+  }
+}
+
+/**
+ * Undo a batch's writes because they could not be versioned. Nothing is
+ * announced for what the undo removed; what it could not remove stays in the
+ * store, unversioned, and is announced as such.
+ */
+async function undoUnversioned<T>(
+  req: Request,
+  type: BatchStep['type'],
+  written: T[],
+  remove: (entity: T) => Promise<unknown>,
+  idOf: (entity: T) => string
+): Promise<void> {
+  const left: BatchStep[] = [];
+  for (const entity of [...written].reverse()) {
+    try {
+      await remove(entity);
+    } catch (rollbackError) {
+      const id = idOf(entity);
+      logger.error(`Compensating rollback failed for a batch ${type}`, rollbackError, { id });
+      left.push({ operation: 'create', type, id });
+    }
+  }
+  req.container.graphWriteVersioningService.announceBatch(requireGraphId(req), left.reverse(), { notVersioned: true });
+}
+
+function touchedOf(kind: 'events' | 'arcs', ids: string[]): Touched {
+  const touched = new Touched();
+  ids.forEach((id) => touched[kind].add(id));
+  return touched;
+}
+
+/** The ids the live store still holds. */
+async function stillPresent(ids: string[], find: (id: string) => Promise<unknown>): Promise<string[]> {
+  const present: string[] = [];
+  for (const id of ids) {
+    // One it cannot read may still be there: count it, so it is not left unannounced.
+    if (await find(id).catch(() => true)) present.push(id);
+  }
+  return present;
+}
+
+/**
+ * Version and announce the events or arcs a batch created. As a single create
+ * does (`POST /api/events`), a batch that cannot be versioned is undone in the
+ * live store, and the error propagates.
+ */
+async function versionCreated(
+  req: Request,
+  kind: 'events' | 'arcs',
+  created: string[],
+  repository: Pick<EventRepository, 'findById' | 'delete'> | Pick<ArcRepository, 'findById' | 'delete'>
+): Promise<void> {
+  const type = kind === 'events' ? 'event' : 'arc';
+  const live: LiveReaders = kind === 'events'
+    ? { eventRepository: repository as Pick<EventRepository, 'findById'> }
+    : { arcRepository: repository as Pick<ArcRepository, 'findById'> };
+  try {
+    await versionBatch(req, live, touchedOf(kind, created), created.map((id) => ({ operation: 'create', type, id })), { undoOnFailure: true });
+  } catch (versionError) {
+    await undoUnversioned(req, type, created, (id) => repository.delete(id), (id) => id);
+    throw versionError;
+  }
+}
+
+/** The writes a transaction's steps made, as the live feed announces them. */
 function stepsOf(
   results: Array<{ type: string; success: boolean; id?: string }>,
   liveIds: ReadonlyMap<string, string> = new Map()
-): Array<{ operation: ChangeOperation; type: ChangedEntityType; id: string }> {
+): BatchStep[] {
   return results.flatMap((step) => {
     if (!step.success || !step.id) return [];
     const kind = /^(create|update|delete)_(event|arc|relationship)$/.exec(step.type);
     if (!kind) return [];
-    const id = kind[1] === 'create' ? (liveIds.get(step.id) ?? step.id) : step.id;
-    return [{ operation: kind[1] as ChangeOperation, type: kind[2] as ChangedEntityType, id }];
+    const id = kind[2] === 'relationship' ? (liveIds.get(step.id) ?? step.id) : step.id;
+    return [{ operation: kind[1] as BatchStep['operation'], type: kind[2] as BatchStep['type'], id }];
   });
 }
 
@@ -269,6 +399,9 @@ batchRoutes.post(
               logger.error('Batch event rollback failed', rollbackError, { id: createdId });
             }
           }
+          // Nothing, unless a rollback failed: then what it left is versioned and announced.
+          const left = await stillPresent(rolledBack, (id) => eventRepository.findById(id));
+          await versionAfterFailure(req, { eventRepository }, touchedOf('events', rolledBack), left.map((id) => ({ operation: 'create', type: 'event', id })));
           return res.status(400).json(createBatchError(
             'BATCH_ABORTED',
             `Batch aborted at index ${i}: ${errorMessage}`,
@@ -288,7 +421,7 @@ batchRoutes.post(
     // Set success based on failure count
     result.success = result.failed.length === 0;
 
-    announceBatch(req, requireGraphId(req), result.created.map((id) => ({ operation: 'create', type: 'event', id })));
+    await versionCreated(req, 'events', result.created, eventRepository);
     res.status(result.success ? 201 : 207).json(result);
   })
 );
@@ -368,6 +501,9 @@ batchRoutes.post(
               logger.error('Batch arc rollback failed', rollbackError, { id: createdId });
             }
           }
+          // Nothing, unless a rollback failed: then what it left is versioned and announced.
+          const left = await stillPresent(rolledBack, (id) => arcRepository.findById(id));
+          await versionAfterFailure(req, { arcRepository }, touchedOf('arcs', rolledBack), left.map((id) => ({ operation: 'create', type: 'arc', id })));
           return res.status(400).json(createBatchError(
             'BATCH_ABORTED',
             `Batch aborted at index ${i}: ${errorMessage}`,
@@ -386,7 +522,7 @@ batchRoutes.post(
 
     result.success = result.failed.length === 0;
 
-    announceBatch(req, requireGraphId(req), result.created.map((id) => ({ operation: 'create', type: 'arc', id })));
+    await versionCreated(req, 'arcs', result.created, arcRepository);
     res.status(result.success ? 201 : 207).json(result);
   })
 );
@@ -416,8 +552,10 @@ batchRoutes.post(
     const onError = request.onError || 'abort';
     const { relationships } = request;
 
-    // The ids the graph gave the links, for the announcement (result.created keeps the cause_effect keys).
-    const storedIds: string[] = [];
+    // The links made, by their events and by the id the graph gave them (for
+    // the announcement and the rollback; result.created keeps cause_effect keys,
+    // which cannot be split again: event ids contain underscores).
+    const made: StoredCausalRelationship[] = [];
     const result: BatchResult = {
       success: true,
       created: [],
@@ -475,22 +613,26 @@ batchRoutes.post(
         result.created.push(relId);
         // What the graph calls the link, which the response's cause_effect key is not:
         // a watcher matches its highlights on this id.
-        storedIds.push(stored.id);
+        made.push(stored);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
         if (onError === 'abort') {
           const rolledBack = [...result.created];
-          for (const createdId of [...result.created].reverse()) {
+          const left: typeof made = [];
+          for (const link of [...made].reverse()) {
             try {
-              const [causeId, effectId] = createdId.split('_');
-              if (causeId && effectId) {
-                await causalService.deleteCausalLink(causeId, effectId);
-              }
+              // This link, by its id: another may join the same two events.
+              await causalService.deleteCausalLinkById(link);
             } catch (rollbackError) {
-              logger.error('Batch relationship rollback failed', rollbackError, { id: createdId });
+              logger.error('Batch relationship rollback failed', rollbackError, { id: link.id });
+              left.push(link);
             }
           }
+          // Nothing, unless a rollback failed: then what it left is versioned and announced.
+          const touched = new Touched();
+          made.forEach((link) => touched.link(link));
+          await versionAfterFailure(req, { causalService }, touched, left.map((link) => ({ operation: 'create', type: 'relationship', id: link.id })));
           return res.status(400).json(createBatchError(
             'BATCH_ABORTED',
             `Batch aborted at index ${i}: ${errorMessage}`,
@@ -509,7 +651,18 @@ batchRoutes.post(
 
     result.success = result.failed.length === 0;
 
-    announceBatch(req, requireGraphId(req), storedIds.map((id) => ({ operation: 'create', type: 'relationship', id })));
+    const touched = new Touched();
+    made.forEach((link) => touched.link(link));
+    try {
+      await versionBatch(req, { causalService }, touched, made.map((link) => ({ operation: 'create', type: 'relationship', id: link.id })), { undoOnFailure: true });
+    } catch (versionError) {
+      // As a single write does: a batch that cannot be versioned is undone,
+      // link by link. Not through a map keyed by id: in Neo4j two links
+      // between the same events share the id "cause->effect", and a map kept
+      // only the second, so the undo deleted it twice and left the first.
+      await undoUnversioned(req, 'relationship', made, (link) => causalService.deleteCausalLinkById(link), (link) => link.id);
+      throw versionError;
+    }
     res.status(result.success ? 201 : 207).json(result);
   })
 );
@@ -605,9 +758,13 @@ batchRoutes.post(
       rollbackPerformed: false,
     };
 
-    const createdIds: Array<{ type: string; id: string }> = [];
-    // A created link is announced under the id the graph gave it, not the cause_effect key the response uses.
+    const createdIds: Array<{ type: 'event' | 'arc'; id: string } | { type: 'relationship'; id: string; stored: StoredCausalRelationship }> = [];
+    // A link is announced under the id the graph gave it, not the cause_effect key the response uses.
     const liveIds = new Map<string, string>();
+    // What a step wrote, read back for the version once the transaction is
+    // done. Only a step that succeeded: one that failed wrote nothing, and
+    // re-versioning it would write the live model over the head.
+    const touched = new Touched();
 
     const calendarOf = calendarLookup(req);
     for (let i = 0; i < operations.length; i++) {
@@ -622,6 +779,7 @@ batchRoutes.post(
             );
             opResult = { success: true, id: event.id };
             createdIds.push({ type: 'event', id: event.id });
+            touched.events.add(event.id);
             break;
           }
 
@@ -631,6 +789,7 @@ batchRoutes.post(
             );
             opResult = { success: true, id: arc.id };
             createdIds.push({ type: 'arc', id: arc.id });
+            touched.arcs.add(arc.id);
             break;
           }
 
@@ -640,6 +799,7 @@ batchRoutes.post(
             const current = eventUpdates.timestamp !== undefined ? await eventRepository.findById(eventId) : null;
             const dated = await readStepDates(eventUpdates, calendarOf, 'event', current ? { metadata: current.metadata } : { metadata: {} });
             const updatedEvent = await eventRepository.update(eventId, dated);
+            if (updatedEvent) touched.events.add(eventId);
             opResult = { success: !!updatedEvent, id: eventId };
             break;
           }
@@ -647,6 +807,7 @@ batchRoutes.post(
           case 'update_arc': {
             const { id: arcId, ...arcUpdates } = op.data as { id: string } & Record<string, unknown>;
             const updatedArc = await arcRepository.update(arcId, await readStepDates(arcUpdates, calendarOf, 'arc'));
+            if (updatedArc) touched.arcs.add(arcId);
             opResult = { success: !!updatedArc, id: arcId };
             break;
           }
@@ -654,6 +815,11 @@ batchRoutes.post(
           case 'delete_event': {
             const deleteEventId = (op.data as { id: string }).id;
             const deletedEvent = await eventRepository.delete(deleteEventId);
+            if (deletedEvent) {
+              touched.events.add(deleteEventId);
+              // Its links went with it (DETACH DELETE).
+              touched.deletesLinks = true;
+            }
             opResult = { success: deletedEvent, id: deleteEventId };
             break;
           }
@@ -661,6 +827,7 @@ batchRoutes.post(
           case 'delete_arc': {
             const deleteArcId = (op.data as { id: string }).id;
             const deletedArc = await arcRepository.delete(deleteArcId);
+            if (deletedArc) touched.arcs.add(deleteArcId);
             opResult = { success: deletedArc, id: deleteArcId };
             break;
           }
@@ -686,7 +853,9 @@ batchRoutes.post(
             });
             const relId = `${relData.cause_event_id}_${relData.effect_event_id}`;
             opResult = { success: true, id: relId };
-            createdIds.push({ type: 'relationship', id: relId });
+            const pair = { cause_event_id: relData.cause_event_id, effect_event_id: relData.effect_event_id };
+            createdIds.push({ type: 'relationship', id: relId, stored });
+            touched.link(pair);
             liveIds.set(relId, stored.id);
             break;
           }
@@ -699,11 +868,15 @@ batchRoutes.post(
 
           case 'delete_relationship': {
             const deleteRelData = op.data as { cause_event_id: string; effect_event_id: string };
-            await causalService.deleteCausalLink(
+            const deletedId = await causalService.deleteCausalLink(
               deleteRelData.cause_event_id,
               deleteRelData.effect_event_id
             );
-            opResult = { success: true, id: `${deleteRelData.cause_event_id}_${deleteRelData.effect_event_id}` };
+            touched.link(deleteRelData);
+            touched.deletesLinks = true;
+            const relId = `${deleteRelData.cause_event_id}_${deleteRelData.effect_event_id}`;
+            opResult = { success: true, id: relId };
+            liveIds.set(relId, deletedId);
             break;
           }
 
@@ -729,14 +902,11 @@ batchRoutes.post(
                 case 'arc':
                   await arcRepository.delete(created.id);
                   break;
-                case 'relationship': {
-                  // Relationship ID format: cause_effect
-                  const [causeId, effectId] = created.id.split('_');
-                  if (causeId && effectId) {
-                    await causalService.deleteCausalLink(causeId, effectId);
-                  }
+                case 'relationship':
+                  // This link, by its id: by its events would take another
+                  // link between the same two (the user's own, older one).
+                  await causalService.deleteCausalLinkById(created.stored);
                   break;
-                }
               }
               rolledBack.add(created.id);
             } catch (rollbackError) {
@@ -748,11 +918,13 @@ batchRoutes.post(
 
           // The rollback undoes only what the transaction created. The updates
           // and deletes that ran before the failing step stay in the store, and
-          // so does anything whose rollback failed: tell whoever has the graph
-          // open. What was created and removed again nets to nothing.
-          announceBatch(
+          // so does anything whose rollback failed: version them, and tell
+          // whoever has the graph open. What was created and removed again nets
+          // to nothing.
+          await versionAfterFailure(
             req,
-            requireGraphId(req),
+            { eventRepository, arcRepository, causalService },
+            touched,
             stepsOf(
               result.results.filter((step) => !(step.id !== undefined && rolledBack.has(step.id))),
               liveIds
@@ -771,7 +943,10 @@ batchRoutes.post(
       }
     }
 
-    announceBatch(req, requireGraphId(req), stepsOf(result.results, liveIds));
+    // A transaction whose version cannot be committed is not undone (its
+    // updates and deletes have no before-image here): the error propagates and
+    // the feed says the change is not versioned, as for a single update.
+    await versionBatch(req, { eventRepository, arcRepository, causalService }, touched, stepsOf(result.results, liveIds));
     res.status(result.success ? 200 : 207).json(result);
   })
 );
@@ -874,7 +1049,7 @@ function validateEventData(data: Partial<IEvent>): string[] {
 
   if (!data.timestamp) {
     warnings.push('timestamp is required');
-  } else if (isNaN(toInstant(data.timestamp).getTime())) {
+  } else if (toAxisTime(data.timestamp) === null) {
     warnings.push('timestamp is invalid');
   }
 
@@ -897,9 +1072,12 @@ function validateArcData(data: Partial<IArc>): string[] {
   }
 
   if (data.start_time && data.end_time) {
-    const start = toInstant(data.start_time);
-    const end = toInstant(data.end_time);
-    if (start >= end) {
+    // Exactly, on the axis (docs/specs/deep-time.md, Req 3): `>=` on two Dates
+    // compares the nearest doubles, which past about 285,000 years can be one
+    // number for two moments.
+    const start = toAxisTime(data.start_time);
+    const end = toAxisTime(data.end_time);
+    if (start !== null && end !== null && compareAxisTime(start, end) >= 0) {
       warnings.push('start_time must be before end_time');
     }
   }

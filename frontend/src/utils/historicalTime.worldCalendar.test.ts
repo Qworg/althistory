@@ -9,6 +9,7 @@ import {
 } from './historicalTime'
 import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
 import { AR, VAEL, vael } from '@/test/fixtures/worldCalendars'
+import { readDateBound, toInstant } from '@althistory/calendar'
 
 const DATE_OPTIONS: Intl.DateTimeFormatOptions = { timeZone: 'UTC', year: 'numeric', month: 'short', day: 'numeric' }
 
@@ -61,9 +62,17 @@ describe("historical dates in Vael's own calendars", () => {
     expect(formatEventDate({ timestamp: vael(312, 2, 4).toISOString() }, 'en-US')).toBe('Thaw 4, 312 AR')
     expect(formatHistoricalDate('1843-11-20T00:00:00Z', 'en-US', null)).toBe('Nov 20, 1843')
     expect(historicalYear('1843-11-20T00:00:00Z', null)).toBe('1843')
-    // Real BCE years keep their astronomical numbers; only deep time gets the era.
-    expect(historicalYear('-000043-03-15T00:00:00Z', null)).toBe('-43')
-    expect(historicalYear('-499999-03-15T00:00:00.000Z', null)).toBe('500000 BC')
+    // A year is written as a person types it, in every locale: ASCII digits,
+    // BCE before 1 CE at every magnitude, never the astronomical "-43".
+    expect(historicalYear('-000043-03-15T00:00:00Z', null)).toBe('44 BCE')
+    expect(historicalYear('0000-06-01T00:00:00Z', null)).toBe('1 BCE')
+    expect(historicalYear('-499999-03-15T00:00:00.000Z', null)).toBe('500000 BCE')
+    expect(historicalYear('0001-01-01T00:00:00Z', null)).toBe('1')
+    // What it writes reads back as that year, where a person types it.
+    for (const iso of ['-000043-03-15T00:00:00Z', '0000-06-01T00:00:00Z', '-499999-03-15T00:00:00.000Z', '1843-11-20T00:00:00Z']) {
+      const read = readDateBound(historicalYear(iso, null), 'start', null)
+      expect(read.ok && read.date.getUTCFullYear()).toBe(toInstant(iso).getUTCFullYear())
+    }
     expect(historicalYear('+300000-01-01T00:00:00.000Z', null)).toBe('300000')
   })
 

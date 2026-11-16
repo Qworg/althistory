@@ -2,10 +2,10 @@
 // See: docs/adr-001-d3-react-integration.md
 
 import { useMemo } from 'react'
-import { clampedInstantOfMs, instantScale } from '@/utils/timeScale'
+import { clampedAddInstantMs, instantExtent, instantScale } from '@/utils/timeScale'
 import { Event, Arc } from '@/types'
 import { TimelineMargin, UseTimelineScalesResult } from '@/types/timeline'
-import { toInstant } from '@althistory/calendar'
+import { msApart, toInstant } from '@althistory/calendar'
 
 /**
  * Custom hook for memoized timeline scale calculations.
@@ -43,24 +43,14 @@ export function useTimelineScales(
 
   // Calculate x-axis domain from events and arcs (memoized)
   const xDomain = useMemo((): [Date, Date] => {
-    const times: number[] = []
-
-    // Collect timestamps from events
-    for (const e of events) {
-      const t = toInstant(e.timestamp).getTime()
-      if (!Number.isNaN(t)) times.push(t)
-    }
-
-    // Collect start/end times from arcs
-    for (const a of arcs) {
-      const s = toInstant(a.start_time).getTime()
-      const e = toInstant(a.end_time).getTime()
-      if (!Number.isNaN(s)) times.push(s)
-      if (!Number.isNaN(e)) times.push(e)
-    }
+    // The first and last moment of the events and arcs, compared exactly.
+    const extent = instantExtent([
+      ...events.map(e => toInstant(e.timestamp)),
+      ...arcs.flatMap(a => [toInstant(a.start_time), toInstant(a.end_time)]),
+    ])
 
     // Default to ±30 days if no data
-    if (times.length === 0) {
+    if (!extent) {
       const now = Date.now()
       return [
         new Date(now - 1000 * 60 * 60 * 24 * 30),
@@ -68,16 +58,15 @@ export function useTimelineScales(
       ]
     }
 
-    const minTime = Math.min(...times)
-    const maxTime = Math.max(...times)
-    const range = maxTime - minTime
+    const [first, last] = extent
+    const range = msApart(first, last)
 
     // Add small padding (2% on each side) so events don't sit at the very edge
     // This ensures events spread across ~96% of the width
     // Minimum padding is 10 seconds to avoid events touching the edge
     const padding = Math.max(range * 0.02, 1000 * 10) // At least 10 seconds padding
 
-    return [clampedInstantOfMs(minTime - padding), clampedInstantOfMs(maxTime + padding)]
+    return [clampedAddInstantMs(first, -padding), clampedAddInstantMs(last, padding)]
   }, [events, arcs])
 
   // Calculate zoomed width - when zoomLevel > 1, content is wider than container

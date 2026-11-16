@@ -8,20 +8,30 @@
  * first. The server itself (and the recording it replays) is loaded on the
  * first request, as its own chunk.
  *
- * It also reads `?start=branch`, `?start=main` or `?start=world`, the site's
- * links: the demo opens on the example branch, where the fork is, on the main
- * history, or on Vael, the invented world with its own calendar. In a tab that already has demo state, the edits are kept and only
+ * It also reads `?start=branch`, `?start=main`, `?start=world` or
+ * `?start=deep`, the site's links: the demo opens on the example branch, where
+ * the fork is, on the main history, on Vael, the invented world with its own
+ * calendar, or on deep time, 252 million years of real history. In a tab that
+ * already has demo state, the edits are kept and only
  * the active graph changes. The parameter is removed from the address
  * straight away, so a reload or a shared link does not keep resetting the
  * visitor's choice.
  */
 import axios from 'axios'
-import { DEMO_BRANCH_GRAPH_ID, DEMO_MAIN_GRAPH_ID, DEMO_MODE, DEMO_STATE_KEY, DEMO_WORLD_GRAPH_ID } from './flag'
+import {
+  DEMO_BRANCH_GRAPH_ID,
+  DEMO_DEEP_GRAPH_ID,
+  DEMO_MAIN_GRAPH_ID,
+  DEMO_MODE,
+  DEMO_STATE_KEY,
+  DEMO_WORLD_GRAPH_ID,
+} from './flag'
 
 const START_GRAPHS: Record<string, string> = {
   branch: DEMO_BRANCH_GRAPH_ID,
   main: DEMO_MAIN_GRAPH_ID,
   world: DEMO_WORLD_GRAPH_ID,
+  deep: DEMO_DEEP_GRAPH_ID,
 }
 
 function applyStartParameter(): void {

@@ -439,3 +439,36 @@ describe('Arc Hierarchy Utilities', () => {
     })
   })
 })
+
+describe('arc layout near 200 million years BCE, where a double holds no whole seconds', () => {
+  // A second apart, and one double: getTime() calls them the same moment.
+  const EARLIER = '-200000001-12-31T23:59:59.500Z'
+  const LATER = '-200000000-01-01T00:00:00.500Z'
+  const arc = (id: string, start_time: string, end_time: string): Arc => ({
+    id, name: id, description: id, start_time, end_time, level: 0, parent_arc_id: null, created_at: start_time, updated_at: start_time,
+  })
+  const event = (id: string, timestamp: string): Event => ({
+    id, description: id, actor: 'A', target: 'B', timestamp, created_at: timestamp, updated_at: timestamp,
+  })
+
+  it('holds the events inside an arc and not one a second past its end', () => {
+    const [processed] = processArcsWithUIState(
+      [arc('age', '-200000002-01-01T00:00:00.000Z', EARLIER)],
+      [event('after', LATER), event('at-end', EARLIER)],
+      new Set(),
+      new Set()
+    )
+    expect(processed!.containedEvents.map(e => e.id)).toEqual(['at-end'])
+  })
+
+  it('puts an arc that starts a second before another ends on a row of its own', () => {
+    const arcs = processArcsWithUIState(
+      [arc('first', '-200000002-01-01T00:00:00.000Z', LATER), arc('second', EARLIER, '-199999999-01-01T00:00:00.000Z')],
+      [],
+      new Set(),
+      new Set()
+    )
+    const { arcHierarchy } = calculateArcHierarchy(arcs)
+    expect(arcHierarchy.map(a => [a.id, a.renderLevel])).toEqual([['first', 0], ['second', 1]])
+  })
+})

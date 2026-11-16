@@ -15,7 +15,7 @@
  */
 
 import * as d3 from 'd3'
-import { type AxisTime, AxisDate, MAX_AXIS_MS, MIN_AXIS_MS, axisOf, clampedInstantOfMs, gregorianTicks, instantOfAxisTime, instantOfMs } from '@althistory/calendar'
+import { type AxisTime, AxisDate, MAX_AXIS_MS, MIN_AXIS_MS, axisOf, clampedInstantOfMs, compareInstants, gregorianTicks, instantOfAxisTime, instantOfMs } from '@althistory/calendar'
 
 export { clampedInstantOfMs, instantOfMs }
 
@@ -61,7 +61,7 @@ const SIX_DIGIT_YEARS_MS = -377_705_116_800_000
  * start to a multiple of k, and near the lower bound that floor is an Invalid
  * Date, so the axis has no ticks; and before year -9999 its labels are astronomical
  * ("-200000s"). So: any domain that starts before year -9999, or comes within a
- * span of a Date's bounds, takes the calendar package's ticks ("200000 BCE").
+ * span of a Date's bounds, takes the calendar package's ticks, labelled as a person types a year ("200000 BCE").
  */
 export function usesArithmeticTicks(first: Date, last: Date): boolean {
   if (isDeepInstant(first) || isDeepInstant(last)) return true
@@ -184,4 +184,35 @@ export function rescaleInstantX(transform: { invertX(x: number): number }, base:
   return base
     .copy()
     .domain([base.invert(transform.invertX(start)), base.invert(transform.invertX(end))])
+}
+
+// ── Extents and offsets, exactly ───────────────────────────────────────────
+//
+// What a layout computes before a moment becomes a pixel (the first and last
+// moment, a pad, a pan) is computed on the axis: past 2^53 ms (about 285,000
+// years) a getTime() is a rounded double, and two moments a second apart are
+// one. Only the offset itself (a pad, a pan, a span) is a number.
+
+/** The earliest and latest of some moments, compared exactly; invalid ones are left out. Null for none. */
+export function instantExtent(dates: Iterable<Date>): [Date, Date] | null {
+  let first: Date | null = null
+  let last: Date | null = null
+  for (const date of dates) {
+    if (axisOf(date) === null) continue
+    if (first === null || compareInstants(date, first) < 0) first = date
+    if (last === null || compareInstants(date, last) > 0) last = date
+  }
+  return first && last ? [first, last] : null
+}
+
+/**
+ * `date` moved by `ms` milliseconds (fractions cut), exactly from where it
+ * is, and stopped at the axis's bound rather than made invalid (an infinity
+ * reaches the nearer bound). Invalid for an invalid date or a NaN offset.
+ */
+export function clampedAddInstantMs(date: Date, ms: number): Date {
+  const at = axisOf(date)
+  if (at === null || Number.isNaN(ms)) return new Date(NaN)
+  const sum = ms === Infinity ? MAX_AXIS_MS : ms === -Infinity ? MIN_AXIS_MS : at + BigInt(Math.trunc(ms))
+  return instantOfAxisTime(sum < MIN_AXIS_MS ? MIN_AXIS_MS : sum > MAX_AXIS_MS ? MAX_AXIS_MS : sum) ?? new Date(NaN)
 }

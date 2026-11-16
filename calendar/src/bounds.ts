@@ -22,8 +22,14 @@ import { formatWorldFields } from './world/notation'
 // The filter's date bounds are typed, not picked: a native date input shows
 // the browser's locale order (mm/dd/yyyy in the US) and cannot reach BCE. A
 // bound is a year, a year and month, or a full date, written largest unit
-// first -- `1843`, `1843-11`, `1843-11-20` -- with `BCE` (or a minus sign) for
-// years before 1 CE. There is no year 0: 1 BCE is followed by 1 CE.
+// first -- `1843`, `1843-11`, `1843-11-20` -- with `BCE` for years before
+// 1 CE. There is no year 0: 1 BCE is followed by 1 CE.
+//
+// A minus sign is refused unless it is ISO 8601's expanded six-digit year
+// ("-000043", which counts astronomically: 44 BCE). "-0043" or "-43" could
+// be 43 BCE (counting back, as "43 BCE" does) or 44 BCE (as ISO 8601 and the
+// app's own year labels count, where 0 is 1 BCE): two dates a year apart that
+// a person cannot tell apart, so the message names both and asks for one.
 //
 // A start bound is the first moment of the period it names and an end bound
 // the last, so `1843` to `1843` is the whole year.
@@ -32,6 +38,18 @@ export type DateBoundEdge = 'start' | 'end'
 
 /** A typed bound: the instant as an axis time and as a Date (an `AxisDate` beyond a Date's range), and its canonical spelling. */
 export type HistoricalDateParse = { ok: true; date: Date; time: AxisTime; text: string } | { ok: false; error: string }
+
+/** A minus sign before a year of one to five digits: not ISO 8601's six-digit year, and so either of two years. */
+const SIGNED_SHORT_YEAR = /^-\d{1,5}(?!\d)/
+
+/**
+ * Whether text starts with a minus sign before a year of one to five digits
+ * ("-44", "-0043-03-15"), which every door refuses for naming either of two
+ * years (see {@link parseHistoricalDate}). Spaces around it are ignored.
+ */
+export function isSignedShortYear(text: string): boolean {
+  return SIGNED_SHORT_YEAR.test(text.trim())
+}
 
 const HISTORICAL_DATE_PATTERN = /^(-)?(\d{1,9})(?:-(\d{1,2})(?:-(\d{1,2}))?)?(?:\s*(BCE|BC|CE|AD))?$/i
 
@@ -55,11 +73,39 @@ function formatBound(astronomicalYear: number, month?: number, day?: number): st
 }
 
 /**
+ * Why "-43" (a minus sign before fewer than six digits) is refused, naming
+ * both dates it could be: 43 BCE counted back, or 44 BCE as ISO 8601 counts
+ * (year 0 is 1 BCE), with the spelling of each that is not ambiguous.
+ */
+function signedYearError(year: number, monthText: string | undefined, dayText: string | undefined): string {
+  const rest = `${monthText === undefined ? '' : `-${pad2(Number(monthText))}`}${dayText === undefined ? '' : `-${pad2(Number(dayText))}`}`
+  return (
+    `A minus sign there could mean ${year} BCE, or ${year + 1} BCE as ISO 8601 counts years (0 is 1 BCE). ` +
+    `Write "${year}${rest} BCE" or "${year + 1}${rest} BCE", or ISO 8601's six-digit "-${String(year).padStart(6, '0')}${rest}" (${year + 1} BCE).`
+  )
+}
+
+/**
  * Read a typed date bound. `edge` decides which end of the named period it
  * stands for. Returns the instant and the canonical spelling, or a message
  * that says what is wrong.
  */
 export function parseHistoricalDate(input: string, edge: DateBoundEdge): HistoricalDateParse {
+  const read = readHistoricalFields(input, edge)
+  if (!read.ok) return read
+  const date = instantOfAxisTime(read.time)
+  if (!date) {
+    return { ok: false, error: 'That date is out of range.' }
+  }
+  return { ok: true, date, time: read.time, text: read.text }
+}
+
+/**
+ * {@link parseHistoricalDate} without the range check: the moment a typed
+ * bound names, which may lie past the axis's bound (the start of the axis's
+ * first day does, though its later hours do not).
+ */
+function readHistoricalFields(input: string, edge: DateBoundEdge): { ok: true; time: AxisTime; text: string } | { ok: false; error: string } {
   const trimmed = input.trim().replace(/\s+/g, ' ')
   // ISO 8601's own spelling of a year outside 1-9999 (a signed six-digit
   // year, or 0000) counts astronomically, as toISOString writes it and every
@@ -79,14 +125,15 @@ export function parseHistoricalDate(input: string, edge: DateBoundEdge): Histori
     }
     const [, minus, yearText, monthPart, dayPart, era] = match
     const eraUpper = era?.toUpperCase()
-    const isBce = Boolean(minus) || eraUpper === 'BCE' || eraUpper === 'BC'
-    if (minus && (eraUpper === 'BCE' || eraUpper === 'BC' || eraUpper === 'CE' || eraUpper === 'AD')) {
+    const isBce = eraUpper === 'BCE' || eraUpper === 'BC'
+    if (minus && era) {
       return { ok: false, error: 'Use a minus sign or an era, not both.' }
     }
     const year = Number(yearText)
     if (year === 0) {
       return { ok: false, error: 'There is no year 0: 1 BCE is followed by 1 CE.' }
     }
+    if (minus) return { ok: false, error: signedYearError(year, monthPart, dayPart) }
     astronomicalYear = isBce ? 1 - year : year
     monthText = monthPart
     dayText = dayPart
@@ -115,11 +162,7 @@ export function parseHistoricalDate(input: string, edge: DateBoundEdge): Histori
           : utcTime(astronomicalYear + 1, 0, 1)
     time = next - 1n
   }
-  const date = instantOfAxisTime(time)
-  if (!date) {
-    return { ok: false, error: 'That date is out of range.' }
-  }
-  return { ok: true, date, time, text: formatBound(astronomicalYear, month, day) }
+  return { ok: true, time, text: formatBound(astronomicalYear, month, day) }
 }
 
 /**
@@ -135,6 +178,9 @@ export function formatHistoricalDateBound(value: Date | string | null | undefine
     // end is the whole year, where Date would read it as 1 January.
     const parsed = parseHistoricalDate(value, edge)
     if (parsed.ok) return parsed.text
+    // A minus sign before a short year is refused for naming two years; the
+    // lenient reader below would make a third of it ("-44" as 2044).
+    if (isSignedShortYear(value)) return ''
   }
   const date = toInstant(value)
   if (Number.isNaN(date.getTime())) return ''
@@ -176,8 +222,11 @@ export function formatBoundAt(value: Date, precision: DatePrecision): string {
 }
 
 /** How much of a date a canonical bound names: `1843` a year, `1843-11` a month, `1843-11-20` a day. */
-/** A time after a year-first date: "1843-11-20 14:30", "44-03-15 BCE 9:30". */
-const TIME_SUFFIX = /^(.+?)(?:[ T](\d{1,2}):(\d{2}))$/
+/** A time after a year-first date, to the minute, second or millisecond: "1843-11-20 14:30", "44-03-15 BCE 9:30:05.250". */
+const TIME_SUFFIX = /^(.+?)(?:[ T](\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)$/
+/** Text that ends in what looks like a time of day ("9:30:5", "14:30:05.1234", "14:30.5"). */
+const TIME_LIKE_SUFFIX = /[ T]\d{1,2}:\d[\d:.]*$/
+const TIME_FORM_ERROR = 'The time must be HH:MM, HH:MM:SS or HH:MM:SS.mmm after the date (up to 3 digits after the point), from 00:00 to 23:59:59.999, in UTC: 1843-11-20 14:30:05.250.'
 
 /**
  * Year-first text without a world (Req 16): a year, a month or a day, BCE
@@ -190,14 +239,21 @@ export function readHistoricalText(
 ): { ok: true; iso: string; time: AxisTime; precision: DatePrecision } | { ok: false; error: string } {
   const trimmed = String(text).trim()
   const timed = TIME_SUFFIX.exec(trimmed)
-  const parsed = parseHistoricalDate(timed ? timed[1]! : trimmed, timed ? 'start' : edge)
+  // Something like a time after the date that is not one: say so, not "write the year first".
+  if (!timed && TIME_LIKE_SUFFIX.test(trimmed)) return { ok: false, error: TIME_FORM_ERROR }
+  // A date with a time is range-checked once the time is added: the axis's
+  // first day starts before its bound, and its later hours are inside it.
+  const parsed = timed ? readHistoricalFields(timed[1]!, 'start') : parseHistoricalDate(trimmed, edge)
   if (!parsed.ok) return { ok: false, error: parsed.error }
   if (!timed) return { ok: true, iso: isoOfAxisTime(parsed.time), time: parsed.time, precision: boundPrecision(parsed.text) }
   if (boundPrecision(parsed.text) !== 'day') return { ok: false, error: 'A time needs a whole date: 1843-11-20 14:30.' }
   const hours = Number(timed[2])
   const minutes = Number(timed[3])
-  if (hours > 23 || minutes > 59) return { ok: false, error: 'The time must be 00:00 to 23:59, in UTC.' }
-  const time = parsed.time + BigInt((hours * 60 + minutes) * 60_000)
+  const seconds = timed[4] === undefined ? 0 : Number(timed[4])
+  // A fraction of a second is its milliseconds: ".5" is 500.
+  const ms = timed[5] === undefined ? 0 : Number(timed[5].padEnd(3, '0'))
+  if (hours > 23 || minutes > 59 || seconds > 59) return { ok: false, error: TIME_FORM_ERROR }
+  const time = parsed.time + BigInt(((hours * 60 + minutes) * 60 + seconds) * 1000 + ms)
   // The last day the axis holds ends before some of its times.
   if (!inAxisRange(time)) return { ok: false, error: 'That date is beyond the range the timeline holds (about 285 million years).' }
   return { ok: true, iso: isoOfAxisTime(time), time, precision: 'day' }

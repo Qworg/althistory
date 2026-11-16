@@ -137,11 +137,12 @@ that is its year 1 (`epochYear`) and a label (`eraLabel`).
 
 `generate timeline` (and the `generate_timeline` tool) drafts a graph
 whole-cloth from a premise or a world description. It uses a model only when
-*the althistory process* has `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`; without
-one it returns a template skeleton, and the result says
+`ANTHROPIC_API_KEY` or `OPENAI_API_KEY` is set where the drafting runs; put it
+in `timeline/.env.local`, which the app, the CLI and the MCP server all read.
+Without one it returns a template skeleton, and the result says
 `"source": "template"`. With the app running, the CLI and the MCP server work
-through it (using the app's own key from `timeline/.env.local`), generation
-included: the app runs it as a cancellable job, writes the graph as it goes,
+through it (authenticating with the app's admin key, also from
+`timeline/.env.local`), generation included: the app runs it as a cancellable job, writes the graph as it goes,
 and shows the changes in the open window as they are made. Don't add
 `--direct` while the app runs; the CLI refuses, because two processes would
 write the same files.

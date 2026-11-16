@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, act, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -10,6 +10,10 @@ import { useGlobalStore } from '@/stores/globalStore'
 import { NotificationCenter } from '@/components/notifications/NotificationCenter'
 import type { Event, Arc, FilterState } from '@/types'
 import type { TimelineProps } from '@/components/timeline/Timeline'
+import { WorldCalendarBoundary } from '@/components/layout/WorldCalendarBoundary'
+import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
+import { VAEL } from '@/test/fixtures/worldCalendars'
+import { formatHistoricalEnd, formatHistoricalTimestamp } from '@/utils/historicalTime'
 
 /**
  * Behavioural coverage for the direct-manipulation handlers TimelineView hands
@@ -549,5 +553,70 @@ describe('undoing a move before the events are fetched again (an offline queue, 
     })
     await waitFor(() => expect(mocks.updateEvent).toHaveBeenCalled())
     expect(mocks.updateEvent.mock.calls[0]![0].data.metadata).toMatchObject({ datePrecision: 'month', dateCalendar: 'tide' })
+  })
+})
+
+describe('undo messages in a world with several calendars', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.timelineProps.current = null
+    mocks.updateEvent.mockResolvedValue(undefined)
+    mocks.updateArc.mockResolvedValue(undefined)
+    useGlobalStore.setState({ errors: [], activeFilters: { ...defaultFilters } })
+    vi.mocked(useEvents).mockReturnValue(eventsResult({ data: events, isLoading: false, error: null }))
+    vi.mocked(useArcs).mockReturnValue(arcsResult({ data: arcs, isLoading: false, error: null }))
+    useWorldCalendarStore.getState().setCalendar(VAEL)
+  })
+  afterEach(() => useWorldCalendarStore.getState().setCalendar(null))
+
+  /** The view as the layout holds it: remounted when the calendar shown changes. */
+  function renderInWorld() {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <WorldCalendarBoundary>
+            <TimelineView />
+          </WorldCalendarBoundary>
+          <NotificationCenter />
+        </BrowserRouter>
+      </QueryClientProvider>
+    )
+  }
+
+  it('writes the dates in the calendar shown now, not the one shown when the edit was made', async () => {
+    renderInWorld()
+    const to = '1066-11-01T00:00:00.000Z'
+    await act(async () => {
+      await currentTimelineProps().onEventDrag?.(events[0]!, new Date(to))
+    })
+    const inReckoning = formatHistoricalTimestamp(to)
+    expect(inReckoning).toMatch(/AR/)
+    expect(screen.getByText(/^Moved "Battle of Hastings" to/)).toHaveTextContent(`Moved "Battle of Hastings" to ${inReckoning}`)
+
+    act(() => useWorldCalendarStore.getState().showCalendar('tide'))
+    const inTide = formatHistoricalTimestamp(to)
+    expect(inTide).toMatch(/TC/)
+    expect(screen.getByText(/^Moved "Battle of Hastings" to/)).toHaveTextContent(`Moved "Battle of Hastings" to ${inTide}`)
+
+    // Undone after the switch, and shown again in the first calendar.
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }))
+    })
+    await waitFor(() => expect(screen.getByText(/^Undone: moved "Battle of Hastings"/)).toHaveTextContent(`to ${inTide}`))
+    act(() => useWorldCalendarStore.getState().showCalendar(null))
+    expect(screen.getByText(/^Undone: moved "Battle of Hastings"/)).toHaveTextContent(`to ${inReckoning}`)
+  })
+
+  it('writes an arc resize in the calendar shown now', async () => {
+    renderInWorld()
+    const bounds = { start: new Date('1066-08-01T00:00:00.000Z'), end: new Date('1067-02-01T00:00:00.000Z') }
+    await act(async () => {
+      await currentTimelineProps().onArcResize?.(normanArc, bounds)
+    })
+    act(() => useWorldCalendarStore.getState().showCalendar('tide'))
+    expect(screen.getByText(/^Resized "Norman Conquest" to/)).toHaveTextContent(
+      `Resized "Norman Conquest" to ${formatHistoricalTimestamp(bounds.start.toISOString())} – ${formatHistoricalEnd(bounds.end.toISOString())}`
+    )
   })
 })

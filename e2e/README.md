@@ -17,6 +17,7 @@ Vitest setup.
 | `tests/create-event.spec.ts` | Create an event through the real UI | The modal opens, the typed payload is POSTed, the modal closes, the event list refetches, and the new mark appears on the timeline |
 | `tests/ingestion.spec.ts` | Open the Req 19 ingestion wizard and reach the review table | The wizard opens from the toolbar, `POST /api/ingest/url` is sent, the editable review table renders the extraction, and approving imports the selection (`POST /api/ingest/jobs/:id/approve`) |
 | `tests/offline.spec.ts` | Go offline | The `offline-indicator` appears with `data-online="false"` while the browser is offline and disappears on reconnect |
+| `tests/live-sync.spec.ts` | The live sync badge over a real browser WebSocket (`page.routeWebSocket` speaks the stream protocol) | A refused feed offers Retry and does not retry by itself; Retry reconnects and the badge says "Live sync on". After the open graph's access is revoked, the app reconnects with a graph-list token, watches only `*`, and the badge says "Live sync: not watching this graph" |
 | `tests/visual.spec.ts` | Visual regression (`@visual`) | `toHaveScreenshot` for two views only: the timeline SVG and the ingestion review dialog |
 
 ## Stubbed endpoints
@@ -34,6 +35,8 @@ followed by a refetch observes the write.
 - `GET /api/causal/relationships` (the timeline's link band and inspector)
 - `POST /api/ingest/url`, `POST /api/ingest/wikidata`, `POST /api/ingest/text`
 - `POST /api/ingest/jobs/:id/approve`, `DELETE /api/ingest/jobs/:id`
+- `POST /api/stream/token` (the live feed's token): `503` unless a spec passes
+  `streamToken`, so live sync is unavailable everywhere but `live-sync.spec.ts`
 
 Any other request is answered `404` and recorded in `state.unhandled`; the
 functional specs assert that list is empty, so an unimplemented call fails the

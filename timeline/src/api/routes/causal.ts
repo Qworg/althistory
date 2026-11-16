@@ -136,16 +136,20 @@ causalRoutes.post('/link', ...entityPermission('write:relationships'), async (re
     // Mirror the write into the active graph's version store so version history
     // and ExportService see UI-created causal links (not only imported ones).
     try {
-      await req.container.graphWriteVersioningService.recordRelationship(requireGraphId(req), storedRelationship, 'create');
+      // Undone below if it cannot be versioned, so not announced then.
+      await req.container.graphWriteVersioningService.recordRelationship(requireGraphId(req), storedRelationship, 'create', { undoneOnFailure: true });
     } catch (versionError) {
       try {
-        await causalService.deleteCausalLink(causeEventId, effectEventId);
+        // This link, by its id: by its two events would take an older link
+        // between them, the user's own.
+        await causalService.deleteCausalLinkById(storedRelationship);
       } catch (rollbackError) {
         logger.error('Compensating rollback failed for causal relationship', {
           causeEventId,
           effectEventId,
           rollbackError,
         });
+        req.container.graphWriteVersioningService.announceNotVersioned(requireGraphId(req), 'create', 'relationship', storedRelationship.id);
       }
       throw versionError;
     }

@@ -265,6 +265,66 @@ describe('Ingestion routes', () => {
       expect((await approveInto(async () => undefined)).status).toBe(400);
     });
 
+    it("reads the context's time range with the world's calendars, and refuses what they cannot read, with the reason", async () => {
+      const { app: scoped, textExtract } = setup();
+      const send = (defaultTimeRange: unknown) =>
+        request(scoped)
+          .post('/api/ingest/text')
+          .set('X-API-Key', INGEST_KEY)
+          .set('X-Graph-Id', 'graph-1')
+          .send({ text: 'The Tide War began in Thaw of 141 AR.', context: { defaultTimeRange } });
+
+      expect((await send({ start: 'Thaw 141 AR', end: '142 AR' })).status).toBe(200);
+      const refused = await send({ start: '1871-03', end: '142 AR' });
+      expect(refused.status).toBe(400);
+      expect(refused.body.error.message).toContain('context.defaultTimeRange.start: "1871-03" is a Gregorian month, which is no month of this world');
+      expect(textExtract).toHaveBeenCalledTimes(1);
+    });
+
+    it("reads the time range of a Wikipedia or Wikidata request with the named graph's calendars too", async () => {
+      const { app: scoped, graphCalendar } = setup();
+      const range = { start: 'Thaw 141 AR', end: '142 AR' };
+      const url = await request(scoped)
+        .post('/api/ingest/url')
+        .set('X-API-Key', INGEST_KEY)
+        .set('X-Graph-Id', 'graph-1')
+        .send({ url: 'https://en.wikipedia.org/wiki/Tide_War', context: { defaultTimeRange: range } });
+      expect(url.status).toBe(200);
+      const wikidata = await request(scoped)
+        .post('/api/ingest/wikidata')
+        .set('X-API-Key', INGEST_KEY)
+        .set('X-Graph-Id', 'graph-1')
+        .send({ queryType: 'historical-events', context: { defaultTimeRange: range } });
+      expect(wikidata.status).toBe(200);
+      expect(graphCalendar).toHaveBeenCalledWith('graph-1');
+
+      // Refused with the reason, naming the field, as /text refuses it.
+      const refused = await request(scoped)
+        .post('/api/ingest/url')
+        .set('X-API-Key', INGEST_KEY)
+        .set('X-Graph-Id', 'graph-1')
+        .send({ url: 'https://en.wikipedia.org/wiki/Tide_War', context: { defaultTimeRange: { start: '1871-03', end: '142 AR' } } });
+      expect(refused.status).toBe(400);
+      expect(refused.body.error.message).toContain('context.defaultTimeRange.start');
+    });
+
+    it("refuses a Wikipedia or Wikidata request for a graph the key may not read, without reading its calendar", async () => {
+      const { app: scoped, graphCalendar } = setup();
+      const url = await request(scoped)
+        .post('/api/ingest/url')
+        .set('X-API-Key', INGEST_KEY)
+        .set('X-Graph-Id', 'graph-9')
+        .send({ url: 'https://en.wikipedia.org/wiki/Tide_War' });
+      expect(url.status).toBe(403);
+      const wikidata = await request(scoped)
+        .post('/api/ingest/wikidata')
+        .set('X-API-Key', INGEST_KEY)
+        .set('X-Graph-Id', 'graph-9')
+        .send({ queryType: 'historical-events' });
+      expect(wikidata.status).toBe(403);
+      expect(graphCalendar).not.toHaveBeenCalled();
+    });
+
     it('leaves the context alone without an X-Graph-Id, as before', async () => {
       const { app: unscoped, textExtract, graphCalendar } = setup();
       const response = await request(unscoped)
@@ -289,6 +349,26 @@ describe('Ingestion routes', () => {
       expect(graphCalendar).not.toHaveBeenCalled();
       expect(textExtract).not.toHaveBeenCalled();
     });
+  });
+
+  it("refuses a context time range it cannot read with 400 and the reason, before extracting, rather than reading it leniently", async () => {
+    const textExtract = vi.fn().mockResolvedValue(makeExtraction());
+    const scoped = buildApp({ textExtract });
+    const send = (defaultTimeRange: unknown) =>
+      request(scoped).post('/api/ingest/text').set('X-API-Key', INGEST_KEY).send({ text: 'x', context: { defaultTimeRange } });
+
+    // Prose the stored-text reader would have read in the server's zone.
+    const prose = await send({ start: 'Feb 14 1870', end: '1871' });
+    expect(prose.status).toBe(400);
+    expect(prose.body.error.message).toContain('context.defaultTimeRange.start: "Feb 14 1870" is not a date');
+    const signed = await send({ start: '1066', end: '-0043' });
+    expect(signed.status).toBe(400);
+    expect(signed.body.error.message).toContain('43 BCE, or 44 BCE');
+    expect((await send({ start: '1066' })).status).toBe(400);
+    expect(textExtract).not.toHaveBeenCalled();
+
+    // Year-first text and ISO 8601 are read, as every door reads them.
+    expect((await send({ start: '44 BCE', end: '1871-03-04T12:00Z' })).status).toBe(200);
   });
 
   it('rejects an empty text body with 400', async () => {

@@ -1,5 +1,6 @@
 import { readRequestTime, queryInstant } from '../worldDates';
 import { Router, Response, NextFunction } from 'express';
+import { compareInstants } from '@althistory/calendar';
 import { CreateEventRequest, UpdateEventRequest, TimeRange } from '@/models/Event';
 import { ValidationError, NotFoundError, DatabaseError } from '@/utils/errors';
 import { RequestWithContainer, requireGraphId, resolveGraphContext } from '@/api/middleware';
@@ -62,7 +63,8 @@ eventRoutes.post('/', ...entityPermission('write:events'), async (req: RequestWi
     // Mirror the write into the active graph's version store so version history
     // and ExportService see UI-created events (not only imported ones).
     try {
-      await req.container.graphWriteVersioningService.recordEvent(requireGraphId(req), event, 'create');
+      // Undone below if it cannot be versioned, so not announced then.
+      await req.container.graphWriteVersioningService.recordEvent(requireGraphId(req), event, 'create', { undoneOnFailure: true });
     } catch (versionError) {
       try {
         await repository.delete(event.id);
@@ -71,6 +73,7 @@ eventRoutes.post('/', ...entityPermission('write:events'), async (req: RequestWi
           eventId: event.id,
           rollbackError,
         });
+        req.container.graphWriteVersioningService.announceNotVersioned(requireGraphId(req), 'create', 'event', event.id, { description: event.description });
       }
       throw versionError;
     }
@@ -136,7 +139,7 @@ eventRoutes.get('/', ...entityPermission('read:events'), async (req: RequestWith
         throw new ValidationError('Invalid date format for startTime or endTime', 'timeRange', { startTime, endTime });
       }
 
-      if (timeRange.start >= timeRange.end) {
+      if (compareInstants(timeRange.start, timeRange.end) >= 0) {
         throw new ValidationError('startTime must be before endTime', 'timeRange', { startTime, endTime });
       }
 
@@ -294,7 +297,8 @@ eventRoutes.put('/:id', ...entityPermission('write:events'), async (req: Request
     }
 
     try {
-      await req.container.graphWriteVersioningService.recordEvent(requireGraphId(req), updatedEvent, 'update');
+      // Undone below if it cannot be versioned, so not announced then.
+      await req.container.graphWriteVersioningService.recordEvent(requireGraphId(req), updatedEvent, 'update', { undoneOnFailure: true });
     } catch (versionError) {
       try {
         await repository.update(id, existingEvent);
@@ -303,6 +307,7 @@ eventRoutes.put('/:id', ...entityPermission('write:events'), async (req: Request
           eventId: id,
           rollbackError,
         });
+        req.container.graphWriteVersioningService.announceNotVersioned(requireGraphId(req), 'update', 'event', id, { description: updatedEvent.description });
       }
       throw versionError;
     }

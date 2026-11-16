@@ -1,13 +1,13 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import * as d3 from 'd3'
-import { clampedInstantOfMs, instantScale, rescaleInstantX, usesArithmeticTicks } from '@/utils/timeScale'
+import { clampedAddInstantMs, instantExtent, instantScale, rescaleInstantX, usesArithmeticTicks } from '@/utils/timeScale'
 import { Event, Arc, TimeRange } from '@/types'
-import { axisTicks, formatTimeAxisTick, getTimeAxisInterval } from '@/utils/d3Calculations'
+import { axisTicks, fitAxis, formatTimeAxisTickSet, getTimeAxisInterval } from '@/utils/d3Calculations'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import { formatEventDate } from '@/utils/historicalTime'
 import { truncateToWidth } from '@/utils'
 import { layoutEventLabels, type EventLabelPlacement, type LabelLayoutConfig } from './eventLabelLayout'
-import { compareInstants, toInstant } from '@althistory/calendar'
+import { compareInstants, msApart, toAxisTime, toInstant } from '@althistory/calendar'
 
 /** Two rows of 12px labels (the 12px floor); the pitch is the font plus leading. */
 const ACTOR_LABEL_CONFIG: LabelLayoutConfig = { rowOffsets: [-16, -30], fontSize: 12 }
@@ -112,15 +112,16 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
         end: new Date()
       }
     }
-    const times = events.map(e => toInstant(e.timestamp).getTime())
-    const first = Math.min(...times)
-    const last = Math.max(...times)
+    // The first and last event, compared exactly; the pad is measured from them.
+    const extent = instantExtent(events.map(e => toInstant(e.timestamp)))
+    if (!extent) return { start: new Date(NaN), end: new Date(NaN) }
+    const [first, last] = extent
     // Pad by a share of the span, not a fixed day: on a span of years one day
     // put the first and last events on the chart's edges.
-    const padding = Math.max(86400000, (last - first) * 0.03)
+    const padding = Math.max(86400000, msApart(first, last) * 0.03)
     return {
-      start: clampedInstantOfMs(first - padding),
-      end: clampedInstantOfMs(last + padding)
+      start: clampedAddInstantMs(first, -padding),
+      end: clampedAddInstantMs(last, padding)
     }
   }, [events])
 
@@ -214,8 +215,8 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
   // Axis ticks. The interval and labels follow the visible span, as the d3
   // axis did: scale.ticks(interval) is exactly what axisBottom computed.
   const worldCalendar = useWorldCalendar()
-  const xTicks = useMemo(() => {
-    const timeSpanMs = state.visibleTimeRange.end.getTime() - state.visibleTimeRange.start.getTime()
+  const rawTicks = useMemo(() => {
+    const timeSpanMs = msApart(state.visibleTimeRange.start, state.visibleTimeRange.end)
     // In a world calendar, its own years, months, days and hours; otherwise
     // UTC ticks and labels, as the event labels read every date (the
     // positions are the same linear scale either way).
@@ -226,7 +227,8 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     const [start = 0, end = 0] = timeScale.range()
     const maxTicks = Math.max(2, Math.floor(Math.abs(end - start) / 96))
     const countTicks = () => axisTicks(timeScale.domain(), maxTicks, worldCalendar).map(({ date, label }) => ({
-      key: date.getTime(),
+      key: String(toAxisTime(date)),
+      date,
       x: timeScale(date),
       label,
     }))
@@ -238,24 +240,43 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     // width holds, the count-based ticks (as the main timeline draws them).
     // The slack keeps a narrow chart's crowded, turned labels as they were.
     if (dates.length === 0 || dates.length > Math.max(maxTicks * 3, 24)) return countTicks()
-    return dates.map(date => ({
-      key: date.getTime(),
+    // Labelled as a set: one tick before 1 CE writes them all as a person types a date.
+    const labels = formatTimeAxisTickSet(dates, timeSpanMs, true)
+    return dates.map((date, index) => ({
+      key: String(toAxisTime(date)),
+      date,
       x: timeScale(date),
-      label: formatTimeAxisTick(date, timeSpanMs, true)
+      label: labels[index]!
     }))
   }, [timeScale, state.visibleTimeRange, worldCalendar])
+
+  // A set before 1 CE writes long labels ("9000-03-01 BCE"): they are fitted
+  // to the room rather than turned (an end label anchored inside the SVG, ticks
+  // that would overprint dropped, times of day given a caption naming their
+  // day). Any other set is drawn as it always was.
+  const { ticks: xTicks, caption: axisCaption, fitted: fittedAxis } = useMemo(
+    () =>
+      fitAxis(
+        rawTicks,
+        worldCalendar,
+        { left: -margin.left, right: innerWidth + margin.right },
+        [timeScale.domain()[0]!, timeScale.domain()[1]!],
+        TICK_CHAR_PX
+      ),
+    [rawTicks, worldCalendar, margin.left, margin.right, innerWidth, timeScale]
+  )
 
   // Tick labels stand upright when they fit side by side, and turn 45° only
   // when the widest would run into its neighbour.
   const rotateTickLabels = useMemo(() => {
-    if (xTicks.length < 2) return false
+    if (fittedAxis || xTicks.length < 2) return false
     const widest = Math.max(...xTicks.map(tick => tick.label.length)) * TICK_CHAR_PX
     let narrowestGap = Infinity
     for (let i = 1; i < xTicks.length; i++) {
       narrowestGap = Math.min(narrowestGap, xTicks[i]!.x - xTicks[i - 1]!.x)
     }
     return widest + TICK_GAP_PX > narrowestGap
-  }, [xTicks])
+  }, [xTicks, fittedAxis])
 
   // Arcs as the main timeline draws them: bars in a lane at the top, packed
   // into rows so overlapping periods sit one above the other, each named over
@@ -500,15 +521,26 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
                           dx={rotateTickLabels ? '-.8em' : undefined}
                           dy={rotateTickLabels ? '.15em' : '.71em'}
                           transform={rotateTickLabels ? 'rotate(-45)' : undefined}
-                          textAnchor={rotateTickLabels ? 'end' : 'middle'}
+                          textAnchor={rotateTickLabels ? 'end' : tick.anchor}
                           fontSize={11}
-                          className="font-mono-code"
+                          className="font-mono-code axis-tick"
                           style={{ fill: 'var(--text-secondary)' }}
                         >
                           {tick.label}
                         </text>
                       </g>
                     ))}
+                    {axisCaption && (
+                      <text
+                        y={36}
+                        textAnchor="start"
+                        fontSize={11}
+                        className="axis-day-caption"
+                        style={{ fill: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}
+                      >
+                        {axisCaption}
+                      </text>
+                    )}
                   </g>
 
                   <g className="y-axis">

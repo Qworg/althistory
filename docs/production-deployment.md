@@ -235,19 +235,24 @@ suites, against a real stack:
 
 It brings up `neo4j` and `redis` with their healthchecks, then runs
 `vitest --run --config vitest.cloud.config.ts` inside the same toolchain image
-the production build uses. `vitest.cloud.config.ts` runs the four suites
-sequentially (`fileParallelism: false`) because they share one database.
+the production build uses. `vitest.cloud.config.ts` lists the suites and runs
+them one file at a time (`fileParallelism: false`) because they share one
+database.
 
 ### Current status — green regression gate
 
-All four integration test suites pass against Neo4j 5 and Redis (68/68 tests passing):
+These suites pass against Neo4j 5 and Redis (run `npm run test:cloud` for the
+count rather than trusting one written here):
 
-| Suite | Status |
+| Suite | What it checks |
 | :--- | :--- |
-| `src/utils/database.test.ts` | **passes** |
-| `src/repositories/EventRepository.test.ts` | **passes** |
-| `src/repositories/ArcRepository.test.ts` | **passes** |
-| `src/services/GraphCopyService.test.ts` | **passes** |
+| `src/utils/database.test.ts` | The driver, the schema and Redis. |
+| `src/repositories/EventRepository.test.ts` | Events in Neo4j. |
+| `src/repositories/ArcRepository.test.ts` | Arcs in Neo4j. |
+| `src/services/GraphCopyService.test.ts` | Copying a graph with APOC. |
+| `src/tests/integration/graph-scoped-storage.test.ts` | No graph can read or change another's rows. |
+| `src/repositories/DeepTime.neo4j.test.ts` | Moments beyond a `Date` through `datetime({epochMillis})`. |
+| `src/tests/integration/cloud-live-feed.test.ts` | The real app in cloud mode: a write (and a batch) announced on the live feed and versioned, stream tokens minted, used once and bound to their graph, and a generation job that completes and whose graph reads back from Neo4j. |
 
 Previously identified failure modes have been resolved:
 

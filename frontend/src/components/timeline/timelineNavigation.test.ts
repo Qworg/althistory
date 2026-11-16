@@ -45,8 +45,21 @@ describe('buildNavModel / navigate', () => {
     // Unclipped, the arc's midpoint (July) is nearest autumn; with only
     // January to March on screen, the move lands on spring instead.
     expect(navigate(model, 'arc:top', 'down')).toBe('arc:autumn')
-    const view = { start: new Date('2024-01-01T00:00:00Z').getTime(), end: new Date('2024-03-01T00:00:00Z').getTime() }
+    const view = { start: new Date('2024-01-01T00:00:00Z'), end: new Date('2024-03-01T00:00:00Z') }
     expect(navigate(model, 'arc:top', 'down', view)).toBe('arc:spring')
+  })
+
+  it('orders marks a second apart near 200 million years BCE, where a double holds no whole seconds', () => {
+    // One double: getTime() calls them the same moment, and the keys would order them.
+    const deep = buildNavModel(
+      [
+        { id: 'a-later', timestamp: '-200000000-01-01T00:00:00.500Z' },
+        { id: 'b-earlier', timestamp: '-200000001-12-31T23:59:59.500Z' },
+      ],
+      []
+    )
+    expect(deep.lanes.map(lane => lane.map(item => item.key))).toEqual([['event:b-earlier', 'event:a-later']])
+    expect(navigate(deep, 'event:b-earlier', 'next')).toBe('event:a-later')
   })
 
   it('ignores unknown keys and parses known ones', () => {

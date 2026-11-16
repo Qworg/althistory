@@ -8,7 +8,7 @@
  * the browser, it replays what the real one said: this script brings up the
  * same private stack as the screenshots (`stack.ts`), seeds the same history
  * (`seed/`), walks the app through every screen for each graph (the main
- * history, its branch and the invented world, Vael) while letting
+ * history, its branch, the invented world, Vael, and deep time) while letting
  * each request through to the real backend, and keeps every answer. It also
  * reads each graph's events, arcs and causal links directly, as the starting
  * state of the demo's in-memory store, so edits in the demo have something
@@ -20,7 +20,7 @@ import { chromium, type Page, type Request } from 'playwright'
 import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { paths } from '../paths.js'
-import { scenario, world } from '../seed/scenario.js'
+import { deep, scenario, world } from '../seed/scenario.js'
 import { seed, type SeedResult } from '../seed/seed.js'
 import { buildProduct, startStack, type Stack } from '../stack.js'
 import { FEATURED_ACTOR } from '../capture/tour.js'
@@ -51,6 +51,16 @@ async function direct(stack: Stack, pathname: string, graphId: string): Promise<
   if (!res.ok) throw new Error(`GET ${pathname} for ${graphId} -> ${res.status}`)
   const json = (await res.json()) as { data?: unknown }
   return json && typeof json === 'object' && 'data' in json ? json.data : json
+}
+
+/**
+ * A graph's row in the open graph picker. Its list scrolls once it holds four
+ * graphs, and a branch row's full name is an sr-only span that does not scroll
+ * with it, so the row is found by its text and clicked as a whole.
+ */
+function graphRow(page: Page, name: string, exact = false) {
+  const rows = page.locator('button[data-depth]')
+  return (exact ? rows.filter({ has: page.getByText(name, { exact: true }) }) : rows.filter({ hasText: name })).first()
 }
 
 async function walk(page: Page, appUrl: string, graphName: string, eventCount: number): Promise<void> {
@@ -202,7 +212,7 @@ async function record(stack: Stack, seeded: SeedResult): Promise<void> {
     // Switch to the branch through the picker, as a visitor would, and walk it.
     await page.goto(`${stack.appUrl}/timeline`)
     await page.getByRole('button', { name: new RegExp(seeded.graphName.slice(0, 14)) }).first().click()
-    await page.getByText(seeded.branchName.slice(0, 20)).first().click()
+    await graphRow(page, seeded.branchName.slice(0, 20)).click()
     await page.waitForLoadState('networkidle')
     activeGraph = seeded.branchId
     const branchEvents = (await direct(stack, '/events', seeded.branchId)) as unknown[]
@@ -210,18 +220,29 @@ async function record(stack: Stack, seeded: SeedResult): Promise<void> {
 
     // And back, so the switch the other way is recorded too.
     await page.getByRole('button', { name: new RegExp(seeded.branchName.slice(0, 14)) }).first().click()
-    await page.getByText(seeded.graphName, { exact: true }).first().click()
+    await graphRow(page, seeded.graphName, true).click()
     await page.waitForLoadState('networkidle')
 
     // The invented world, through the picker too, then back to the main line.
     await page.goto(`${stack.appUrl}/timeline`)
     await page.getByRole('button', { name: new RegExp(seeded.graphName.slice(0, 14)) }).first().click()
-    await page.getByText(seeded.world.graphName, { exact: true }).first().click()
+    await graphRow(page, seeded.world.graphName, true).click()
     await page.waitForLoadState('networkidle')
     activeGraph = seeded.world.graphId
     await walk(page, stack.appUrl, seeded.world.graphName, world.events.length)
     await page.getByRole('button', { name: new RegExp(seeded.world.graphName) }).first().click()
-    await page.getByText(seeded.graphName, { exact: true }).first().click()
+    await graphRow(page, seeded.graphName, true).click()
+    await page.waitForLoadState('networkidle')
+
+    // Deep time, the same way.
+    await page.goto(`${stack.appUrl}/timeline`)
+    await page.getByRole('button', { name: new RegExp(seeded.graphName.slice(0, 14)) }).first().click()
+    await graphRow(page, seeded.deep.graphName, true).click()
+    await page.waitForLoadState('networkidle')
+    activeGraph = seeded.deep.graphId
+    await walk(page, stack.appUrl, seeded.deep.graphName, deep.events.length)
+    await page.getByRole('button', { name: new RegExp(seeded.deep.graphName) }).first().click()
+    await graphRow(page, seeded.graphName, true).click()
     await page.waitForLoadState('networkidle')
     await context.unrouteAll({ behavior: 'ignoreErrors' })
   } finally {
@@ -229,7 +250,7 @@ async function record(stack: Stack, seeded: SeedResult): Promise<void> {
   }
 
   const entities: Record<string, { events: unknown; arcs: unknown; relationships: unknown }> = {}
-  for (const graphId of [seeded.graphId, seeded.branchId, seeded.world.graphId]) {
+  for (const graphId of [seeded.graphId, seeded.branchId, seeded.world.graphId, seeded.deep.graphId]) {
     entities[graphId] = {
       events: await direct(stack, '/events', graphId),
       arcs: await direct(stack, '/arcs', graphId),
@@ -243,6 +264,7 @@ async function record(stack: Stack, seeded: SeedResult): Promise<void> {
     mainGraphId: seeded.graphId,
     branchGraphId: seeded.branchId,
     worldGraphId: seeded.world.graphId,
+    deepGraphId: seeded.deep.graphId,
     entities,
     responses: Object.fromEntries(Object.entries(responses).sort(([a], [b]) => a.localeCompare(b))),
   }
@@ -265,6 +287,9 @@ function normalise(json: string, seeded: SeedResult): string {
     ...Object.entries(seeded.arcIds).map(([key, id]) => [id, `arc_${key}`] as [string, string]),
     ...Object.entries(seeded.world.eventIds).map(([key, id]) => [id, `event_vael_${key}`] as [string, string]),
     ...Object.entries(seeded.world.arcIds).map(([key, id]) => [id, `arc_vael_${key}`] as [string, string]),
+    [seeded.deep.graphId, 'graph_deep_time'],
+    ...Object.entries(seeded.deep.eventIds).map(([key, id]) => [id, `event_deep_${key}`] as [string, string]),
+    ...Object.entries(seeded.deep.arcIds).map(([key, id]) => [id, `arc_deep_${key}`] as [string, string]),
   ])
   const counters = new Map<string, number>()
   return json.replace(/\b([a-z]+)_\d{13}_[a-z0-9]{6,12}\b/g, (id, prefix: string) => {

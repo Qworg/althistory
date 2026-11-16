@@ -52,8 +52,9 @@ for the reviewer to date in the world's notation. For a world, use `llm`.
 Both ingestion paths do this. The CLI's in-process ingestion (the CLI and the
 MCP server when no app is running) reads the target graph's calendar, and
 also names the arcs it groups the events into in the world's years. The app's
-review flow, `POST /api/ingest/text`, reads the calendar of the graph its
-`X-Graph-Id` header names; the app's import wizard sends the graph it will
+review flow reads the calendar of the graph its `X-Graph-Id` header names, on
+all three extraction routes (`POST /api/ingest/text`, `/url` and `/wikidata`),
+after checking the key may use that graph; the app's import wizard sends the graph it will
 import into, and the CLI sends `--graph-id`. A request without the header is read
 without a calendar. The review table shows every date in the world's calendar,
 and the box you edit holds it in the world's notation; ISO 8601 typed there
@@ -115,6 +116,15 @@ redirects, checking each hop.
 ## The HTTP API
 
 All routes are under `/api/ingest` and require the `ingest` permission.
+
+The three extraction routes take an optional `context`: `defaultTimeRange`
+(`{ start, end }`), `defaultActors`, `knownEntities`, `locale` and
+`instructions`. The range's ends are read as every door reads a date, in the
+calendar of the graph the optional `X-Graph-Id` header names, when it has one
+(its notation, then ISO 8601; without one, year-first text such as `1066` or
+`44 BCE` too), and an end is the last moment of what it names. Text that rule
+cannot read, or a range that ends before it starts, is refused with a 400
+naming the field (`context.defaultTimeRange.start`).
 
 | Route | Purpose |
 | --- | --- |
@@ -178,7 +188,7 @@ and why (no date, no actor, below the confidence threshold).
 | --- | --- | --- |
 | `text` | A sentence stream. | Dated sentences become events. |
 | `wikipedia` | Article prose. | Link-following and depth are bounded (depth ≤ 3). |
-| `wikidata` | An item's claims. | Dates and participants come from the item. |
+| `wikidata` | An item's claims. | Dates and participants come from the item, at the precision Wikidata gives (a day, a month, a year; a decade to a billion years as a year), BCE years included. A date beyond the timeline's range, about 285 million years either side of 1970 (the formation of the Earth, the Big Bang), is dropped. |
 | `text` | Pasted text — or the text of a fetched page. | `ingest url` on a non-Wikipedia page reads it as a text document, so its events are `text`-sourced. |
 
 Events ingested **through the API** carry a `sourceRef` naming where they came

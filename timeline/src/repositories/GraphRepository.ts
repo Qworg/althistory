@@ -17,7 +17,7 @@ import {
   MergeParent,
   EntityType,
 } from '../models/Graph';
-import { VersionRepository, EntityChanges, ResolvedGraphData } from './VersionRepository';
+import { VersionRepository, EntityChanges, ResolvedGraphData, ResolveOptions } from './VersionRepository';
 
 export interface GraphRepositoryConfig {
   dataDir: string;
@@ -291,9 +291,10 @@ export class GraphRepository {
   async getHeadEntities(
     graphId: string,
     type: EntityType,
-    ids: string[]
+    ids: string[],
+    options: { strict?: boolean } = {}
   ): Promise<Record<string, Record<string, unknown>>> {
-    return this.versionRepository.getHeadEntities(graphId, type, ids);
+    return this.versionRepository.getHeadEntities(graphId, type, ids, options);
   }
 
   /**
@@ -362,9 +363,17 @@ export class GraphRepository {
   /**
    * Get the full data for a graph at a specific version
    */
-  async checkout(graphId: string, version?: number): Promise<ResolvedGraphData> {
+  async checkout(
+    graphId: string,
+    version?: number,
+    /** `strict`: a tree entry whose object cannot be read (any, or those a predicate names) throws, rather than being left out. */
+    options: ResolveOptions = {}
+  ): Promise<ResolvedGraphData> {
+    // Options are forwarded only when given, so a plain checkout keeps its two-argument call.
+    const read = (at: number): Promise<ResolvedGraphData> =>
+      options.strict || options.missing ? this.versionRepository.checkout(graphId, at, options) : this.versionRepository.checkout(graphId, at);
     if (version !== undefined) {
-      return this.versionRepository.checkout(graphId, version);
+      return read(version);
     }
 
     // Get latest version
@@ -378,7 +387,7 @@ export class GraphRepository {
       };
     }
 
-    return this.versionRepository.checkout(graphId, latest.version);
+    return read(latest.version);
   }
 
   /**

@@ -5,16 +5,25 @@ import {
   axisOf,
   boundPrecision,
   calendarIn,
+  civilOfAxisTime,
   dateAt,
   formatBoundAt,
   formatDateBound,
   formatHistoricalDateBound,
   formatWorldBound,
   formatWorldFields,
+  instantOfAxisTime,
+  isSignedShortYear,
   parseHistoricalDate,
   parseIsoInstant,
   readDateBound,
+  readDateEntry,
   readDateField,
+  readHistoricalText,
+  readTimestamp,
+  readWorldTimestamp,
+  toInstant,
+  unreadDateReason,
   worldBound,
 } from './index'
 import * as arb from './test/arbitraries'
@@ -64,7 +73,7 @@ const typedBound = fc
     month: fc.option(fc.integer({ min: 0, max: 13 }), { nil: undefined }),
     day: fc.option(fc.integer({ min: 0, max: 32 }), { nil: undefined }),
     pad: fc.boolean(),
-    era: fc.constantFrom('', 'word', 'word-lower', 'minus'),
+    era: fc.constantFrom('', 'word', 'word-lower'),
   })
   .filter(({ year }) => (year >= 1 ? year : 1 - year) <= 999999)
   .map((bound) => {
@@ -76,8 +85,8 @@ const typedBound = fc
     const body = `${shown}${month !== undefined ? `-${unit(month)}` : ''}${day !== undefined ? `-${unit(day)}` : ''}`
     let text: string
     if (year >= 1) text = era === 'word' ? `${body} CE` : era === 'word-lower' ? `${body} ad` : body
-    // A minus sign before six digits is ISO 8601's astronomical year (tested below), not a count back.
-    else text = era === 'minus' && shown < 100000 ? `-${body}` : era === 'word-lower' ? `${body} bc` : `${body} BCE`
+    // A minus sign is refused (tested below), unless before six digits, as ISO 8601's astronomical year.
+    else text = era === 'word-lower' ? `${body} bc` : `${body} BCE`
     return { text, year, month, day }
   })
 
@@ -103,6 +112,108 @@ describe("a bound in ISO 8601's own spelling of a year outside 1-9999", () => {
     expect(bce.ok && bce.text).toBe('44-03-15 BCE')
     const zero = parseHistoricalDate('0000', 'start')
     expect(zero.ok && zero.text).toBe('1 BCE')
+  })
+})
+
+describe('a minus sign before a year of fewer than six digits', () => {
+  // "-0043" counted back is 43 BCE; as ISO 8601 counts (0 is 1 BCE) it is 44
+  // BCE, the year "-000043" names. A person cannot tell which was meant.
+  const signed = fc
+    .record({
+      year: fc.oneof(fc.integer({ min: 1, max: 99999 }), fc.integer({ min: 1, max: 110 })),
+      width: fc.integer({ min: 1, max: 5 }),
+      month: fc.option(fc.integer({ min: 1, max: 12 }), { nil: undefined }),
+      day: fc.option(fc.integer({ min: 1, max: 28 }), { nil: undefined }),
+      time: fc.boolean(),
+    })
+    .map(({ year, width, month, day, time }) => {
+      const rest = `${month !== undefined ? `-${pad2(month)}` : ''}${month !== undefined && day !== undefined ? `-${pad2(day)}` : ''}`
+      const text = `-${String(year).padStart(width, '0')}${rest}${time && month !== undefined && day !== undefined ? ' 09:30' : ''}`
+      return { text, year, rest }
+    })
+
+  it('is refused by every door that reads year-first text, naming both years and both unambiguous spellings', () => {
+    fc.assert(
+      fc.property(signed, edge, ({ text, year, rest }, side) => {
+        const historical = readHistoricalText(text, side)
+        expect(historical.ok, text).toBe(false)
+        if (historical.ok) return
+        expect(historical.error).toContain(`${year} BCE`)
+        expect(historical.error).toContain(`${year + 1} BCE`)
+        expect(historical.error).toContain(`"-${String(year).padStart(6, '0')}${rest}"`)
+        // And the six-digit spelling it offers is the astronomical year: year + 1 BCE.
+        const iso = parseHistoricalDate(`-${String(year).padStart(6, '0')}${rest}`, 'start')
+        expect(iso.ok && iso.text, text).toBe(`${year + 1}${rest} BCE`)
+        if (!text.includes(' ')) {
+          expect(parseHistoricalDate(text, side).ok, text).toBe(false)
+          expect(readDateBound(text, side, null).ok, text).toBe(false)
+          expect(formatHistoricalDateBound(text, side), text).toBe('')
+        }
+        expect(readDateEntry(text, null, side).ok, text).toBe(false)
+        expect(readWorldTimestamp(null, text, side), text).toBeNull()
+        expect(readTimestamp(text), text).toBeNull()
+        expect(readDateField(text), text).toBeNull()
+        expect(unreadDateReason(null, text)).toContain(`${year + 1} BCE`)
+        expect(isSignedShortYear(` ${text}`), text).toBe(true)
+      }),
+      arb.runs(2000)
+    )
+  })
+
+  it('is told apart from the six-digit year, a year with its era, and a year without a sign', () => {
+    for (const text of ['-000043', '-000043-03-15', '44 BCE', '1843', '+010000', '']) expect(isSignedShortYear(text), text).toBe(false)
+  })
+
+  it('leaves the stored-text reader as it was (toInstant does not read year-first text)', () => {
+    // ISO 8601's six-digit year, exactly; a signed four-digit date starts like
+    // ISO and is no date, as before; other text as JavaScript always read it.
+    expect(toInstant('-000043-03-15').toISOString()).toBe('-000043-03-15T00:00:00.000Z')
+    expect(Number.isNaN(toInstant('-0043-03-15').getTime())).toBe(true)
+    expect(toInstant('-44').getTime()).toBe(new Date('-44').getTime())
+  })
+
+  it('says so for the examples people type', () => {
+    expect(parseHistoricalDate('-0043', 'start')).toEqual({
+      ok: false,
+      error: 'A minus sign there could mean 43 BCE, or 44 BCE as ISO 8601 counts years (0 is 1 BCE). Write "43 BCE" or "44 BCE", or ISO 8601\'s six-digit "-000043" (44 BCE).',
+    })
+    expect(readDateEntry('-44-03-15', null)).toMatchObject({ ok: false, error: expect.stringContaining('"44-03-15 BCE" or "45-03-15 BCE"') })
+    expect(parseHistoricalDate('-0', 'start')).toEqual({ ok: false, error: 'There is no year 0: 1 BCE is followed by 1 CE.' })
+    expect(parseHistoricalDate('-44 BCE', 'start')).toEqual({ ok: false, error: 'Use a minus sign or an era, not both.' })
+    expect(readDateEntry('-000043', null)).toMatchObject({ ok: true, iso: '-000043-01-01T00:00:00.000Z', precision: 'year' })
+  })
+})
+
+describe('a date with a time of day, to the second or the millisecond', () => {
+  const pad = (value: number, width = 2) => String(value).padStart(width, '0')
+  it('reads back as the moment it names, at any magnitude', () => {
+    fc.assert(
+      fc.property(arb.axisTime, fc.constantFrom('minute', 'second', 'millisecond'), (time, precision) => {
+        const civil = civilOfAxisTime(time)
+        const unit = precision === 'minute' ? 60_000n : precision === 'second' ? 1000n : 1n
+        const at = time - (((time % unit) + unit) % unit)
+        const day = formatBoundAt(instantOfAxisTime(at)!, 'day')
+        const clock = `${pad(civil.hour)}:${pad(civil.minute)}${precision === 'minute' ? '' : `:${pad(civil.second)}`}${precision === 'millisecond' ? `.${pad(civil.millisecond, 3)}` : ''}`
+        const text = `${day} ${clock}`
+        const read = readHistoricalText(text, 'start')
+        expect(read.ok && read.time, text).toBe(at)
+        expect(read.ok && read.precision, text).toBe('day')
+      }),
+      arb.runs(2000)
+    )
+  })
+
+  it('refuses a second or a millisecond out of range, and a fraction too fine', () => {
+    for (const text of ['1843-11-20 14:30:60', '1843-11-20 14:30:5', '1843-11-20 14:30:05.1234', '1843-11-20 14:30.5']) {
+      expect(readHistoricalText(text, 'start').ok, text).toBe(false)
+    }
+    expect(readHistoricalText('1843-11-20 14:30:05.5', 'start')).toMatchObject({ ok: true, iso: '1843-11-20T14:30:05.500Z' })
+    // The reason is the time's, not "write the year first".
+    for (const text of ['44-03-15 BCE 14:30:05.1234', '44-03-15 BCE 9:30:5', '44-03-15 BCE 14:30.5', '1843-11-20 14:30:60']) {
+      const read = readHistoricalText(text, 'start')
+      expect(read.ok ? '' : read.error, text).toMatch(/^The time must be HH:MM, HH:MM:SS or HH:MM:SS\.mmm/)
+    }
+    expect(readHistoricalText('44-03-15 BCE 11:59:50', 'start')).toMatchObject({ ok: true, iso: '-000043-03-15T11:59:50.000Z' })
   })
 })
 

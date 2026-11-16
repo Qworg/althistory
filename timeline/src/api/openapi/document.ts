@@ -164,6 +164,31 @@ const WORLD_CALENDAR_SET_SCHEMA = {
   additionalProperties: false, required: ['version', 'dayLength', 'calendars', 'primary'],
 };
 
+/**
+ * The extraction context every ingest route reads (`parseExtractionContext` in
+ * `routes/ingest.ts`).
+ */
+const INGEST_CONTEXT_SCHEMA = {
+  type: 'object',
+  description:
+    'Hints for the extraction. `defaultTimeRange` is read as every door reads a date: with the X-Graph-Id ' +
+    "graph's world calendars when it has them (the world's notation, then ISO 8601), otherwise ISO 8601 or " +
+    'year-first text ("1066", "44 BCE"); its start is the first moment of what it names and its end the last. ' +
+    'A range that cannot be read, or that ends before it starts, is refused with a 400 naming the field ' +
+    '(`context.defaultTimeRange.start`, `.end`, or the range).',
+  properties: {
+    defaultTimeRange: {
+      type: 'object',
+      properties: { start: { type: 'string' }, end: { type: 'string' } },
+      required: ['start', 'end'],
+    },
+    defaultActors: { type: 'array', items: { type: 'string' } },
+    knownEntities: { type: 'array', items: { type: 'string' } },
+    locale: { type: 'string' },
+    instructions: { type: 'string' },
+  },
+};
+
 const SCHEMAS: Record<string, Record<string, unknown>> = {
   /**
    * The shape of a request or response this document does not describe in
@@ -763,17 +788,28 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: {
       url: { type: 'string' },
       strategy: { type: 'string', enum: ['wikipedia', 'auto'] },
-      context: { type: 'string' },
+      options: {
+        type: 'object',
+        description: 'How far to read beyond the page.',
+        properties: {
+          followLinks: { type: 'boolean' },
+          linkDepth: { type: 'number' },
+          linkFilter: { type: 'string' },
+          maxPages: { type: 'number' },
+        },
+      },
+      context: INGEST_CONTEXT_SCHEMA,
     },
     required: ['url'],
   },
   IngestWikidataRequest: {
     type: 'object',
     properties: {
-      queryType: { type: 'string' },
-      parameters: { type: 'object' },
+      queryType: { type: 'string', enum: ['historical-events', 'person-timeline', 'custom'] },
+      parameters: { type: 'object', additionalProperties: { type: 'string' } },
       customQuery: { type: 'string' },
       limit: { type: 'integer' },
+      context: INGEST_CONTEXT_SCHEMA,
     },
     required: ['queryType'],
   },
@@ -782,7 +818,7 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: {
       text: { type: 'string' },
       useLLM: { type: 'boolean' },
-      context: { type: 'string' },
+      context: INGEST_CONTEXT_SCHEMA,
     },
     required: ['text'],
   },
@@ -796,6 +832,14 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
         description:
           '`write` (the default) opens a session that may write entities and needs `write:events`. ' +
           '`feed` opens a read-only session for the live change feed and needs `read:events`.',
+      },
+      channel: {
+        type: 'string',
+        enum: ['*'],
+        description:
+          'A feed token for the graph list alone, bound to no graph: send it with `mode: "feed"` and no ' +
+          '`X-Graph-Id`. It needs `read:graphs` too. For a client whose key may no longer read the graph ' +
+          'it had open.',
       },
     },
   },
@@ -885,13 +929,21 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
   StreamToken: {
     type: 'object',
     properties: {
-      token: { type: 'string' },
-      expiresIn: { type: 'number' },
-      graphId: { type: 'string' },
+      token: { type: 'string', description: 'Single use: pass it as `?token=` when opening the WebSocket.' },
+      expiresIn: { type: 'number', description: 'Seconds until the token expires unused.' },
+      graphId: {
+        type: 'string',
+        description: 'The graph the socket is bound to (X-Graph-Id), or `"*"` for a graph-list token (`mode: "feed"`, `channel: "*"`).',
+      },
       permissions: { type: 'array', items: { type: 'string' } },
+      mode: {
+        type: 'string',
+        enum: ['write', 'feed'],
+        description: '`write`: a session that may write entities. `feed`: a read-only session for the live change feed.',
+      },
       concurrentStreams: { type: 'number' },
     },
-    required: ['token'],
+    required: ['token', 'expiresIn', 'graphId', 'permissions', 'mode'],
   },
   BatchEventsRequest: {
     type: 'object',

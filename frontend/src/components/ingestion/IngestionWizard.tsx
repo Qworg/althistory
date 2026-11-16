@@ -200,23 +200,27 @@ export function IngestionWizard({
     [startReview]
   )
 
+  // What is extracted is read for the graph it will enter, so a world's
+  // calendar dates it: the one named, or the active graph the approval falls
+  // back to. Every source names it, as the server checks access to it.
+  const textGraphId = targetGraphId ?? activeGraph?.id
+
   const handleWikipediaSubmit = useCallback(
     (request: WikipediaIngestRequest) => {
-      void runExtraction(() => ingestWikipedia.mutateAsync(request), 'wikipedia')
+      const scoped = textGraphId ? { ...request, targetGraphId: textGraphId } : request
+      void runExtraction(() => ingestWikipedia.mutateAsync(scoped), 'wikipedia')
     },
-    [ingestWikipedia, runExtraction]
+    [ingestWikipedia, runExtraction, textGraphId]
   )
 
   const handleWikidataSubmit = useCallback(
     (request: WikidataIngestRequest) => {
-      void runExtraction(() => ingestWikidata.mutateAsync(request), 'wikidata')
+      const scoped = textGraphId ? { ...request, targetGraphId: textGraphId } : request
+      void runExtraction(() => ingestWikidata.mutateAsync(scoped), 'wikidata')
     },
-    [ingestWikidata, runExtraction]
+    [ingestWikidata, runExtraction, textGraphId]
   )
 
-  // The text is read for the graph it will enter, so a world's calendar
-  // dates it: the one named, or the active graph the approval falls back to.
-  const textGraphId = targetGraphId ?? activeGraph?.id
   const handleTextSubmit = useCallback(
     (request: TextIngestRequest) => {
       setLastTextRequest(request)

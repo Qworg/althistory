@@ -932,6 +932,8 @@ export interface WikipediaIngestRequest {
   url: string
   strategy?: 'wikipedia' | 'auto'
   options?: WikipediaIngestOptions
+  /** The graph the extraction is bound for, sent as `X-Graph-Id` (not in the body), as for text. */
+  targetGraphId?: string
 }
 
 export interface WikidataIngestRequest {
@@ -939,6 +941,8 @@ export interface WikidataIngestRequest {
   parameters?: Record<string, string>
   customQuery?: string
   limit?: number
+  /** The graph the extraction is bound for, sent as `X-Graph-Id` (not in the body), as for text. */
+  targetGraphId?: string
 }
 
 export interface TextIngestContext {

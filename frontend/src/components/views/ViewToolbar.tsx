@@ -176,6 +176,7 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
   const liveEnabled = useLiveChangesStore((state) => state.enabled)
   const liveStatus = useLiveChangesStore((state) => state.status)
   const liveDetail = useLiveChangesStore((state) => state.detail)
+  const liveRevokedReason = useLiveChangesStore((state) => state.revokedReason)
   const setLiveEnabled = useLiveChangesStore((state) => state.setEnabled)
   const retryLive = useLiveChangesStore((state) => state.retry)
   const streamStatus: LiveSyncBadgeStatus = !liveEnabled
@@ -587,6 +588,7 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
     <StreamingStatusBadge
       status={DEMO_MODE ? 'disconnected' : streamStatus}
       error={liveDetail}
+      revokedReason={liveRevokedReason}
       // The in-browser demo has no server to hear from.
       onConnect={DEMO_MODE ? undefined : connectStream}
       onDisconnect={DEMO_MODE ? undefined : disconnectStream}

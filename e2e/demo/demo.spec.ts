@@ -244,3 +244,43 @@ test('a branch of the world keeps its calendar', async ({ page }) => {
   await expect(page.getByText(/Branch of\s*Vael/)).toBeVisible()
   await expect(page.locator('g[data-timeline-mark="event"][aria-label*="the first salt-king"]')).toHaveAttribute('aria-label', /at Thaw 4, 1 AR\b/)
 })
+
+/* ------------------------------------------------------------- deep time --- */
+
+const DEEP_COUNTS = '13 events · 4 arcs · 10 links'
+
+test('a link opens on deep time, 252 million years on one axis', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  await page.goto('./?start=deep')
+  await expect(page.getByText(DEEP_COUNTS)).toBeVisible()
+  expect(new URL(page.url()).searchParams.has('start')).toBe(false)
+
+  // Every event is drawn, most of them far beyond a JavaScript Date (±275,760 years).
+  const marks = page.locator('g[data-timeline-mark="event"]')
+  await expect(marks).toHaveCount(13)
+  await expect(page.locator('g[data-timeline-mark="event"][aria-label*="Siberian Traps reach"]')).toHaveAttribute('aria-label', /at 252100000 BC\b/)
+  await expect(page.locator('g[data-timeline-mark="event"][aria-label*="Chicxulub"]')).toHaveAttribute('aria-label', /at 66000000 BC\b/)
+  // Inside a Date's range, in the same graph.
+  await expect(page.locator('g[data-timeline-mark="event"][aria-label*="Toba erupts"]')).toHaveAttribute('aria-label', /at 72000 BC\b/)
+
+  // The axis takes the calendar package's year ticks, written as a person
+  // types a year ("250000000 BCE"), never d3's astronomical "-200000000s",
+  // and never empty. Full dates (the marks below) keep the locale's "BC".
+  await expect.poll(async () => (await axisLabels(page)).filter((l) => /^\d+ BCE$/.test(l)).length).toBeGreaterThan(2)
+  expect((await axisLabels(page)).filter((l) => l.startsWith('-'))).toEqual([])
+  expect(await axisLabels(page)).toContain('250000000 BCE')
+
+  // An arc's span, and an event's details, in the same years.
+  await expect(page.getByRole('button', { name: /^Arc: The Mesozoic, Jan 1, 251900000 BC – Dec 31, 66000000 BC/ })).toBeVisible()
+  // Homo sapiens and Toba overlap at this zoom, so the click goes to the mark itself.
+  await page.locator('g[data-timeline-mark="event"][aria-label*="Homo sapiens"] .event-marker').dispatchEvent('click')
+  await expect(page.getByRole('region', { name: 'Selection inspector' })).toContainText('300000 BC')
+
+  // The other views open on it too.
+  await page.goto('./#/causal-graph')
+  await expect(page.getByText('13 events · 10 links')).toBeVisible()
+  await page.goto('./#/actor-perspective')
+  await expect(page.getByRole('button', { name: /Search and select an actor/ })).toBeVisible()
+  expect(errors).toEqual([])
+})

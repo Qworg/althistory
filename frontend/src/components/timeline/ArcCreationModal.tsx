@@ -6,7 +6,7 @@ import { Portal } from '@/components/ui/Portal'
 import { DateField } from '@/components/ui/DateField'
 import { readDateFieldValue } from '@/utils/dateField'
 import { useDateFieldText } from '@/hooks/useDateFieldText'
-import { compareInstants, toInstant } from '@althistory/calendar'
+import { compareInstants, msApart, toInstant } from '@althistory/calendar'
 
 export interface ArcCreationModalProps {
   isOpen: boolean
@@ -216,7 +216,7 @@ export const ArcCreationModal: React.FC<ArcCreationModalProps> = ({
   if (!isOpen || !timeRange) return null
 
   const formatDuration = (start: Date, end: Date): string => {
-    const diffMs = end.getTime() - start.getTime()
+    const diffMs = msApart(start, end)
     const days = Math.floor(diffMs / (1000 * 60 * 60 * 24))
     const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
     

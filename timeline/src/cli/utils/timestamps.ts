@@ -57,9 +57,8 @@ export function readAgentTimestamp(text: string, calendar?: WorldCalendarSet, ed
     if (calendar) {
       throw new ValidationErrorCLI(`Invalid timestamp: ${unreadDateReason(calendar, String(text))} A date in the world's calendar reads like "${worldExample(calendar)}".`);
     }
-    throw new ValidationErrorCLI(
-      `Invalid timestamp: ${text}. Give an ISO 8601 date, such as 1843-11-20, 1843-11-20T14:30 (UTC) or 1871-03, or a year such as 312 or 44 BCE`
-    );
+    // The reason, which says what is wrong with year-first text ("-0043" names two years).
+    throw new ValidationErrorCLI(`Invalid timestamp: ${unreadDateReason(null, String(text))}`);
   }
   // Not the axis time: this is sent and stored as text, and a bigint is not JSON.
   const { time: _time, ...text_ } = read;

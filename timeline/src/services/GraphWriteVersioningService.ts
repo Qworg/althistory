@@ -229,6 +229,142 @@ export function describeEntityWrite(
   return `${verb} ${NOUN[type]} ${name}`;
 }
 
+/** One write a batch made that took effect, as the live feed announces it. */
+export interface BatchStep {
+  operation: EntityWriteOperation | 'delete';
+  type: 'event' | 'arc' | 'relationship';
+  id: string;
+}
+
+/**
+ * The entities a batch touched, as the live store holds them once it is done.
+ * An entity the store no longer has is `null`. Links are keyed by their two
+ * events, which is how the batch routes name them, with every link the store
+ * now holds between the two.
+ */
+export interface BatchLiveState {
+  events?: Map<string, Event | null>;
+  arcs?: Map<string, Arc | null>;
+  links?: Array<{ cause_event_id: string; effect_event_id: string; live: StoredCausalRelationship[] }>;
+  /**
+   * The batch deleted an event or a link. Its version then has to find every
+   * head link that went with it, so every link object must be readable; a
+   * batch that only creates or edits needs just the links it touched.
+   */
+  deletesLinks?: boolean;
+}
+
+/** A value as stored (JSON), with every object's keys in order, so two spellings of one value compare equal. */
+function canonical(value: unknown): string {
+  const sort = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(sort);
+    if (v && typeof v === 'object') {
+      return Object.fromEntries(Object.keys(v as Record<string, unknown>).sort().map((k) => [k, sort((v as Record<string, unknown>)[k])]));
+    }
+    return v;
+  };
+  return JSON.stringify(sort(JSON.parse(JSON.stringify(value ?? null))));
+}
+
+/** Whether a written entity's data is the data the head already holds, whatever the key order. */
+function sameData(head: Record<string, unknown>, written: Record<string, unknown>): boolean {
+  return canonical(head) === canonical(written);
+}
+
+/**
+ * An arc's head-only `parent_arc_id`, as the edit leaves it:
+ *
+ *   - a parent the edit names in `metadata.parentArcId` (how the CLI, MCP
+ *     and the generator record one, and how a PUT moves an arc) wins over a
+ *     different one the head still holds, which the export would prefer --
+ *     but only when the edit changed it: a `parentArcId` the head's own
+ *     metadata already recorded is no move (`named` is undefined then). A
+ *     renaming import, before it remapped the metadata too, left a stale one
+ *     beside a remapped field, and an unrelated rename moved the arc;
+ *   - none (null) once the arc is top level (level 0): a promoted arc that
+ *     kept its parent made the export unimportable (ARC_HIERARCHY_VIOLATION).
+ *
+ * Nothing else is repaired. A level that does not fit under the parent is
+ * judged before the rest of a subtree's moves land (a batch or two PUTs that
+ * move the child first), and clearing the parent of an arc above level 0
+ * never makes it valid, so it would only lose the parent. A parent deleted
+ * from under the arc stays named too: the export reports it as an orphan,
+ * and nothing here can make that valid either.
+ */
+function consistentParent(parent: unknown, level: unknown, named: unknown): unknown {
+  const current = typeof named === 'string' && named !== '' ? named : parent;
+  if (typeof current !== 'string' || current === '') return current;
+  return level === 0 ? null : current;
+}
+
+/**
+ * A live entity's projection laid over the data the head holds for it. The
+ * live models carry fewer fields than the version store keeps (an arc has no
+ * `parent_arc_id`, an event or a link no `sourceRef`, a link no cross-graph
+ * ids), so writing the projection alone would drop them; a field the live
+ * model has is the live model's.
+ *
+ * A head-only field whose meaning depends on a projected one is carried only
+ * while it still agrees with it: an arc's `parent_arc_id` with its `level`
+ * (`consistentParent`), a link's `causeGraphId`/`effectGraphId` with the
+ * event ids they qualify. `sourceRef` says where the entity came from, which
+ * no edit changes, so it is always kept.
+ */
+function overlay(
+  type: EntityType,
+  head: Record<string, unknown> | undefined,
+  projection: Record<string, unknown>
+): Record<string, unknown> {
+  if (!head) return projection;
+  const data: Record<string, unknown> = { ...head, ...projection };
+  if (type === 'arc' && 'parent_arc_id' in head && !('parent_arc_id' in projection)) {
+    const recordedParent = (metadata: unknown): unknown =>
+      metadata && typeof metadata === 'object' ? (metadata as Record<string, unknown>).parentArcId : undefined;
+    const named = recordedParent(projection.metadata);
+    const moved = named !== recordedParent(head.metadata) ? named : undefined;
+    data.parent_arc_id = consistentParent(head.parent_arc_id, data.level, moved);
+  }
+  if (type === 'relationship') {
+    for (const [graphField, eventField] of [['causeGraphId', 'cause_event_id'], ['effectGraphId', 'effect_event_id']] as const) {
+      if (graphField in head && head[eventField] !== data[eventField]) delete data[graphField];
+    }
+  }
+  return data;
+}
+
+/** How a write treats a commit that fails. */
+export interface WriteOptions {
+  /**
+   * The caller undoes the live write when it cannot be versioned, so nothing
+   * is announced for it: a watcher would be told of an entity that is gone.
+   * The caller announces what its undo could not remove
+   * (`announceNotVersioned`).
+   */
+  undoneOnFailure?: boolean;
+}
+
+function count(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`;
+}
+
+/** "Edited 1 event, deleted 1 event, deleted 1 link, added 1 event": a version's changes, edits first, then deletes, then additions. */
+function describeChanges(changes: EntityChanges): string {
+  const parts: string[] = [];
+  const groups: Array<[EntityWriteOperation | 'delete', Array<{ type: EntityType }>]> = [
+    ['update', changes.modified],
+    ['delete', changes.deleted],
+    ['create', changes.added],
+  ];
+  for (const [operation, entities] of groups) {
+    const byType = new Map<EntityType, number>();
+    for (const entity of entities) byType.set(entity.type, (byType.get(entity.type) ?? 0) + 1);
+    for (const [type, n] of byType) parts.push(`${VERB[operation].toLowerCase()} ${count(n, NOUN[type])}`);
+  }
+  if (parts.length === 0) return 'Changed nothing';
+  const text = parts.join(', ');
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 export class GraphWriteVersioningService {
   private readonly graphRepository: GraphRepository;
   private readonly logger: ILogger;
@@ -244,39 +380,58 @@ export class GraphWriteVersioningService {
   async recordEvent(
     graphId: string,
     event: Event,
-    operation: EntityWriteOperation
+    operation: EntityWriteOperation,
+    options: WriteOptions = {}
   ): Promise<void> {
     await this.commitWrite(graphId, {
       type: 'event',
       id: event.id,
       data: eventToVersionData(event),
-    }, operation);
+    }, operation, options);
   }
 
   /** Record a created or updated arc against one named graph. */
   async recordArc(
     graphId: string,
     arc: Arc,
-    operation: EntityWriteOperation
+    operation: EntityWriteOperation,
+    options: WriteOptions = {}
   ): Promise<void> {
     await this.commitWrite(graphId, {
       type: 'arc',
       id: arc.id,
       data: arcToVersionData(arc),
-    }, operation);
+    }, operation, options);
   }
 
   /** Record a created or updated causal relationship against one named graph. */
   async recordRelationship(
     graphId: string,
     relationship: StoredCausalRelationship,
-    operation: EntityWriteOperation
+    operation: EntityWriteOperation,
+    options: WriteOptions = {}
   ): Promise<void> {
     await this.commitWrite(graphId, {
       type: 'relationship',
       id: relationship.id,
       data: relationshipToVersionData(relationship),
-    }, operation);
+    }, operation, options);
+  }
+
+  /**
+   * Announce a write whose version could not be made and whose undo failed:
+   * it is in the live store, unversioned. ("Added event “X” (not versioned)".)
+   */
+  announceNotVersioned(
+    graphId: string,
+    operation: EntityWriteOperation,
+    type: EntityType,
+    id: string,
+    data?: Record<string, unknown>
+  ): void {
+    const changes: EntityChanges = { added: [], modified: [], deleted: [] };
+    (operation === 'create' ? changes.added : changes.modified).push({ type, id, data: data ?? {} });
+    this.announce(graphId, changes, operation, `${describeEntityWrite(operation, type, { data })} (not versioned)`);
   }
 
   /**
@@ -319,6 +474,160 @@ export class GraphWriteVersioningService {
   }
 
   /**
+   * Record what a batch left in the live store as one version, and announce it.
+   *
+   * A batch (`/api/batch/*`) runs many writes, some of which a failure or an
+   * atomic rollback may undo again, so the version is taken from what the
+   * live store holds once the batch is done rather than from the steps it
+   * tried: `state` is each touched entity as the store now holds it (`null`
+   * when it is gone), and each touched link pair with the links now between
+   * it. Against the head that becomes added, modified and deleted entities;
+   * a deleted event also deletes the head's links to it, as the live store's
+   * DETACH DELETE did. Nothing is committed when nothing differs.
+   *
+   * `steps` are the writes that took effect, for the live feed: one
+   * announcement per kind of change ("Added 2 events in a batch"), the same
+   * the batch routes made before they were versioned, and never a second one.
+   *
+   * Each entity is written as the live model's projection laid over the
+   * head's data (`overlay`), so fields only the version store keeps survive,
+   * and only when that differs from the head, in any key order: an entity the
+   * batch touched and did not change is not rewritten.
+   *
+   * Failure policy as for a single write (see `commit`): any failure, reading
+   * the head as much as committing, is announced as not versioned
+   * (`announceIfNotVersioned`, unless the caller undoes the batch) and
+   * propagated.
+   */
+  async recordBatch(
+    graphId: string,
+    state: BatchLiveState,
+    steps: BatchStep[],
+    { announceIfNotVersioned = true }: { announceIfNotVersioned?: boolean } = {}
+  ): Promise<void> {
+    try {
+      await this.commitBatch(graphId, state);
+    } catch (error) {
+      this.logger.error(`Failed to version a batch in graph ${graphId}`, error);
+      // The live store holds the batch, and it is what the app reads.
+      if (announceIfNotVersioned) this.announceBatch(graphId, steps, { notVersioned: true });
+      throw error;
+    }
+    this.announceBatch(graphId, steps);
+  }
+
+  /** The difference a batch made from the head, committed as one version (nothing when it made none). */
+  private async commitBatch(graphId: string, state: BatchLiveState): Promise<void> {
+    // Strict only where leaving an unreadable object out would lose data:
+    //   - an event or arc the batch edited (it would read as one the head never
+    //     had, and be versioned as the bare projection);
+    //   - a link the store now holds between a pair the batch touched, for the
+    //     same reason;
+    //   - every link, when the batch deleted an event or a link: the scans
+    //     below must find each head link that went with it, or leave an orphan.
+    // A delete needs only the tree entry (`lost` below), and anything else stays
+    // lenient: one lost object elsewhere must not fail every batch on the graph.
+    const liveLinks = new Set((state.links ?? []).flatMap((pair) => pair.live.map((link) => link.id)));
+    const mustResolve = (type: EntityType, id: string): boolean =>
+      type === 'event' ? state.events?.get(id) != null
+        : type === 'arc' ? state.arcs?.get(id) != null
+          : type === 'relationship' ? state.deletesLinks === true || liveLinks.has(id)
+            : false;
+    const missing: Array<{ type: EntityType; id: string }> = [];
+    const head = await this.graphRepository.checkout(graphId, undefined, { strict: mustResolve, missing });
+    // In the tree, though its object could not be read.
+    const lost = new Set(missing.map((entry) => `${entry.type}:${entry.id}`));
+    const inHead = (type: EntityType, entities: Record<string, unknown>, id: string): boolean =>
+      entities[id] !== undefined || lost.has(`${type}:${id}`);
+    const changes: EntityChanges = { added: [], modified: [], deleted: [] };
+    const deleted = new Set<string>();
+    const remove = (type: EntityType, id: string): void => {
+      if (deleted.has(`${type}:${id}`)) return;
+      deleted.add(`${type}:${id}`);
+      changes.deleted.push({ type, id });
+    };
+    const write = (type: EntityType, id: string, projection: Record<string, unknown>, current: Record<string, unknown> | undefined): void => {
+      const data = overlay(type, current, projection);
+      if (!current) changes.added.push({ type, id, data });
+      else if (!sameData(current, data)) changes.modified.push({ type, id, data });
+    };
+    const liveLinkIds = new Set<string>();
+
+    for (const [id, event] of state.events ?? []) {
+      if (event) write('event', id, eventToVersionData(event), head.events[id]);
+      else if (inHead('event', head.events, id)) remove('event', id);
+    }
+    for (const [id, arc] of state.arcs ?? []) {
+      if (arc) write('arc', id, arcToVersionData(arc), head.arcs[id]);
+      else if (inHead('arc', head.arcs, id)) remove('arc', id);
+    }
+    for (const pair of state.links ?? []) {
+      for (const link of pair.live) {
+        liveLinkIds.add(link.id);
+        write('relationship', link.id, relationshipToVersionData(link), head.relationships[link.id]);
+      }
+      for (const [id, link] of Object.entries(head.relationships)) {
+        if (link.cause_event_id === pair.cause_event_id && link.effect_event_id === pair.effect_event_id && !liveLinkIds.has(id)) {
+          remove('relationship', id);
+        }
+      }
+    }
+    // The live store detached every link of a deleted event.
+    const goneEvents = new Set(changes.deleted.filter((entity) => entity.type === 'event').map((entity) => entity.id));
+    if (goneEvents.size > 0 && missing.some((entry) => entry.type === 'relationship')) {
+      // `deletesLinks` makes every link strict; a caller that deleted an event
+      // without saying so cannot be versioned without knowing its links.
+      throw new Error(`Cannot version a deleted event in graph ${graphId}: a link object in its head cannot be read`);
+    }
+    for (const [id, link] of Object.entries(head.relationships)) {
+      if (liveLinkIds.has(id)) continue;
+      if (goneEvents.has(String(link.cause_event_id)) || goneEvents.has(String(link.effect_event_id))) remove('relationship', id);
+    }
+
+    const summary = `${describeChanges(changes)} in a batch`;
+    const operation: EntityWriteOperation | 'delete' =
+      changes.modified.length === 0 && changes.deleted.length === 0
+        ? 'create'
+        : changes.added.length === 0 && changes.modified.length === 0
+          ? 'delete'
+          : 'update';
+
+    const empty = changes.added.length + changes.modified.length + changes.deleted.length === 0;
+    if (!empty) await this.graphRepository.commitChanges(graphId, changes, operation, summary);
+  }
+
+  /**
+   * A batch's writes on the live feed, once per kind of change ("Added 2
+   * events in a batch", with " (not versioned)" when `notVersioned`). Never
+   * fails the batch.
+   */
+  announceBatch(graphId: string, steps: BatchStep[], { notVersioned = false }: { notVersioned?: boolean } = {}): void {
+    if (!this.changeFeed) return;
+    const suffix = notVersioned ? ' (not versioned)' : '';
+    const groups = new Map<string, ChangedEntity[]>();
+    for (const step of steps) {
+      const key = `${step.operation}:${step.type}`;
+      groups.set(key, [...(groups.get(key) ?? []), { type: step.type, id: step.id }]);
+    }
+    for (const [key, entities] of groups) {
+      const operation = key.split(':')[0] as EntityWriteOperation | 'delete';
+      try {
+        this.changeFeed.publish(graphId, {
+          kind: 'entities',
+          operation,
+          entities,
+          summary: `${VERB[operation]} ${count(entities.length, NOUN[entities[0].type])} in a batch${suffix}`,
+        });
+      } catch (error) {
+        this.logger.warn('Could not announce a batch to the live feed', {
+          graphId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+
+  /**
    * Ids of the version-store relationships referencing `eventId` as either cause
    * or effect. This is the version-store mirror of the live store's relationship
    * cascade on node deletion.
@@ -334,10 +643,28 @@ export class GraphWriteVersioningService {
   private async commitWrite(
     graphId: string,
     write: VersionEntityWrite,
-    operation: EntityWriteOperation
+    operation: EntityWriteOperation,
+    options: WriteOptions = {}
   ): Promise<void> {
     // `data` is always set for create/update by the typed wrappers above.
-    const entity = { type: write.type, id: write.id, data: write.data ?? {} };
+    const projection = write.data ?? {};
+    // An edit keeps what only the version store holds of the entity (its arc
+    // parent, its source), so the head is read for it, and a read that fails
+    // fails the version: versioning the bare projection would drop those
+    // fields and look like an ordinary edit.
+    let previous: Record<string, unknown> | undefined;
+    if (operation === 'update') {
+      try {
+        previous = (await this.requireHeadEntities(graphId, write.type, [write.id]))[write.id];
+      } catch (error) {
+        this.logger.error(`Could not read the head to version an edit in graph ${graphId}`, error);
+        if (!options.undoneOnFailure) {
+          this.announceNotVersioned(graphId, operation, write.type, write.id, projection);
+        }
+        throw error;
+      }
+    }
+    const entity = { type: write.type, id: write.id, data: overlay(write.type, previous, projection) };
     const changes: EntityChanges = {
       added: operation === 'create' ? [entity] : [],
       modified: operation === 'update' ? [entity] : [],
@@ -346,14 +673,14 @@ export class GraphWriteVersioningService {
 
     const context: EntityWriteContext = { data: entity.data };
     if (operation === 'update') {
-      context.previous = (await this.headEntities(graphId, write.type, [write.id]))[write.id];
+      context.previous = previous;
       if (write.type === 'event') context.calendar = (await this.graphRepository.findById(graphId).catch(() => null))?.calendar;
     }
     if (write.type === 'relationship') {
       Object.assign(context, await this.linkEnds(graphId, entity.data));
     }
 
-    await this.commit(graphId, changes, operation, describeEntityWrite(operation, write.type, context));
+    await this.commit(graphId, changes, operation, describeEntityWrite(operation, write.type, context), options);
   }
 
   /** A link's cause and effect events, as the head holds them. */
@@ -366,6 +693,18 @@ export class GraphWriteVersioningService {
     if (typeof causeId !== 'string' || typeof effectId !== 'string') return {};
     const events = await this.headEntities(graphId, 'event', [causeId, effectId]);
     return { cause: events[causeId], effect: events[effectId] };
+  }
+
+  /**
+   * Entities at the graph's head, for data that is written: a read that fails,
+   * or an entity the tree names whose object is missing, throws.
+   */
+  private async requireHeadEntities(
+    graphId: string,
+    type: EntityType,
+    ids: string[]
+  ): Promise<Record<string, Record<string, unknown>>> {
+    return (await this.graphRepository.getHeadEntities?.(graphId, type, ids, { strict: true })) ?? {};
   }
 
   /**
@@ -418,15 +757,17 @@ export class GraphWriteVersioningService {
     graphId: string,
     changes: EntityChanges,
     operation: EntityWriteOperation | 'delete',
-    description: string
+    description: string,
+    options: WriteOptions = {}
   ): Promise<void> {
     try {
       await this.graphRepository.commitChanges(graphId, changes, operation, description);
     } catch (error) {
       this.logger.error(`Failed to commit ${description} to graph ${graphId}`, error);
       // The live store changed before this was asked, and it is what the app
-      // reads, so a watcher is told even though the version was not made.
-      this.announce(graphId, changes, operation, `${description} (not versioned)`);
+      // reads, so a watcher is told even though the version was not made --
+      // unless the caller undoes the write, when there is nothing to see.
+      if (!options.undoneOnFailure) this.announce(graphId, changes, operation, `${description} (not versioned)`);
       throw error;
     }
     this.announce(graphId, changes, operation, description);

@@ -355,7 +355,11 @@ export class ExportService {
 
     // Build export object (without checksum first)
     const exportObj: AlthistoryExport = {
-      version: exportVersionOf({ events: Object.values(scoped.events), arcs: Object.values(scoped.arcs) }),
+      version: exportVersionOf({
+        events: Object.values(scoped.events),
+        arcs: Object.values(scoped.arcs),
+        embedded: (exportData.crossGraphRefs ?? []).map((ref) => ref.embeddedEntity),
+      }),
       metadata: {
         graphId: graph.id,
         graphName: graph.name,
@@ -548,7 +552,11 @@ export class ExportService {
       ? await this.getProvenance(options.graphId)
       : undefined;
 
-    const version = exportVersionOf({ events: Object.values(scoped.events), arcs: Object.values(scoped.arcs) });
+    const version = exportVersionOf({
+      events: Object.values(scoped.events),
+      arcs: Object.values(scoped.arcs),
+      embedded: embedded ? [...embedded.values()].map((resolved) => resolved.entity) : undefined,
+    });
     const head =
       `{"version":"${version}","metadata":${JSON.stringify(metadata)},"data":`;
     const tail = (provenance ? `,"provenance":${JSON.stringify(provenance)}` : '') + '}';

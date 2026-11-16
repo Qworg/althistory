@@ -1,5 +1,5 @@
 import { ExtractedEvent, ExtractedArc, ExtractionSource } from '@/services/ingestion/types';
-import { type WorldCalendarSet, addInstantMs, calendarIn, compareInstants, dateAt, formatWorldYearOf, msApart, toAxisTime, toInstant } from '@althistory/calendar';
+import { type WorldCalendarSet, addInstantMs, calendarIn, compareInstants, dateAt, formatBoundAt, formatWorldYearOf, msApart, toAxisTime, toInstant } from '@althistory/calendar';
 
 /** How the arcs are named. */
 export interface ArcNamingOptions {
@@ -51,15 +51,18 @@ export function clusterEventsIntoArcs(
   naming: ArcNamingOptions = {}
 ): ExtractedArc[] {
   const { calendar } = naming;
-  // The UTC year without a calendar; in a world, the year its primary calendar names.
+  // Without a calendar, the UTC year as a person types it ("1066", "44 BCE");
+  // in a world, the year its primary calendar names.
   const primary = calendar ? calendarIn(calendar) : null;
-  // A world's day is its own length, and an arc it pads, and a gap it measures, count in it.
-  const dayMs = calendar ? calendar.dayLength * 1000 : 24 * 60 * 60 * 1000;
+  // A world's day is its own length (a 30-hour day pads an arc by 30 hours),
+  // and so is its year: the gaps measured below count in them.
+  const dayMs = primary ? primary.dayMs : 24 * 60 * 60 * 1000;
+  const yearMs = primary ? (primary.cycleDays / primary.cycleYears) * primary.dayMs : 365.25 * 24 * 60 * 60 * 1000;
   const yearOf = (timestamp: string): string => {
     const instant = toInstant(timestamp);
     const position = toAxisTime(instant);
     if (position === null) return '';
-    return primary ? formatWorldYearOf(primary.definition, dateAt(primary, position).year) : String(instant.getUTCFullYear());
+    return primary ? formatWorldYearOf(primary.definition, dateAt(primary, position).year) : formatBoundAt(instant, 'year');
   };
 
   if (events.length === 0) {
@@ -96,7 +99,7 @@ export function clusterEventsIntoArcs(
 
   // Median gap when sufficient sample size exists; otherwise 5-year default
   const sortedGaps = [...gaps].sort((a, b) => a - b);
-  const fiveYearsMs = 5 * 365.25 * 24 * 60 * 60 * 1000;
+  const fiveYearsMs = 5 * yearMs;
   const thirtyDaysMs = 30 * dayMs;
 
   const medianGap = sortedGaps[Math.floor(sortedGaps.length / 2)] || thirtyDaysMs;

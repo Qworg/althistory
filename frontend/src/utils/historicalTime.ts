@@ -81,19 +81,18 @@ export function formatHistoricalRange(start: DateInput, end: DateInput, locale?:
 }
 
 /**
- * The year of a date: in a world, as its calendar names it ("312 AR"); without
- * one, the UTC year ("1843"). '?' when there is no date.
+ * The year of a date: in a world, as its calendar names it ("312 AR");
+ * without one, the UTC year as a person types it, in every locale, so that it
+ * reads back where it is typed: ASCII digits, BCE before 1 CE at every
+ * magnitude ("1843", "44 BCE", "500000 BCE"). Never the astronomical "-43",
+ * which could be 43 BCE or 44 BCE and is refused. (A full date is written by
+ * the locale, "Mar 15, 44 BC" in en-US: nobody types those back.) '?' when
+ * there is no date.
  */
 export function historicalYear(value: DateInput, calendar?: CalendarArg): string {
   const date = calendarLib.toDate(value)
   if (Number.isNaN(date.getTime())) return '?'
   const world = resolveCalendar(calendar)
   if (world) return calendarLib.formatHistoricalDateAt(date, 'year', undefined, world)
-  const year = date.getUTCFullYear()
-  // A real history's years stay as they always were (-43 for 44 BCE). Below
-  // year -9999 only deep time lies, where the astronomical "-499999" would
-  // read as a typo: write it as the era's own "500000 BC" (deep-time Req 16).
-  return year < DEEP_TIME_LABEL_BELOW ? calendarLib.formatHistoricalDateAt(date, 'year', 'en', null) : String(year)
+  return calendarLib.formatBoundAt(date, 'year')
 }
-
-const DEEP_TIME_LABEL_BELOW = -9999

@@ -203,5 +203,40 @@ export async function startStack(): Promise<Stack> {
     throw err
   }
 
-  return { appUrl, apiUrl, apiKey, stop }
+  let browserKey: string
+  try {
+    browserKey = await mintUnthrottledKey(apiUrl, apiKey)
+  } catch (err) {
+    await stop()
+    throw err
+  }
+  return { appUrl, apiUrl, apiKey: browserKey, stop }
+}
+
+/**
+ * A key for the run with the admin key's permissions but no practical rate
+ * limit. A key's default is 60 requests a minute on the graph routes, and a
+ * capture reloads page after page: once it runs out, the graph picker's switch
+ * is refused with a 429 and the run stalls on the wrong graph. Only this
+ * private, throwaway stack gets such a key.
+ */
+async function mintUnthrottledKey(apiUrl: string, adminKey: string): Promise<string> {
+  const lots = 1_000_000
+  const res = await fetch(`${apiUrl}/api/keys`, {
+    method: 'POST',
+    headers: { 'x-api-key': adminKey, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      name: 'media capture',
+      permissions: [
+        'read:events', 'write:events', 'read:arcs', 'write:arcs', 'read:relationships', 'write:relationships',
+        'read:graphs', 'write:graphs', 'export', 'import', 'ingest', 'generate', 'admin',
+      ],
+      rateLimit: { requestsPerMinute: lots, requestsPerHour: lots, requestsPerDay: lots },
+    }),
+  })
+  const text = await res.text()
+  if (!res.ok) throw new Error(`POST /api/keys -> ${res.status}: ${text.slice(0, 300)}`)
+  const key = (JSON.parse(text) as { key?: unknown }).key
+  if (typeof key !== 'string') throw new Error(`POST /api/keys returned no key: ${text.slice(0, 300)}`)
+  return key
 }

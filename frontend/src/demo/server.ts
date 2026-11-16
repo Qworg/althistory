@@ -71,6 +71,8 @@ interface Recording {
   branchGraphId: string
   /** The invented world, whose graph carries a calendar. */
   worldGraphId?: string
+  /** Deep time, a Gregorian graph that runs far beyond a `Date`'s range. */
+  deepGraphId?: string
   entities: Record<string, GraphState>
   responses: Record<string, Recorded>
 }
@@ -119,7 +121,7 @@ function load(): DemoState {
     if (raw) {
       const saved = JSON.parse(raw) as DemoState
       if (saved.version === STATE_VERSION) {
-        // A tab saved before a re-recording added a graph (the world, Vael)
+        // A tab saved before a re-recording added a graph (Vael, deep time)
         // gets it as recorded, alongside its own edits.
         for (const [id, graph] of Object.entries(recording.entities)) saved.graphs[id] ??= structuredClone(graph)
         if (saved.graphs[saved.active]) return saved

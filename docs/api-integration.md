@@ -200,7 +200,9 @@ about ±285 million years. Beyond year 9999, or before year 0, ISO 8601 writes
 the year with a sign and six digits or more, and so do the responses
 (`+300000-01-01T00:00:00.000Z`, `-499999-06-15T00:00:00.000Z`). ISO years are
 astronomical: year `0000` is 1 BCE, so `-499999` is 500,000 BCE and `-000043`
-is 44 BCE; the routes read that spelling too, and year-first text (`300000 BCE`). Every event also
+is 44 BCE; the routes read that spelling too, and year-first text (`300000 BCE`).
+A minus sign before fewer than six digits (`-0043`) is refused: it could be
+43 BCE or 44 BCE. Every event also
 carries `timestamp_ms`, and every arc `start_time_ms` and `end_time_ms`: the
 same moment as exact milliseconds on the timeline (1970 is `"0"`), a decimal
 **string**, because JSON has no bigint and a number rounds past 2^53 (about
@@ -469,6 +471,12 @@ has its socket closed (`KEY_INVALID`), and one that loses a graph is sent
 idle for 5 minutes is closed, and every session ends after 30 minutes, which is
 what the reconnect below is for.
 
+**A key that lost the graph it had open** cannot mint a token for that graph
+any more (403). To keep watching the graph list, ask for a token for the list
+alone: `{"mode":"feed","channel":"*"}` with no `X-Graph-Id`, which needs
+`read:graphs` as well as `read:events`. The socket is bound to no graph; any
+graph it then subscribes to is checked on its own, as on every feed socket.
+
 Watching needs `read:events` alone, but a change is told only as far as the key
 could read it over HTTP: entities the key may not read (arcs without
 `read:arcs`, links without `read:relationships`) are left out of an `entities`
@@ -512,7 +520,7 @@ connection, get a new token, connect, and subscribe again with `epoch` and
 changes to that graph happened, or the graph was deleted; `epoch`: the server
 restarted) and you refetch the graph. The graph list is never replayed: refetch it
 after a reconnect. A sequence number is used rather than a version number because
-not every change makes a version (a graph's name, a batch, a generation's
+not every change makes a version (a graph's name, a generation's
 progress).
 
 **Decisions behind it**
@@ -522,7 +530,8 @@ progress).
   so it cannot announce an agent adding one event. The feed is a write-level bus
   (`ChangeFeedService`) that the versioning bridge, the live-store sync (which
   `onHeadReplaced` triggers, and which now says why the head was replaced), the
-  graph service, the batch routes and the generation jobs publish to.
+  graph service and the generation jobs publish to. A batch is announced by the
+  versioning bridge too: once per kind of change, with one version for the batch.
 - *Conflicts.* A generation job never rewrites an existing item: a timeline or
   branch writes a new graph, an expansion adds new events and an arc. So there is
   nothing to skip or lock. When a person and an agent edit the same item, the last

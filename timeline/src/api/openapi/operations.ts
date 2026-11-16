@@ -758,6 +758,15 @@ export const OPERATIONS: Record<string, OperationSpec> = {
   // --- ingest --------------------------------------------------------------
   'POST /api/ingest/url': {
     summary: 'Extract entities from a web page.',
+    headers: [
+      {
+        name: 'X-Graph-Id',
+        description:
+          "The graph the extraction is for: its world calendars read `context.defaultTimeRange`. " +
+          'Optional, and unlike the graph-scoped routes there is no active-graph fallback: without it no graph ' +
+          'is read. A graph that does not exist is a 404; one the key may not access, a 403.',
+      },
+    ],
     request: 'IngestUrlRequest',
     requestRequired: true,
     response: 'IngestPreview',
@@ -766,6 +775,15 @@ export const OPERATIONS: Record<string, OperationSpec> = {
   },
   'POST /api/ingest/wikidata': {
     summary: 'Extract entities from Wikidata.',
+    headers: [
+      {
+        name: 'X-Graph-Id',
+        description:
+          "The graph the extraction is for: its world calendars read `context.defaultTimeRange`. " +
+          'Optional, and unlike the graph-scoped routes there is no active-graph fallback: without it no graph ' +
+          'is read. A graph that does not exist is a 404; one the key may not access, a 403.',
+      },
+    ],
     request: 'IngestWikidataRequest',
     requestRequired: true,
     response: 'IngestPreview',
@@ -939,7 +957,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
 
   // --- batch ---------------------------------------------------------------
   'POST /api/batch/events': {
-    summary: 'Create many events at once.',
+    summary: 'Create many events at once, recorded as one version of the graph.',
     request: 'BatchEventsRequest',
     requestRequired: true,
     response: 'BatchResult',
@@ -949,7 +967,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     responses: { 207: 'Some of the entities were rejected; the rest were created.' },
   },
   'POST /api/batch/arcs': {
-    summary: 'Create many arcs at once.',
+    summary: 'Create many arcs at once, recorded as one version of the graph.',
     request: 'BatchArcsRequest',
     requestRequired: true,
     response: 'BatchResult',
@@ -959,7 +977,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     responses: { 207: 'Some of the entities were rejected; the rest were created.' },
   },
   'POST /api/batch/relationships': {
-    summary: 'Create many causal relationships at once.',
+    summary: 'Create many causal relationships at once, recorded as one version of the graph.',
     request: 'BatchRelationshipsRequest',
     requestRequired: true,
     response: 'BatchResult',
@@ -969,7 +987,10 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     responses: { 207: 'Some of the entities were rejected; the rest were created.' },
   },
   'POST /api/batch/transaction': {
-    summary: 'Apply many changes at once, atomically: either all of them land, or none do.',
+    summary:
+      'Apply many changes at once. With `atomic` (the default) a failing step undoes the entities the ' +
+      'transaction created; the updates and deletes before it stay. What the transaction leaves is ' +
+      'recorded as one version of the graph.',
     request: 'BatchTransactionRequest',
     requestRequired: true,
     response: 'BatchTransactionResult',
@@ -982,7 +1003,8 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     summary:
       'Issue a short-lived token for a WebSocket session: a write session, or with `mode: "feed"` a ' +
       'read-only session for the live change feed (see docs/api-integration.md). The graph the ' +
-      'socket is bound to comes from the `X-Graph-Id` header; a `graphId` in the body is ignored.',
+      'socket is bound to comes from the `X-Graph-Id` header; a `graphId` in the body is ignored. ' +
+      'A feed token with `channel: "*"` and no header is for the graph list alone.',
     request: 'StreamTokenRequest',
     response: 'StreamToken',
     envelope: 'bare',

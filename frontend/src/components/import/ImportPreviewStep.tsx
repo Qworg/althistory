@@ -4,7 +4,7 @@
  * Shows what changes will be made by the import.
  */
 
-// React import not needed with new JSX transform
+import { useId } from 'react'
 import { ImportPreview, ImportMode, EntityCounts } from '@/types'
 
 export interface ImportPreviewStepProps {
@@ -58,6 +58,15 @@ function CountCard({
   )
 }
 
+const MODE_OPTIONS: ReadonlyArray<{ value: ImportMode; label: string; hint: string }> = [
+  { value: 'create-new', label: 'Create New Graph', hint: 'Import into a brand new graph (no conflicts possible)' },
+  { value: 'merge', label: 'Merge into Current Graph', hint: 'Add new entities, skip existing ones with same IDs' },
+  { value: 'replace', label: 'Replace Current Graph', hint: 'Replace existing entities with imported data' },
+]
+
+/** The keys that move between (and select) radios in a group. */
+const ARROW_KEYS: ReadonlySet<string> = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
+
 export function ImportPreviewStep({
   preview,
   mode,
@@ -68,6 +77,7 @@ export function ImportPreviewStep({
   isLoading = false,
 }: ImportPreviewStepProps) {
   const { toCreate, toUpdate, toDelete, warnings } = preview
+  const modeHeadingId = useId()
 
   return (
     <div className="space-y-6">
@@ -78,69 +88,46 @@ export function ImportPreviewStep({
         </p>
       </div>
 
-      {/* Import Mode Selection */}
+      {/* Import Mode Selection. While a check of a mode runs the radios are
+          busy (aria-disabled), not disabled: a disabled radio drops the
+          keyboard focus it holds to the page. A change made meanwhile is
+          refused here instead. */}
       <div className="bg-subtle rounded-lg p-4">
-        <h4 className="text-sm font-medium text-ink mb-3">Import Mode</h4>
-        <div className="space-y-3">
-          <label className="flex items-start space-x-3 cursor-pointer">
-            <input
-              type="radio"
-              name="mode"
-              value="create-new"
-              checked={mode === 'create-new'}
-              onChange={() => onModeChange('create-new')}
-              className="mt-1 h-4 w-4 text-baseline border-line focus:ring-selected"
-              disabled={isLoading}
-            />
-            <div>
-              <span className="block text-sm font-medium text-ink">
-                Create New Graph
-              </span>
-              <span className="block text-sm text-ink-muted">
-                Import into a brand new graph (no conflicts possible)
-              </span>
-            </div>
-          </label>
-          
-          <label className="flex items-start space-x-3 cursor-pointer">
-            <input
-              type="radio"
-              name="mode"
-              value="merge"
-              checked={mode === 'merge'}
-              onChange={() => onModeChange('merge')}
-              className="mt-1 h-4 w-4 text-baseline border-line focus:ring-selected"
-              disabled={isLoading}
-            />
-            <div>
-              <span className="block text-sm font-medium text-ink">
-                Merge into Current Graph
-              </span>
-              <span className="block text-sm text-ink-muted">
-                Add new entities, skip existing ones with same IDs
-              </span>
-            </div>
-          </label>
-          
-          <label className="flex items-start space-x-3 cursor-pointer">
-            <input
-              type="radio"
-              name="mode"
-              value="replace"
-              checked={mode === 'replace'}
-              onChange={() => onModeChange('replace')}
-              className="mt-1 h-4 w-4 text-baseline border-line focus:ring-selected"
-              disabled={isLoading}
-            />
-            <div>
-              <span className="block text-sm font-medium text-ink">
-                Replace Current Graph
-              </span>
-              <span className="block text-sm text-ink-muted">
-                Replace existing entities with imported data
-              </span>
-            </div>
-          </label>
+        <h4 id={modeHeadingId} className="text-sm font-medium text-ink mb-3">Import Mode</h4>
+        <div
+          className="space-y-3"
+          role="radiogroup"
+          aria-labelledby={modeHeadingId}
+          aria-busy={isLoading || undefined}
+          onKeyDown={(event) => {
+            if (isLoading && ARROW_KEYS.has(event.key)) event.preventDefault()
+          }}
+        >
+          {MODE_OPTIONS.map((option) => (
+            <label
+              key={option.value}
+              className={`flex items-start space-x-3 ${isLoading ? 'cursor-wait opacity-60' : 'cursor-pointer'}`}
+            >
+              <input
+                type="radio"
+                name="mode"
+                value={option.value}
+                checked={mode === option.value}
+                onChange={() => {
+                  if (!isLoading) onModeChange(option.value)
+                }}
+                onClick={(event) => {
+                  if (isLoading) event.preventDefault()
+                }}
+                className="mt-1 h-4 w-4 text-baseline border-line focus:ring-selected"
+                aria-disabled={isLoading || undefined}
+              />
+              <div>
+                <span className="block text-sm font-medium text-ink">{option.label}</span>
+                <span className="block text-sm text-ink-muted">{option.hint}</span>
+              </div>
+            </label>
+          ))}
         </div>
       </div>
 

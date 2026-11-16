@@ -246,7 +246,7 @@ describe('Generation routes (real auth)', () => {
       const started = await post('/api/generate/expand', generateKey, empty).send({}).expect(202);
       const done = await finished(started.body.id, generateKey);
       expect(done.status).toBe('failed');
-      expect(done.error).toContain('Cannot expand empty graph');
+      expect(done.error).toMatch(/Cannot expand graph .*: it has no events/);
     });
 
     it('shows a job only to the key that started it', async () => {

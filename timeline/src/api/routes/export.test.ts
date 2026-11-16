@@ -1011,6 +1011,21 @@ describe('Export routes (request-level)', () => {
       expect(response.body.error.message).toContain('GET /export');
     });
 
+    it('refuses a time range a second inside-out near 200 million years BCE, where a double holds no whole seconds', async () => {
+      const earlier = '-200000001-12-31T23:59:59.500Z';
+      const later = '-200000000-01-01T00:00:00.500Z';
+      const send = (start: string, end: string) =>
+        request(app)
+          .post('/api/export/sync')
+          .set('X-API-Key', exportKey)
+          .set('X-Graph-Id', smallGraph.id)
+          .send({ scope: 'filtered', filters: { timeRange: { start, end } } });
+      const inverted = await send(later, earlier);
+      expect(inverted.status).toBe(400);
+      expect(inverted.body.error.message).toContain('Start date must be before end date');
+      await send(earlier, later).expect(200);
+    });
+
     it('requires filters when scope is "filtered"', async () => {
       const response = await request(app)
         .post('/api/export/sync')

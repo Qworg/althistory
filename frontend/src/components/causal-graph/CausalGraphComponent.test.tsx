@@ -13,6 +13,7 @@ import {
 } from '@/test/helpers/cytoscapeTestHelpers'
 import { FIT_PADDING, getDefaultLayoutOptions } from '@/utils/layoutManagerUtils'
 import { GRAPH_PALETTES } from './causalGraphPresentation'
+import { resetLiveChangesStore, useLiveChangesStore } from '@/stores/liveChangesStore'
 
 /**
  * Shape of the store double created by the `vi.mock` factory below. Only the
@@ -1019,6 +1020,68 @@ describe('CausalGraphComponent', () => {
       expect(standardNode?.classes).toBeUndefined()
     })
   })
+  describe('an item another writer just added (the live change feed)', () => {
+    type Rule = { selector: string; style: Record<string, unknown> }
+    type Added = { data: { id: string }; classes?: string }
+    const added = (): Added[] => (mockCy.add.mock.calls[0] as unknown[][])[0] as Added[]
+    const element = (id: string) =>
+      [...mockCy.nodes().map((n: { id: () => string }) => n), ...mockCy.edges().map((e: { id: () => string }) => e)].find(
+        (el: { id: () => string }) => el.id() === id
+      ) as { hasClass: (name: string) => boolean } | undefined
+
+    beforeEach(() => resetLiveChangesStore())
+    afterEach(() => {
+      resetLiveChangesStore()
+      document.documentElement.classList.remove('dark')
+    })
+
+    it('is drawn with the live-new class, ringed in the fresh colour, and the ring is gone once the highlight ends', async () => {
+      useLiveChangesStore.getState().markFresh([
+        { type: 'event', id: '1' },
+        { type: 'relationship', id: 'rel1' },
+      ])
+      render(<CausalGraphComponent />)
+      await waitFor(() => expect(mockCy.add).toHaveBeenCalled())
+
+      // Drawn ringed: what was fresh when the graph was drawn carries the class.
+      expect(added().find((el) => el.data.id === '1')?.classes).toContain('live-new')
+      expect(added().find((el) => el.data.id === 'rel1')?.classes).toContain('live-new')
+      expect(added().find((el) => el.data.id === '2')?.classes ?? '').not.toContain('live-new')
+
+      // The class is what the stylesheet rings, in the palette's fresh colour.
+      const sheet = (mockedCytoscape.mock.calls[0]?.[0]?.style ?? []) as Rule[]
+      const light = GRAPH_PALETTES.light
+      expect(sheet.find((r) => r.selector === 'node.live-new')?.style).toMatchObject({ 'border-color': light.freshRing })
+      expect(sheet.find((r) => r.selector === 'edge.live-new')?.style).toMatchObject({
+        'line-color': light.freshRing,
+        'target-arrow-color': light.freshRing,
+      })
+      // Green, which neither the baseline nor the divergence accent is.
+      expect(light.freshRing).not.toBe(light.selectedBorder)
+
+      // Something arriving after the draw is ringed without a redraw...
+      mockCy.add.mockClear()
+      act(() => useLiveChangesStore.getState().markFresh([{ type: 'event', id: '2' }]))
+      expect(element('2')?.hasClass('live-new')).toBe(true)
+      expect(mockCy.add).not.toHaveBeenCalled()
+
+      // ...and un-ringed when the highlight ends.
+      act(() => useLiveChangesStore.setState({ fresh: { event: {}, arc: {}, relationship: {} } }))
+      expect(element('1')?.hasClass('live-new')).toBe(false)
+      expect(element('2')?.hasClass('live-new')).toBe(false)
+      expect(element('rel1')?.hasClass('live-new')).toBe(false)
+    })
+
+    it('rings in the dark palette\'s fresh colour in dark mode', async () => {
+      document.documentElement.classList.add('dark')
+      render(<CausalGraphComponent />)
+      await waitFor(() => expect(mockedCytoscape).toHaveBeenCalled())
+      const sheet = (mockedCytoscape.mock.calls[0]?.[0]?.style ?? []) as Rule[]
+      expect(sheet.find((r) => r.selector === 'node.live-new')?.style['border-color']).toBe(GRAPH_PALETTES.dark.freshRing)
+      expect(GRAPH_PALETTES.dark.freshRing).not.toBe(GRAPH_PALETTES.light.freshRing)
+    })
+  })
+
   describe('Theme and relationship types', () => {
     type Rule = { selector: string; style: Record<string, unknown> }
     const initialSheet = () => (mockedCytoscape.mock.calls[0]?.[0]?.style ?? []) as Rule[]

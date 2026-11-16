@@ -3,7 +3,7 @@ import { act, render } from '@testing-library/react'
 import { ActorTimeline, type ActorEventData } from './ActorTimeline'
 import { Timeline } from './Timeline'
 import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
-import { MAX_AXIS_MS, isoOfAxisTime } from '@althistory/calendar'
+import { MAX_AXIS_MS, isoOfAxisTime, readHistoricalText } from '@althistory/calendar'
 import type { Arc, Event } from '@/types'
 
 /**
@@ -82,8 +82,10 @@ describe('a timeline of a million years', () => {
     const labels = axisLabels()
     expect(labels.length).toBeGreaterThan(2)
     expect(new Set(labels).size).toBe(labels.length)
-    expect(labels.some((label) => /BCE/.test(label))).toBe(true)
-    expect(labels.some((label) => /\bCE\b/.test(label) && !/BCE/.test(label))).toBe(true)
+    // As the locale writes a year and its era (en-US here), as the event labels do.
+    expect(labels.some((label) => /^\d+ BCE$/.test(label))).toBe(true)
+    expect(labels.some((label) => /^\d+$/.test(label))).toBe(true)
+    expect(labels.every((label) => /^\d+( BCE)?$/.test(label))).toBe(true)
   })
 
   it('keeps a real history\'s axis in the d3 style it always had', () => {
@@ -91,6 +93,36 @@ describe('a timeline of a million years', () => {
     const labels = axisLabels()
     expect(labels.some((label) => /^18\d\d$|^18\d0s$/.test(label))).toBe(true)
     expect(labels.some((label) => /CE|BCE/.test(label))).toBe(false)
+  })
+})
+
+describe('a fortnight before 1 CE, on the main timeline', () => {
+  it.each(['-000043-03-01T00:00:00.000Z', '-008999-03-01T00:00:00.000Z'])('drops the day ticks whose labels would overprint, from %s', (from) => {
+    const to = new Date(+new Date(from) + 13.5 * 86_400_000).toISOString()
+    render(<Timeline events={[event('a', from), event('b', to)]} arcs={[]} width={1300} height={400} />)
+    const ticks = Array.from(document.querySelectorAll('svg text.font-mono-code')).map((text) => ({
+      label: text.textContent ?? '',
+      x: Number(/translate\(([^,]+),/.exec(text.parentElement?.getAttribute('transform') ?? '')?.[1]),
+    }))
+    expect(ticks.length).toBeGreaterThan(2)
+    expect(ticks.every((tick) => / BCE$/.test(tick.label) && Number.isFinite(tick.x))).toBe(true)
+    for (let i = 1; i < ticks.length; i++) {
+      // 12px monospace: 7.2px a character.
+      expect(ticks[i]!.x - ticks[i - 1]!.x, JSON.stringify(ticks)).toBeGreaterThanOrEqual(((ticks[i]!.label.length + ticks[i - 1]!.label.length) * 7.2) / 2)
+    }
+  })
+})
+
+describe('one event before 1 CE, on the main timeline', () => {
+  it('labels its twenty-second default view once a tick, each naming its time to the second', () => {
+    render(<Timeline events={[event('a', '-000043-03-15T12:00:00.000Z')]} arcs={[]} width={1300} height={400} />)
+    const labels = axisLabels()
+    expect(labels.length).toBeGreaterThan(2)
+    expect(new Set(labels).size, JSON.stringify(labels)).toBe(labels.length)
+    for (const label of labels) {
+      expect(label).toMatch(/^(44-03-15 BCE )?\d{2}:\d{2}:\d{2}$/)
+      if (label.includes('BCE')) expect(readHistoricalText(label, 'start').ok, label).toBe(true)
+    }
   })
 })
 
@@ -110,7 +142,7 @@ describe('a history a Date can hold, near its lower bound', () => {
       const labels = axisLabels()
       expect(labels.length).toBeGreaterThan(2)
       expect(new Set(labels).size).toBe(labels.length)
-      expect(labels.some((label) => /BCE/.test(label))).toBe(true)
+      expect(labels.some((label) => /\d BCE$/.test(label))).toBe(true)
       // 200,001 BCE is year -200000: never "-200000s" or a bare negative year.
       expect(labels.some((label) => /^-|s$/.test(label))).toBe(false)
     })
@@ -119,7 +151,7 @@ describe('a history a Date can hold, near its lower bound', () => {
       render(<ActorTimeline events={actorEvents([from, to])} arcs={[]} actor="Actor" layoutMode="chronological" width={900} height={400} />)
       const labels = axisLabels()
       expect(labels.length).toBeGreaterThan(2)
-      expect(labels.some((label) => /BCE/.test(label))).toBe(true)
+      expect(labels.some((label) => /\d BCE$/.test(label))).toBe(true)
       expect(labels.some((label) => /^-|s$/.test(label))).toBe(false)
     })
   }

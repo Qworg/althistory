@@ -82,6 +82,17 @@ export function readWorldTimestamp(
   return { iso: isoOfAxisTime(at), time: at, precision }
 }
 
+/**
+ * Why text written in a world's notation names no date, when it is in the
+ * notation of one of its calendars: "Greywater has 30 days that year, so no
+ * day 31". Null when the text reads as a date, or is not written in any of
+ * the world's notations (then there is nothing more to say than that).
+ */
+export function worldDateProblem(set: WorldCalendarSet, text: string): string | null {
+  const read = parseWorldText(set, String(text))
+  return !read.ok && read.read ? read.error : null
+}
+
 /** Why {@link readWorldTimestamp} read nothing from the text, as a sentence. */
 export function unreadDateReason(set: WorldCalendarSet | null | undefined, text: string): string {
   const trimmed = String(text).trim()

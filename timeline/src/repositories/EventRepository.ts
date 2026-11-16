@@ -475,9 +475,13 @@ export class EventRepository {
     const parameters: Record<string, unknown> = { id };
     const graphProperty = graphPatternProperty(parameters, this.graphId);
 
+    // DETACH: an event's links go with it, as they do in the local store
+    // (LocalGraphStore treats every node delete as a detach) and as the
+    // version store's delete cascades (GraphWriteVersioningService). A plain
+    // DELETE made Neo4j refuse to delete any event that had a link.
     const query = `
       MATCH (e:Event {id: $id${graphProperty}})
-      DELETE e
+      DETACH DELETE e
       RETURN count(e) as deletedCount
     `;
 

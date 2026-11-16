@@ -136,6 +136,38 @@ describe('the OpenAPI description', () => {
     expect(String(header?.description)).toContain('no active-graph fallback')
   })
 
+  it('declares the ingest context as the object the routes read, and the optional X-Graph-Id on every extraction', () => {
+    const schemas = document.components.schemas as Record<string, { properties?: Record<string, Record<string, unknown>> }>
+    const paths = document.paths as Record<string, Record<string, { parameters?: Array<Record<string, unknown>> }>>
+    for (const [route, schema] of [
+      ['/api/ingest/text', 'IngestTextRequest'],
+      ['/api/ingest/url', 'IngestUrlRequest'],
+      ['/api/ingest/wikidata', 'IngestWikidataRequest'],
+    ] as const) {
+      const context = schemas[schema]!.properties!.context as { type?: string; properties?: Record<string, Record<string, unknown>>; description?: string }
+      expect(context.type, schema).toBe('object')
+      expect(context.properties?.defaultTimeRange, schema).toMatchObject({
+        type: 'object',
+        properties: { start: { type: 'string' }, end: { type: 'string' } },
+        required: ['start', 'end'],
+      })
+      expect(context.properties?.defaultActors, schema).toMatchObject({ type: 'array', items: { type: 'string' } })
+      expect(context.properties?.knownEntities, schema).toMatchObject({ type: 'array', items: { type: 'string' } })
+      expect(String(context.description), schema).toContain('400')
+      const header = paths[route]!.post!.parameters?.find((parameter) => parameter.name === 'X-Graph-Id')
+      expect(header, route).toMatchObject({ in: 'header', required: false })
+    }
+    expect(schemas.IngestUrlRequest!.properties!.options).toMatchObject({ type: 'object' })
+  })
+
+  it('describes a stream token as the route answers it, its mode and a graph-list token included', () => {
+    const token = (document.components.schemas as Record<string, { properties: Record<string, Record<string, unknown>>; required?: string[] }>)
+      .StreamToken!
+    expect(token.properties.mode).toMatchObject({ type: 'string', enum: ['write', 'feed'] })
+    expect(String(token.properties.graphId!.description)).toContain('"*"')
+    expect(token.required).toEqual(expect.arrayContaining(['token', 'expiresIn', 'graphId', 'permissions', 'mode']))
+  })
+
   it('uses only OpenAPI 3.0 schema syntax', () => {
     // 3.0 has no union types: `type` is a single string, and a nullable field
     // is `nullable: true`.

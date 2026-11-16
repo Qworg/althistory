@@ -9,6 +9,7 @@ import { batchRoutes } from './batch';
 import { errorHandler } from '@/api/middleware';
 import { Event } from '@/models/Event';
 import { Arc } from '@/models/Arc';
+import { GraphWriteVersioningService } from '@/services/GraphWriteVersioningService';
 
 // The routes now build a graph-scoped `CausalService` per request from the
 // container's live store. Stub the class so these tests assert batch wiring
@@ -17,6 +18,7 @@ const { causalServiceMock } = vi.hoisted(() => ({
   causalServiceMock: {
     createCausalLink: vi.fn(),
     deleteCausalLink: vi.fn(),
+    getAllRelationships: vi.fn(),
   },
 }));
 
@@ -77,6 +79,8 @@ let mockArcRepository: any;
 let scopedGraphIds: string[];
 /** What the routes told the live feed. */
 let publish: ReturnType<typeof vi.fn>;
+/** What the routes committed to the version store. */
+let commitChanges: ReturnType<typeof vi.fn>;
 
 describe('Batch Routes', () => {
   beforeEach(() => {
@@ -113,6 +117,16 @@ describe('Batch Routes', () => {
 
     causalServiceMock.createCausalLink.mockReset().mockResolvedValue({});
     causalServiceMock.deleteCausalLink.mockReset().mockResolvedValue('rel-1');
+    causalServiceMock.getAllRelationships.mockReset().mockResolvedValue([]);
+    commitChanges = vi.fn().mockResolvedValue({ version: 0 });
+    // The real bridge over a stub version store: it makes the announcements.
+    const graphWriteVersioningService = new GraphWriteVersioningService({
+      graphRepository: {
+        checkout: vi.fn().mockResolvedValue({ events: {}, arcs: {}, relationships: {}, pressures: {} }),
+        commitChanges,
+      } as any,
+      changeFeed: { publish } as any,
+    });
 
     // Create fresh app for each test
     app = express();
@@ -125,6 +139,7 @@ describe('Batch Routes', () => {
         arcRepository: mockArcRepository,
         graphContextStore: { getStore: vi.fn().mockResolvedValue({}) },
         changeFeedService: { publish },
+        graphWriteVersioningService,
         graphScopedRepositories: (graphId: string) => {
           scopedGraphIds.push(graphId);
           return Promise.resolve({
@@ -192,6 +207,33 @@ describe('Batch Routes', () => {
       expect(response.body.success).toBe(true);
       expect(response.body.created.length).toBe(2);
       expect(mockEventRepository.create).toHaveBeenCalledTimes(2);
+      // One version for the whole batch.
+      expect(commitChanges).toHaveBeenCalledTimes(1);
+      expect(commitChanges.mock.calls[0]![1].added).toHaveLength(new Set(response.body.created).size);
+    });
+
+    it('undoes the batch and fails when its version cannot be committed, as a single create does', async () => {
+      commitChanges.mockRejectedValue(new Error('version store is down'));
+      mockEventRepository.create
+        .mockImplementationOnce((data: any) => Promise.resolve(new Event({ ...data, id: 'evt-a' })))
+        .mockImplementationOnce((data: any) => Promise.resolve(new Event({ ...data, id: 'evt-b' })));
+
+      await request(app)
+        .post('/api/batch/events')
+        .set('X-API-Key', 'valid-write-key')
+        .set('X-Graph-Id', 'test-graph')
+        .send({
+          graphId: 'test-graph',
+          events: [
+            { description: 'Event 1', actor: 'Actor', target: 'Target', timestamp: '1914-06-28T00:00:00.000Z' },
+            { description: 'Event 2', actor: 'Actor', target: 'Target', timestamp: '1914-07-28T00:00:00.000Z' },
+          ],
+        })
+        .expect(500);
+
+      expect(mockEventRepository.delete.mock.calls.map((call: unknown[]) => call[0])).toEqual(['evt-b', 'evt-a']);
+      // Undone, so not announced: a watcher would be told of events that are gone.
+      expect(publish).not.toHaveBeenCalled();
     });
 
     it('should abort on validation error with strict mode and rollback created events', async () => {

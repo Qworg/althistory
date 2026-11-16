@@ -23,7 +23,7 @@ describe('StreamingStatusBadge', () => {
     expect(onConnect).toHaveBeenCalledWith()
   })
 
-  it('says it is on, and what that gives, without edit counts it no longer keeps', () => {
+  it('says it is on, and what that gives', () => {
     render(<StreamingStatusBadge status="connected" onDisconnect={() => {}} />)
     const badge = screen.getByRole('status', { name: 'Live sync on' })
     expect(badge).toHaveAttribute('title', expect.stringMatching(/Changes made elsewhere, such as by an agent, appear here as they happen/))
@@ -57,21 +57,10 @@ describe('StreamingStatusBadge', () => {
     expect(screen.getByText('Live sync: connecting…')).toBeInTheDocument()
   })
 
-  it('renders connected state with stats and disconnect action', () => {
+  it('turns off from the badge when it is on', () => {
     const onDisconnect = vi.fn()
-    render(
-      <StreamingStatusBadge
-        status="connected"
-        stats={{ sent: 10, acked: 8, failed: 2 }}
-        onDisconnect={onDisconnect}
-      />
-    )
-
-    expect(screen.getByText('Live sync on')).toBeInTheDocument()
-    expect(screen.getByText('8 of 10 confirmed')).toBeInTheDocument()
-
-    const disconnectBtn = screen.getByText('Turn off')
-    fireEvent.click(disconnectBtn)
+    render(<StreamingStatusBadge status="connected" onDisconnect={onDisconnect} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Turn off' }))
     expect(onDisconnect).toHaveBeenCalledTimes(1)
   })
 
@@ -79,7 +68,6 @@ describe('StreamingStatusBadge', () => {
     const { container } = render(
       <StreamingStatusBadge
         status="connected"
-        stats={{ sent: 3, acked: 2, failed: 1 }}
         error="Socket closed"
         onDisconnect={() => {}}
       />
@@ -89,6 +77,25 @@ describe('StreamingStatusBadge', () => {
     expect(disconnect.className).toContain('text-xs')
     expect(disconnect.className).toContain('hover:text-ink')
     expect(disconnect.className).not.toMatch(/hover:text-(?:slate|emerald)-900/)
+  })
+
+  it('says the open graph is not watched when the key lost it, as a warning, and offers Retry', () => {
+    const onConnect = vi.fn()
+    render(<StreamingStatusBadge status="revoked" onConnect={onConnect} />)
+    const badge = screen.getByRole('status', { name: 'Live sync: not watching this graph' })
+    expect(badge.className).toMatch(/warning/)
+    expect(badge.className).not.toMatch(/danger/)
+    expect(badge).toHaveAttribute('title', expect.stringMatching(/may no longer read this graph.*graph list is still watched/))
+    expect(badge).not.toHaveAttribute('title', expect.stringMatching(/Details/))
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(onConnect).toHaveBeenCalledWith()
+  })
+
+  it('says a graph that no longer exists is gone, rather than that the key lost it', () => {
+    render(<StreamingStatusBadge status="revoked" revokedReason="missing" onConnect={() => {}} />)
+    const badge = screen.getByRole('status', { name: 'Live sync: not watching this graph' })
+    expect(badge).toHaveAttribute('title', expect.stringMatching(/^This graph no longer exists.*graph list is still watched/))
+    expect(badge).not.toHaveAttribute('title', expect.stringMatching(/may no longer read/))
   })
 
   it('explains a failure in plain words, keeps server detail out of the badge, and offers Retry', () => {

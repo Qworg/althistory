@@ -36,6 +36,18 @@ export interface EntityChanges {
 }
 
 /**
+ * How a tree is resolved. By default an entry whose object cannot be read is
+ * left out. `strict` makes it throw instead: for every entry (`true`), or for
+ * the entries a predicate names -- those a caller would otherwise mistake for
+ * entities the tree does not hold.
+ */
+export interface ResolveOptions {
+  strict?: boolean | ((type: EntityType, id: string) => boolean);
+  /** Collects the entries left out because their object could not be read (not strict). */
+  missing?: Array<{ type: EntityType; id: string }>;
+}
+
+/**
  * Full graph data resolved from a tree
  */
 export interface ResolvedGraphData {
@@ -284,14 +296,14 @@ export class VersionRepository {
   /**
    * Checkout a specific version
    */
-  async checkout(graphId: string, version: number): Promise<ResolvedGraphData> {
+  async checkout(graphId: string, version: number, options: ResolveOptions = {}): Promise<ResolvedGraphData> {
     const versionRef = await this.getVersionRef(graphId, version);
     if (!versionRef) {
       throw new Error(`Version ${version} not found for graph ${graphId}`);
     }
 
     const tree = await this.getTree(graphId, versionRef.treeHash);
-    return this.resolveTree(graphId, tree);
+    return this.resolveTree(graphId, tree, options);
   }
 
   /**
@@ -416,7 +428,9 @@ export class VersionRepository {
   async getHeadEntities(
     graphId: string,
     type: EntityType,
-    ids: string[]
+    ids: string[],
+    /** `strict`: an entity the tree names whose object cannot be read throws, rather than being left out. */
+    { strict = false }: { strict?: boolean } = {}
   ): Promise<Record<string, Record<string, unknown>>> {
     const result: Record<string, Record<string, unknown>> = {};
     const treeHash = await this.getCurrentTree(graphId);
@@ -429,6 +443,7 @@ export class VersionRepository {
       if (!hash) continue;
       const obj = await this.getObject(graphId, hash);
       if (obj) result[id] = obj.data;
+      else if (strict) throw new Error(`The head of graph ${graphId} names ${type} ${id}, whose object ${hash} cannot be read`);
     }
     return result;
   }
@@ -504,7 +519,7 @@ export class VersionRepository {
   /**
    * Resolve a tree to full graph data
    */
-  async resolveTree(graphId: string, tree: TreeObject): Promise<ResolvedGraphData> {
+  async resolveTree(graphId: string, tree: TreeObject, { strict = false, missing }: ResolveOptions = {}): Promise<ResolvedGraphData> {
     const result: ResolvedGraphData = {
       events: {},
       arcs: {},
@@ -513,24 +528,20 @@ export class VersionRepository {
     };
 
     // Resolve each entity type
-    for (const [id, hash] of Object.entries(tree.events) as [string, string][]) {
-      const obj = await this.getObject(graphId, hash);
-      if (obj) result.events[id] = obj.data;
-    }
-
-    for (const [id, hash] of Object.entries(tree.arcs) as [string, string][]) {
-      const obj = await this.getObject(graphId, hash);
-      if (obj) result.arcs[id] = obj.data;
-    }
-
-    for (const [id, hash] of Object.entries(tree.relationships) as [string, string][]) {
-      const obj = await this.getObject(graphId, hash);
-      if (obj) result.relationships[id] = obj.data;
-    }
-
-    for (const [id, hash] of Object.entries(tree.pressures) as [string, string][]) {
-      const obj = await this.getObject(graphId, hash);
-      if (obj) result.pressures[id] = obj.data;
+    const kinds = [
+      ['events', 'event'],
+      ['arcs', 'arc'],
+      ['relationships', 'relationship'],
+      ['pressures', 'pressure'],
+    ] as const;
+    for (const [key, type] of kinds) {
+      for (const [id, hash] of Object.entries(tree[key]) as [string, string][]) {
+        const obj = await this.getObject(graphId, hash);
+        if (obj) result[key][id] = obj.data;
+        else if (strict === true || (typeof strict === 'function' && strict(type, id))) {
+          throw new Error(`The tree of graph ${graphId} names ${type} ${id}, whose object ${hash} cannot be read`);
+        } else missing?.push({ type, id });
+      }
     }
 
     return result;

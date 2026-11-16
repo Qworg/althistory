@@ -4,7 +4,7 @@ import type {
   CausalRelationship,
   FilterState
 } from '@/types'
-import { type AxisTime, type WorldCalendarSet, formatDateBound, readDateBound, toAxisTime, toInstant, type DateBoundEdge } from '@althistory/calendar'
+import { type AxisTime, type WorldCalendarSet, formatDateBound, isSignedShortYear, readDateBound, toAxisTime, toInstant, type DateBoundEdge } from '@althistory/calendar'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
 import type { FilterState as PanelFilterState } from './FilterPanel'
 
@@ -138,9 +138,16 @@ function toInputDate(value: Date | string | null | undefined, edge: DateBoundEdg
 function fromInputDate(value: string, edge: DateBoundEdge, calendar: CalendarArg): Date {
   if (!value) return new Date(NaN)
   const parsed = readDateBound(value, edge, calendar)
+  if (parsed.ok) return parsed.date
+  // In a world, what its rule refuses is no bound ("400" is no date of the
+  // world's; read as text it would be 400 CE).
+  if (calendar) return new Date(NaN)
+  // A minus sign before a short year ("-44", from an old link) is refused for
+  // naming either of two years; the lenient reader would make it 2044.
+  if (isSignedShortYear(value)) return new Date(NaN)
   // Anything else (a full timestamp from a link) by the app's one reader: UTC
   // when it has no zone, and no date rather than the day V8 rolls "1870-02-31" into.
-  return parsed.ok ? parsed.date : toInstant(value)
+  return toInstant(value)
 }
 
 /**
@@ -155,10 +162,18 @@ export function boundToUrl(text: string, edge: DateBoundEdge, calendar: Calendar
   return read.ok ? read.date.toISOString() : text
 }
 
-/** A bound from a link, as the panel shows it in the calendar shown (see {@link boundToUrl}). */
+/**
+ * A bound from a link, as the panel shows it in the calendar shown (see
+ * {@link boundToUrl}). In a world it is read by the rule the filter fields
+ * apply (`readDateBound`): the instant the app writes, or a bound typed into
+ * the link in the world's notation (`?startDate=400 AR`). Text that rule
+ * refuses (`?startDate=400`, year-first, no date of the world's) is kept as
+ * typed, so the field says why, rather than read as a Gregorian year.
+ */
 export function boundFromUrl(value: string, edge: DateBoundEdge, calendar: CalendarArg): string {
   if (!calendar || value === '') return value
-  return formatDateBound(value, edge, calendar) || value
+  const read = readDateBound(value, edge, calendar)
+  return read.ok ? read.text : value
 }
 
 /**

@@ -36,7 +36,7 @@ import {
 import { findDuplicateEvent, matchKnownName, type NameMatch } from './reviewMatching'
 import { PRESELECT_THRESHOLD, formatSpan, isOutsideSpan, type HistorySpan } from './reviewDefaults'
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
-import { worldBoundExamples } from '@althistory/calendar'
+import { worldBoundExamples, worldDateProblem } from '@althistory/calendar'
 
 export type ReviewEntity = ExtractedEvent | ExtractedArc | ExtractedRelationship
 export type ReviewEntityType = 'event' | 'arc' | 'relationship'
@@ -696,7 +696,8 @@ function ReviewDateField({ label, raw, describedBy, invalid, precision, dateCale
       >
         {!reading
           ? calendar
-            ? `Not a date: write one as ${worldBoundExamples(calendar).day}`
+            ? // Why, when the text is in the world's notation ("Greywater has 30 days that year, so no day 31").
+              `Not a date: ${worldDateProblem(calendar, draft) ?? `write one as ${worldBoundExamples(calendar).day}`}`
             : 'Not a date: use YYYY-MM-DD'
           : precision && precision !== 'day' && draft === compact(raw)
             ? `${formatHistoricalDateAt(raw, precision, undefined, undefined, dateCalendar)}: the text gives no ${precision === 'month' ? 'day' : 'month or day'}`

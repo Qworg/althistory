@@ -1177,10 +1177,15 @@ class APIClient {
             }
         },
 
+        // As for text: the graph goes in `X-Graph-Id`, which the server checks
+        // access to and reads the world calendar of.
         url: async (data: WikipediaIngestRequest): Promise<IngestResponse> => {
             try {
-                const response: AxiosResponse<IngestResponse> =
-                    await this.client.post('/ingest/url', data, { timeout: INGEST_REQUEST_TIMEOUT_MS })
+                const { targetGraphId, ...body } = data
+                const response: AxiosResponse<IngestResponse> = await this.client.post('/ingest/url', body, {
+                    timeout: INGEST_REQUEST_TIMEOUT_MS,
+                    ...(targetGraphId ? { headers: { 'X-Graph-Id': targetGraphId } } : {}),
+                })
                 return response.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
@@ -1189,8 +1194,11 @@ class APIClient {
 
         wikidata: async (data: WikidataIngestRequest): Promise<IngestResponse> => {
             try {
-                const response: AxiosResponse<IngestResponse> =
-                    await this.client.post('/ingest/wikidata', data, { timeout: INGEST_REQUEST_TIMEOUT_MS })
+                const { targetGraphId, ...body } = data
+                const response: AxiosResponse<IngestResponse> = await this.client.post('/ingest/wikidata', body, {
+                    timeout: INGEST_REQUEST_TIMEOUT_MS,
+                    ...(targetGraphId ? { headers: { 'X-Graph-Id': targetGraphId } } : {}),
+                })
                 return response.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
@@ -1241,6 +1249,23 @@ class APIClient {
                         mode === 'feed' ? { mode } : {},
                         graphId ? { headers: { 'X-Graph-Id': graphId } } : undefined
                     )
+                return response.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        /**
+         * A feed token for the graph list alone, bound to no graph: what the
+         * live feed asks for when the key may no longer read the graph that is
+         * open, since a token for that graph is refused. Needs `read:graphs`.
+         */
+        getGraphListToken: async (): Promise<StreamTokenResponse> => {
+            try {
+                const response: AxiosResponse<StreamTokenResponse> = await this.client.post('/stream/token', {
+                    mode: 'feed',
+                    channel: '*',
+                })
                 return response.data
             } catch (error) {
                 handleAPIError(error as AxiosError)

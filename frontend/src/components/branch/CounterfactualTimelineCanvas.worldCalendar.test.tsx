@@ -68,3 +68,44 @@ describe('CounterfactualTimelineCanvas in world calendars', () => {
     expect(screen.getByLabelText(/The Charter, .*Mar 4, 844 AR \(Earth lane\)/)).toBeInTheDocument()
   })
 })
+
+describe('CounterfactualTimelineCanvas before 1 CE', () => {
+  it('labels year ticks with their era, never as astronomical years', () => {
+    const roman = [event('r1', 'The Ides', '-000043-03-15T00:00:00Z'), event('r2', 'Actium', '-000030-09-02T00:00:00Z')]
+    const { container } = render(
+      <CounterfactualTimelineCanvas
+        baselineName="Rome"
+        counterfactualName="Branch"
+        baselineEvents={roman}
+        counterfactualEvents={roman}
+        baselineCalendar={null}
+        counterfactualCalendar={null}
+      />
+    )
+    const labels = axisText(container)
+    expect(labels).toMatch(/\d+(-\d{2}){0,2} BCE\b/)
+    expect(labels).not.toMatch(/(^|\| )-\d/)
+    expect(labels).not.toMatch(/\d BC\b/)
+  })
+})
+
+describe('CounterfactualTimelineCanvas over two days before 1 CE', () => {
+  it('names each sub-day tick once, adding the time where the day alone would repeat', () => {
+    const ides = [event('i1', 'The Ides', '-000043-03-15T00:00:00Z'), event('i2', 'The funeral', '-000043-03-17T00:00:00Z')]
+    const { container } = render(
+      <CounterfactualTimelineCanvas
+        baselineName="Rome"
+        counterfactualName="Branch"
+        baselineEvents={ides}
+        counterfactualEvents={ides}
+        baselineCalendar={null}
+        counterfactualCalendar={null}
+      />
+    )
+    const ticks = Array.from(container.querySelectorAll('svg text'))
+      .map((node) => node.textContent ?? '')
+      .filter((text) => / BCE( \d{2}:\d{2})?$/.test(text))
+    expect(ticks.length).toBeGreaterThan(1)
+    expect(new Set(ticks).size, JSON.stringify(ticks)).toBe(ticks.length)
+  })
+})

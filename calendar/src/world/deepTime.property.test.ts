@@ -14,17 +14,22 @@ import {
   type WorldDateFields,
   MAX_AXIS_MS,
   MIN_AXIS_MS,
+  axisTimeOfCivil,
   calendarIn,
   compileCalendar,
   dateAt,
+  formatBoundAt,
   formatInWorld,
   formatWorldFields,
   gregorianDefinition,
   gregorianTicks,
+  instantOfAxisTime,
   isoOfAxisTime,
   legacyCalendarSet,
   parseWorldDate,
   positionOf,
+  readDateBound,
+  readHistoricalText,
   readWorldTimestamp,
   worldTicks,
 } from '../index'
@@ -222,6 +227,14 @@ describe('a timeline beyond a Date (Req 12)', () => {
           if (index > 0) expect(tick.position).toBeGreaterThan(ticks[index - 1]!.position)
         }
         expect(new Set(ticks.map((tick) => tick.label)).size).toBe(ticks.length)
+        // Each date tick is written as a person types it, and reads back as the moment it marks.
+        for (const tick of ticks) {
+          if (/^\d{2}:\d{2}$/.test(tick.label)) continue
+          expect(tick.label, tick.label).toMatch(/^\d+(-\d{2}(-\d{2})?)?( BCE)?( \d{2}:\d{2})?$/)
+          // A date reads in a filter field; a date and time, wherever text is typed.
+          const read = / \d{2}:\d{2}$/.test(tick.label) ? readHistoricalText(tick.label, 'start') : readDateBound(tick.label, 'start', null)
+          expect(read.ok && read.time, tick.label).toBe(tick.position)
+        }
         // A domain of a few years or more always has a tick.
         if (hi - lo >= 10n * 366n * 86_400_000n) expect(ticks.length).toBeGreaterThanOrEqual(1)
       }),
@@ -229,10 +242,50 @@ describe('a timeline beyond a Date (Req 12)', () => {
     )
   })
 
-  it('labels a span of a million years in years, with the era', () => {
+  it('labels a span of a million years in years, as a person types them: ASCII digits, BCE before 1 CE', () => {
     const ticks = gregorianTicks([-500_000n * 31_556_952_000n, 300_000n * 31_556_952_000n], 8)
     expect(ticks.length).toBeGreaterThan(2)
-    expect(ticks.map((tick) => tick.label).join()).toMatch(/BCE/)
-    expect(ticks.map((tick) => tick.label).join()).toMatch(/CE/)
+    const labels = ticks.map((tick) => tick.label)
+    expect(labels.some((label) => /^\d+ BCE$/.test(label))).toBe(true)
+    expect(labels.some((label) => /^\d+$/.test(label))).toBe(true)
+    for (const tick of ticks) {
+      expect(tick.label).toBe(formatBoundAt(instantOfAxisTime(tick.position)!, 'year'))
+      const read = readDateBound(tick.label, 'start', null)
+      expect(read.ok && read.time, tick.label).toBe(tick.position)
+    }
+  })
+
+  it('reads back a time on the axis\'s first day, whose date starts before the bound', () => {
+    const ticks = gregorianTicks([MIN_AXIS_MS, MIN_AXIS_MS + 3n * 86_400_000n], 6)
+    expect(ticks.length).toBeGreaterThan(1)
+    for (const tick of ticks) {
+      if (/^\d{2}:\d{2}$/.test(tick.label)) continue
+      const read = readHistoricalText(tick.label, 'start')
+      expect(read.ok && read.time, tick.label).toBe(tick.position)
+    }
+    const first = readHistoricalText('285196678-06-10 BCE 12:00', 'start')
+    expect(first.ok && first.time).toBeGreaterThanOrEqual(MIN_AXIS_MS)
+    // The start of that day, without a time, is still beyond the bound.
+    expect(readHistoricalText('285196678-06-10 BCE', 'start').ok).toBe(false)
+  })
+
+  it('labels a span within one day by its times, and a day\'s first moment by its date', () => {
+    const noon = axisTimeOfCivil(-43, 3, 15) + 12n * 3_600_000n
+    expect(gregorianTicks([noon, noon + 3n * 3_600_000n], 4).map((tick) => tick.label)).toEqual(['12:00', '13:00', '14:00', '15:00'])
+    const evening = axisTimeOfCivil(-43, 3, 15) + 22n * 3_600_000n
+    expect(gregorianTicks([evening, evening + 4n * 3_600_000n], 5).map((tick) => tick.label)).toEqual(['22:00', '23:00', '44-03-16 BCE', '01:00', '02:00'])
+  })
+
+  it('labels finer Gregorian ticks in the bound syntax, BCE included', () => {
+    const day = 86_400_000n
+    const start = axisTimeOfCivil(-43, 3, 1)
+    const ticks = gregorianTicks([start, start + 20n * day], 6)
+    expect(ticks.length).toBeGreaterThan(1)
+    for (const tick of ticks) {
+      expect(tick.label).toBe(formatBoundAt(instantOfAxisTime(tick.position)!, 'day'))
+      const read = readDateBound(tick.label, 'start', null)
+      expect(read.ok && read.time, tick.label).toBe(tick.position)
+    }
+    expect(ticks[0]!.label).toBe('44-03-01 BCE')
   })
 })

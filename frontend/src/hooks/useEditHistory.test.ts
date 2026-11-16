@@ -30,6 +30,18 @@ describe('useEditHistory', () => {
     expect(result.current.lastMessage).toBe('Redone: moved "Hastings"')
   })
 
+  it('writes a description given as a function each time it is read, so its dates follow the calendar shown', async () => {
+    let calendar = 'AR'
+    const { result, rerender } = renderHook(() => useEditHistory())
+    act(() => result.current.record({ ...entry(''), description: () => `moved "Hastings" to Thaw 4, 312 ${calendar}` }))
+    expect(result.current.lastMessage).toBe('moved "Hastings" to Thaw 4, 312 AR')
+    calendar = 'TC'
+    rerender()
+    expect(result.current.lastMessage).toBe('moved "Hastings" to Thaw 4, 312 TC')
+    await act(() => result.current.undo())
+    expect(result.current.lastMessage).toBe('Undone: moved "Hastings" to Thaw 4, 312 TC')
+  })
+
   it('keeps an edit whose undo was refused, so it can be retried', async () => {
     const { result } = renderHook(() => useEditHistory())
     act(() => result.current.record(entry('resized', { undo: vi.fn(async () => false) })))

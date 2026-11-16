@@ -228,12 +228,56 @@ describe('ImportPreviewStep', () => {
     })
   })
 
+  describe('Mode group', () => {
+    it('gives each step its own heading id, so two on a page do not share one', () => {
+      render(
+        <>
+          <ImportPreviewStep preview={createPreviewMock()} mode="merge" onModeChange={vi.fn()} onContinue={vi.fn()} onBack={vi.fn()} hasConflicts={false} />
+          <ImportPreviewStep preview={createPreviewMock()} mode="merge" onModeChange={vi.fn()} onContinue={vi.fn()} onBack={vi.fn()} hasConflicts={false} />
+        </>
+      )
+      const groups = screen.getAllByRole('radiogroup', { name: 'Import Mode' })
+      expect(groups).toHaveLength(2)
+      const ids = groups.map((group) => group.getAttribute('aria-labelledby'))
+      expect(new Set(ids).size).toBe(2)
+      for (const id of ids) expect(document.querySelectorAll(`[id="${id}"]`)).toHaveLength(1)
+    })
+  })
+
   describe('Loading State', () => {
-    it('should disable mode selection when loading', () => {
-      renderComponent(createPreviewMock(), 'create-new', { isLoading: true })
-      
-      const createNewRadio = screen.getByRole('radio', { name: /Create New Graph/i })
-      expect(createNewRadio).toBeDisabled()
+    it('holds the mode while a check runs, and keeps keyboard focus on the radio it was on', async () => {
+      const { rerender } = renderComponent(createPreviewMock(), 'create-new')
+      const merge = screen.getByRole('radio', { name: /Merge into Current Graph/i })
+      await user.click(merge)
+      expect(mockOnModeChange).toHaveBeenCalledWith('merge')
+      mockOnModeChange.mockClear()
+
+      // The wizard checks the new mode: the radios are busy, not disabled, so
+      // the focused one stays focused instead of dropping focus to the page.
+      rerender(
+        <ImportPreviewStep
+          preview={createPreviewMock()}
+          mode="merge"
+          onModeChange={mockOnModeChange}
+          onContinue={mockOnContinue}
+          onBack={mockOnBack}
+          hasConflicts={false}
+          isLoading
+        />
+      )
+      expect(merge).toHaveFocus()
+      for (const radio of screen.getAllByRole('radio')) {
+        expect(radio).not.toBeDisabled()
+        expect(radio).toHaveAttribute('aria-disabled', 'true')
+      }
+      expect(screen.getByRole('radiogroup', { name: 'Import Mode' })).toHaveAttribute('aria-busy', 'true')
+
+      // Nothing changes the mode until the check is done: not a click, not an arrow key.
+      await user.click(screen.getByRole('radio', { name: /Replace Current Graph/i }))
+      await user.keyboard('{ArrowDown}')
+      expect(mockOnModeChange).not.toHaveBeenCalled()
+      expect(screen.getByRole('radio', { name: /Merge into Current Graph/i })).toBeChecked()
+      expect(screen.getByRole('radio', { name: /Replace Current Graph/i })).not.toBeChecked()
     })
 
     it('should disable back button when loading', () => {

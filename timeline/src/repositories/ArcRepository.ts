@@ -500,7 +500,26 @@ export class ArcRepository {
     }
 
     // Create updated arc to validate
-    const updatedArc = existingArc.update(updates);
+    let updatedArc = existingArc.update(updates);
+
+    // An arc moved to the top level (0) has no parent. The CLI, MCP and the
+    // generator record the parent in `metadata.parentArcId`, which the export
+    // reads as `parent_arc_id`, so a promoted arc that kept it failed the
+    // importer's hierarchy check. It is cleared here, where the update is
+    // applied, so the live arc and its version agree.
+    //
+    // Only then: a parent is not judged against the parent's level as the
+    // store holds it now. A subtree moved child first (a batch, two PUTs, an
+    // import) passes through levels that do not fit yet, and clearing the
+    // parent of an arc above level 0 never makes it valid (a root arc must be
+    // level 0), so it would only lose the parent.
+    if (updatedArc.level === 0 && existingArc.level !== 0) {
+      const parentId = updatedArc.metadata?.parentArcId;
+      if (parentId !== undefined) {
+        const { parentArcId: _promoted, ...metadata } = updatedArc.metadata ?? {};
+        updatedArc = updatedArc.update({ metadata });
+      }
+    }
 
     // Validate temporal boundaries
     await this.validateTemporalBoundaries(updatedArc, id);

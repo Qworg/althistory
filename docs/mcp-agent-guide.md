@@ -80,12 +80,12 @@ app, the server uses
 way), and otherwise the app's own admin key, which `start-local.sh` writes to
 `timeline/.env.local`. For another server, also pass `--url`.
 
-To let the server draft with a model, give **the server** a key: add
-`ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`) to its `env`. The agent's own model
-does not count. Without one, generation returns a template marked
-`"source": "template"`. Through the app, the key is the *app's*: the
-generation job runs in the app's process, so give the app `ANTHROPIC_API_KEY`
-or `OPENAI_API_KEY`, as for ingestion.
+To draft with a model, put `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`) in
+`timeline/.env.local`. The agent's own model does not count. The key belongs
+wherever the drafting runs: with the app running, generation is a job in the
+app's process, so the app's key is used, as for ingestion; without the app,
+the server drafts itself. Both read `timeline/.env.local`. Without a key,
+generation returns a template marked `"source": "template"`.
 
 ### A. Claude Desktop / Cursor / Roo Code / Cline
 `claude_desktop_config.json` (`~/.config/Claude/` on Linux,
@@ -97,14 +97,15 @@ extension's settings:
   "mcpServers": {
     "althistory": {
       "command": "althistory",
-      "args": ["mcp"],
-      "env": { "ANTHROPIC_API_KEY": "<your key>" }
+      "args": ["mcp"]
     }
   }
 }
 ```
 
-The `env` line is only for drafting with a model; leave it out otherwise.
+To give the server a model key of its own instead, add
+`"env": { "ANTHROPIC_API_KEY": "<your key>" }`; it is used only when the app is
+not running.
 
 ### B. Claude Code
 
@@ -249,7 +250,8 @@ A session that builds a world by hand:
    of a world stays in that world and its calendar.
 
 `althistory_generate_timeline` with `world` drafts a skeleton instead: a model
-writes it when the server has `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, told
+writes it when `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` is set where it runs (the
+app's, with the app running; otherwise the server's), told
 that the world is not Earth and to date events in the world's own calendar; without a key it is a
 template of generic ages to rewrite. The result's `source` says which.
 
@@ -280,7 +282,7 @@ List the graphs, with their calendars. No parameters.
 #### `althistory_export_context`
 Read a whole graph back.
 - `graphId` *(required)*
-- `format`: `"markdown"` (default: arcs, events with their arc and what they lead to, causal links with reasoning, dated in the world's calendar when there is one) | `"json"` (the [export document](export-format.md)) | `"dot"`.
+- `format`: `"markdown"` (default: arcs, events with their arc and what they lead to, causal links with reasoning; dated in the world's calendar when there is one, otherwise year first as typed, at the precision recorded: `1871`, `44-03-15 BCE`) | `"json"` (the [export document](export-format.md)) | `"dot"`.
 
 #### `althistory_query_causal_path`
 Every causal path from one event to another.

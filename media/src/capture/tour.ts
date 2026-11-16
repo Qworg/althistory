@@ -289,8 +289,12 @@ async function graphs(ctx: TourContext, seed: SeedResult): Promise<Shot> {
   await hideFilters(page)
   const selector = page.getByRole('button', { name: new RegExp(scenario.graph.name) }).first()
   await selector.click()
-  const branch = page.getByText(seed.branchName.slice(0, 20)).first()
+  // The branch's row, as a whole: its sr-only full name does not scroll with
+  // the list, which scrolls once the picker holds four graphs. Scrolled into
+  // view so the picture shows a branch under its main line.
+  const branch = page.locator('button[data-depth="1"]').filter({ hasText: seed.branchName.slice(0, 20) }).first()
   await branch.waitFor()
+  await branch.scrollIntoViewIfNeeded()
   const menu = branch.locator('xpath=ancestor::div[contains(@class,"absolute")][1]')
   return snap(
     ctx,

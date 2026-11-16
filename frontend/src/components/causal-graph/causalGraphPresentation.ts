@@ -46,18 +46,14 @@ export function eventNodeLabel(event: Pick<Event, 'description' | 'actor' | 'tar
 }
 
 /**
- * The year an event falls in, in UTC, with BCE for years before 1 CE; in the
- * world's own years when the graph has a calendar ("312 AR").
+ * The year an event falls in, as every year label writes it: in UTC, with
+ * BCE before 1 CE ("44 BCE"), as a person types it; in the world's own years when the graph
+ * has a calendar ("312 AR").
  */
 export function eventYear(timestamp: string | Date, calendar?: GraphCalendar | null): string {
   const date = toInstant(timestamp)
   if (Number.isNaN(date.getTime())) return ''
-  // In a world, the year as its calendar names it.
-  const world = calendar === undefined ? getActiveCalendar() : calendar
-  if (world) return historicalYear(date, world)
-  const year = date.getUTCFullYear()
-  // Astronomical year 0 is 1 BCE, -1 is 2 BCE, and so on.
-  return year <= 0 ? `${1 - year} BCE` : String(year)
+  return historicalYear(date, calendar === undefined ? getActiveCalendar() : calendar)
 }
 
 /**
