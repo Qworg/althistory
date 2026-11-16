@@ -26,6 +26,14 @@ export interface EventLabelPlacement {
   text: string
   /** Whether this is a priority (selected/highlighted) label. */
   emphasis: boolean
+  /**
+   * Under the track, set beside its mark rather than over it (so its text
+   * clears the stem and the link that leaves it): the mark joins it by a short
+   * dash at the label's baseline.
+   */
+  beside?: boolean
+  /** With `beside`: where the text is anchored, in px from the mark's x (the label's start or end). */
+  dx?: number
 }
 
 export interface EventLabelInput {
@@ -58,6 +66,8 @@ export interface LabelLayoutConfig {
    * is shortened to `maxChars` (and then to LABEL_MAX_CHARS) to fit.
    */
   fullChars?: number
+  /** Pack at `maxChars` first, then lengthen names toward `fullChars` where their row has room. */
+  lengthen?: boolean
   /**
    * Rows under the track, nearest first, for a label with no room in the rows
    * above. Each has x spans where something else is drawn (the causal links'
@@ -78,6 +88,7 @@ export const TIMELINE_LABEL_CONFIG: LabelLayoutConfig = {
   fontSize: LABEL_FONT_SIZE,
   maxChars: 28,
   fullChars: 44,
+  lengthen: true,
 }
 
 /**
@@ -98,6 +109,10 @@ const CHAR_WIDTH_EM = 0.56
 const LABEL_GAP_PX = 6
 /** Clear space between a leader line and a label it passes. */
 const LEADER_GAP_PX = 3
+/** How far beside its mark a label under the track starts, clearing the stem and the link's padding. */
+export const BESIDE_PX = 8
+/** The clear space between a link's blocked span and a title set beside it. */
+const BESIDE_GAP_PX = 2
 /** Inset from the plot edge when a label is anchored to one side. */
 const EDGE_INSET_PX = 2
 
@@ -124,10 +139,10 @@ function estimateWidth(text: string, fontSize: number): number {
   return text.length * fontSize * CHAR_WIDTH_EM
 }
 
-type Extent = { left: number; right: number; anchor: LabelAnchor }
+type Extent = { left: number; right: number; anchor: LabelAnchor; beside?: boolean }
 
 /** Horizontal extent and anchor of a label centred on x, kept inside [0, innerWidth]. */
-function extentFor(x: number, width: number, innerWidth: number): Extent {
+export function extentFor(x: number, width: number, innerWidth: number): Extent {
   if (x - width / 2 < 0) {
     const left = Math.max(0, x - EDGE_INSET_PX)
     return { left, right: left + width, anchor: 'start' }
@@ -144,7 +159,7 @@ function extentFor(x: number, width: number, innerWidth: number): Extent {
  * then starting at it (running right), then ending at it (running left). The
  * mark's x is inside every extent, so a leader from the mark always meets it.
  */
-function extentsFor(x: number, width: number, innerWidth: number): Extent[] {
+function extentsFor(x: number, width: number, innerWidth: number, blocked?: ReadonlyArray<readonly [number, number]>): Extent[] {
   const centred = extentFor(x, width, innerWidth)
   if (centred.anchor !== 'middle') return [centred]
   const extents: Extent[] = [centred]
@@ -153,6 +168,16 @@ function extentsFor(x: number, width: number, innerWidth: number): Extent[] {
   }
   if (x + EDGE_INSET_PX - width >= 0) {
     extents.push({ left: x + EDGE_INSET_PX - width, right: x + EDGE_INSET_PX, anchor: 'end' })
+  }
+  // Under the track a linked mark's link leaves it straight down, so every
+  // extent holding its x is crossed: beside it, clear of the stem and of the
+  // link's first stretch (the blocked span around x), is where its title can go.
+  if (blocked) {
+    const own = blocked.find(([l, r]) => x >= l && x <= r)
+    const from = own ? own[1] + BESIDE_GAP_PX : x + BESIDE_PX
+    const to = own ? own[0] - BESIDE_GAP_PX : x - BESIDE_PX
+    if (from + width <= innerWidth) extents.push({ left: from, right: from + width, anchor: 'start', beside: true })
+    if (to - width >= 0) extents.push({ left: to - width, right: to, anchor: 'end', beside: true })
   }
   return extents
 }
@@ -189,6 +214,8 @@ export function layoutEventLabels(
   // stem's end. The leader crosses every nearer row at the mark's
   // x, so those rows record it; clean placements keep labels off it.
   const leaders: number[][] = offsets.map(() => [])
+  /** Where each label went, so a second pass can lengthen it in place. */
+  const placedAt = new Map<string, { rowIndex: number; interval: [number, number]; anchor: LabelAnchor; item: EventLabelInput }>()
   const inView = items.filter((item) => item.x >= 0 && item.x <= innerWidth)
 
   /**
@@ -198,21 +225,23 @@ export function layoutEventLabels(
    * leaders, so a crossing stays legible; it is just the second choice.
    */
   const tryPlace = (item: EventLabelInput, text: string, width: number, rowIndices: number[], clean: boolean) => {
-    const extents = extentsFor(item.x, width, innerWidth)
     for (const rowIndex of rowIndices) {
+            const extents = extentsFor(item.x, width, innerWidth, rowIndex >= rowOffsets.length ? blockedSpans[rowIndex] : undefined)
       const row = rows[rowIndex]
       const offset = offsets[rowIndex]
       if (!row || offset === undefined) continue
       const nearer = nearerRows[rowIndex] ?? []
       if (clean && nearer.some((index) => rows[index]?.some(([l, r]) => item.x > l - LEADER_GAP_PX && item.x < r + LEADER_GAP_PX))) continue
-      for (const { left, right, anchor } of extents) {
+      for (const { left, right, anchor, beside } of extents) {
         if (overlaps(row, left, right)) continue
         // Never over a link's curve, clean or not: the label goes elsewhere.
         if (blockedSpans[rowIndex]?.some(([l, r]) => left < r && right > l)) continue
         if (clean && leaders[rowIndex]?.some((lx) => lx > left - LEADER_GAP_PX && lx < right + LEADER_GAP_PX)) continue
-        row.push([left, right])
+        const interval: [number, number] = [left, right]
+        row.push(interval)
         for (const index of nearer) leaders[index]?.push(item.x)
-        placements.set(item.id, { offset, anchor, text, emphasis: Boolean(item.priority) })
+        placements.set(item.id, { offset, anchor, text, emphasis: Boolean(item.priority), ...(beside ? { beside, dx: (anchor === 'start' ? left : right) - item.x } : {}) })
+        placedAt.set(item.id, { rowIndex, interval, anchor, item })
         return true
       }
     }
@@ -226,14 +255,28 @@ export function layoutEventLabels(
    * truncated names that had the space to be read in full.
    */
   const place = (item: EventLabelInput, lengths: readonly number[], rowIndices: number[]) => {
+    // Under the track a title has only the gap between the links that leave
+    // the marks on either side, so there the lengths between the usual steps
+    // are tried too (two characters apart): a name as long as its gap allows,
+    // not cut to the next step down.
+    const underTrack = rowIndices.filter((index) => index >= rowOffsets.length)
+    const steps = lengths.map((chars) => ({ chars, rows: rowIndices }))
+    if (underTrack.length > 0 && lengths.length > 0) {
+      for (let chars = Math.max(...lengths) - 1; chars > Math.min(...lengths); chars--) {
+        if (!lengths.includes(chars) && (Math.max(...lengths) - chars) % 2 === 0) steps.push({ chars, rows: underTrack })
+      }
+      steps.sort((a, b) => b.chars - a.chars)
+    }
     let lastText = ''
-    for (const maxChars of lengths) {
-      const text = truncateLabel(item.description, maxChars)
-      if (text === lastText) continue
-      lastText = text
+    for (const { chars, rows: stepRows } of steps) {
+      const text = truncateLabel(item.description, chars)
+      if (stepRows === rowIndices) {
+        if (text === lastText) continue
+        lastText = text
+      }
       const width = estimateWidth(text, fontSize)
       if (width > innerWidth) continue
-      if (tryPlace(item, text, width, rowIndices, true)) return
+      if (tryPlace(item, text, width, stepRows, true)) return
     }
     // Nothing fits cleanly: the shortest version, allowed across a leader.
     const width = estimateWidth(lastText, fontSize)
@@ -253,12 +296,45 @@ export function layoutEventLabels(
   const rest = inView
     .filter((i) => !i.priority)
     .sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0) || a.x - b.x)
-  const restLengths = [config.fullChars, config.maxChars ?? LABEL_MAX_CHARS, LABEL_MAX_CHARS]
+  // With `lengthen`, a first pass names as many events as the shorter lengths
+  // allow (long titles must not take room another event's name could have),
+  // and a second lengthens each name in place where its row has room.
+  const restLengths = [config.lengthen ? undefined : config.fullChars, config.maxChars ?? LABEL_MAX_CHARS, LABEL_MAX_CHARS]
     .filter((n): n is number => n !== undefined)
     .filter((n, i, all) => all.indexOf(n) === i)
     .sort((a, b) => b - a)
   for (const item of rest) {
     place(item, restLengths, allRows)
+  }
+
+  if (config.lengthen && config.fullChars !== undefined) {
+    // Every length from the full one down, two characters apart: a name takes
+    // the longest its row has room for.
+    const longer: number[] = []
+    for (let chars = config.fullChars; chars > LABEL_MAX_CHARS; chars -= 2) longer.push(chars)
+    for (const item of rest) {
+      const at = placedAt.get(item.id)
+      const current = placements.get(item.id)
+      if (!at || !current) continue
+      const row = rows[at.rowIndex]!
+      const others = row.filter((interval) => interval !== at.interval)
+      for (const maxChars of longer) {
+        const text = truncateLabel(item.description, maxChars)
+        if (text.length <= current.text.length) break
+        const width = estimateWidth(text, fontSize)
+        const [left0, right0] = at.interval
+        const left = at.anchor === 'start' ? left0 : at.anchor === 'end' ? right0 - width : item.x - width / 2
+        const right = left + width
+        if (left < 0 || right > innerWidth) continue
+        if (overlaps(others, left, right)) continue
+        if (blockedSpans[at.rowIndex]?.some(([l, r]) => left < r && right > l)) continue
+        if (leaders[at.rowIndex]?.some((lx) => lx > left - LEADER_GAP_PX && lx < right + LEADER_GAP_PX)) continue
+        at.interval[0] = left
+        at.interval[1] = right
+        placements.set(item.id, { ...current, text })
+        break
+      }
+    }
   }
 
   return placements

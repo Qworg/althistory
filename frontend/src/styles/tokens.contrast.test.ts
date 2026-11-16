@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest'
+import { DIMMED_OPACITY } from '../components/timeline/dimmedOpacity'
 
 // Read the stylesheet from disk: Vitest blanks CSS modules, `?raw` included,
 // and this package has no @types/node, hence the narrow typed handle on fs.
@@ -126,6 +127,25 @@ describe('text on a filled accent (WCAG AA, 4.5:1)', () => {
   it('measures the dark-theme failure it replaced', () => {
     expect(contrast('#ffffff', '#60a5fa')).toBeLessThan(3)
   })
+})
+
+// A dimmed mark's label (a ripple traced from another event) is the ink at
+// DIMMED_OPACITY over the card: still readable, still clearly fainter.
+describe('dimmed event labels (3:1 at least, and clearly dimmer than at rest)', () => {
+  const channels = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
+  const blend = (ink: string, surface: string) => {
+    const [fg, bg] = [channels(ink), channels(surface)]
+    return `#${fg.map((v, i) => Math.round(v * DIMMED_OPACITY + bg[i]! * (1 - DIMMED_OPACITY)).toString(16).padStart(2, '0')).join('')}`
+  }
+  for (const [theme, tokens] of Object.entries(themes)) {
+    it(`${theme}: secondary ink at the dimmed opacity on the card`, () => {
+      const card = resolve(tokens, '--surface-card')
+      const ink = resolve(tokens, '--text-secondary')
+      const dimmed = contrast(blend(ink, card), card)
+      expect(dimmed).toBeGreaterThanOrEqual(3)
+      expect(dimmed).toBeLessThan(contrast(ink, card) * 0.7)
+    })
+  }
 })
 
 // Status ink (success / warning / danger) is used for message text.

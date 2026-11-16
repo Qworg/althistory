@@ -40,11 +40,31 @@ interface Drawn {
 
 const drawnLabels = (container: HTMLElement) =>
   new Map<string, Drawn>(
-    Array.from(container.querySelectorAll<SVGTextElement>('text.event-label')).map((text) => [
+    Array.from(container.querySelectorAll<SVGTextElement>('[data-event-id] text.event-label')).map((text) => [
       text.closest('[data-event-id]')!.getAttribute('data-event-id')!,
       { y: text.getAttribute('y'), anchor: text.getAttribute('text-anchor'), text: text.textContent },
     ])
   )
+
+/** A pinned name: on a card plate, in a layer after every mark, and inside the plot (the SVG's width less its margins). */
+function expectPinnedInsidePlot(container: HTMLElement, id: string) {
+  const pinned = container.querySelector(`[data-pinned-label-for="${id}"]`)
+  expect(pinned, `${id} is named`).not.toBeNull()
+  const text = pinned!.querySelector('text')!
+  const plate = pinned!.querySelector('rect.event-label-plate')
+  expect(plate, `${id} has a plate`).not.toBeNull()
+  expect(plate!.getAttribute('style')).toContain('var(--surface-card)')
+  const marks = Array.from(container.querySelectorAll('[data-event-id]'))
+  const layer = pinned!.parentElement!
+  expect(layer.compareDocumentPosition(marks[marks.length - 1]!) & Node.DOCUMENT_POSITION_PRECEDING, 'drawn after every mark').toBeTruthy()
+  const x = Number(text.getAttribute('x'))
+  const width = text.textContent!.length * 12 * 0.56
+  const anchor = text.getAttribute('text-anchor')
+  const left = anchor === 'start' ? x : anchor === 'end' ? x - width : x - width / 2
+  const innerWidth = 1000 - 56 - 16
+  expect(left, `${id} runs off the left`).toBeGreaterThanOrEqual(-0.001)
+  expect(left + width, `${id} runs off the right`).toBeLessThanOrEqual(innerWidth + 0.001)
+}
 
 describe('labels stay put when an event is selected or highlighted', () => {
   it('keeps every label where it was, and styles the selected one in place', () => {
@@ -59,15 +79,20 @@ describe('labels stay put when an event is selected or highlighted', () => {
       rerender(<Timeline events={events} arcs={[]} width={1000} height={500} selectedEventId={id} />)
       const after = drawnLabels(container)
       for (const [key, where] of before) expect(after.get(key), `selecting ${id} moved ${key}`).toEqual(where)
-      // The selection is named: in place where it had a label, over its neighbours where it had none.
-      const selected = container.querySelector(`[data-event-id="${id}"] text.event-label`)
-      expect(selected, id).not.toBeNull()
-      expect(selected!.getAttribute('font-weight')).toBe('600')
-      expect(selected!.getAttribute('fill')).toBe('var(--accent-selected)')
+      // The selection is named: in place where it had a label, pinned over its neighbours where it had none.
+      const own = container.querySelector(`[data-event-id="${id}"] text.event-label`)
+      if (before.has(id)) {
+        expect(own!.getAttribute('font-weight')).toBe('600')
+        expect(own!.getAttribute('fill')).toBe('var(--accent-selected)')
+        expect(container.querySelector(`[data-pinned-label-for="${id}"]`)).toBeNull()
+      } else {
+        expect(own).toBeNull()
+        expectPinnedInsidePlot(container, id)
+      }
     }
     // Nothing else is named because of it.
     rerender(<Timeline events={events} arcs={[]} width={1000} height={500} selectedEventId={unnamed[0]!} />)
-    expect(drawnLabels(container).size).toBe(before.size + 1)
+    expect(drawnLabels(container).size).toBe(before.size)
   })
 
   it('keeps every label where it was when events are highlighted', () => {
@@ -79,6 +104,28 @@ describe('labels stay put when an event is selected or highlighted', () => {
     const after = drawnLabels(container)
     for (const [key, where] of before) expect(after.get(key), key).toEqual(where)
     for (const id of highlighted) expect(container.querySelector(`[data-event-id="${id}"] text.event-label`)!.getAttribute('font-weight')).toBe('600')
+  })
+
+  it('names the highlighted events that had no room, pinned and kept inside the plot, without moving anything', () => {
+    const events = crowd(40)
+    const { container, rerender } = render(<Timeline events={events} arcs={[]} width={1000} height={500} />)
+    const before = drawnLabels(container)
+    const unnamed = events.map((ev) => ev.id).filter((id) => !before.has(id))
+    const highlighted = new Set([unnamed[0]!, unnamed[1]!, unnamed[unnamed.length - 1]!])
+    rerender(<Timeline events={events} arcs={[]} width={1000} height={500} highlightedEventIds={highlighted} selectedEventId={unnamed[2]!} />)
+    for (const [key, where] of drawnLabels(container)) if (before.has(key)) expect(where).toEqual(before.get(key))
+    for (const id of [...highlighted, unnamed[2]!]) expectPinnedInsidePlot(container, id)
+  })
+
+  it('names the causes and effects of a trace that had no room', () => {
+    const events = crowd(40)
+    const links: TimelineLink[] = [{ id: 'l1', causeId: 'e01', effectId: 'e38', type: 'direct', weight: 0.8 }]
+    const { container } = render(<Timeline events={events} arcs={[]} links={links} width={1000} height={500} selectedEventId="e01" />)
+    const named = new Set(Array.from(container.querySelectorAll('[data-event-id] text.event-label')).map((t) => t.closest('[data-event-id]')!.getAttribute('data-event-id')))
+    for (const id of ['e01', 'e38']) {
+      if (!named.has(id)) expectPinnedInsidePlot(container, id)
+      else expect(container.querySelector(`[data-pinned-label-for="${id}"]`)).toBeNull()
+    }
   })
 
   it('keeps every label where it was while a ripple is traced through links', () => {
@@ -131,13 +178,14 @@ describe('labels under the track', () => {
         return { x: u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3, y: u * u * u * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3 }
       })
     })
-    for (const text of Array.from(container.querySelectorAll<SVGTextElement>('text.event-label'))) {
+    for (const text of Array.from(container.querySelectorAll<SVGTextElement>('[data-event-id] text.event-label'))) {
       const offset = Number(text.getAttribute('y'))
       if (offset <= 0) continue
       const x = Number(/translate\(([-\d.e]+)/.exec(text.closest('[data-event-id]')!.getAttribute('transform')!)![1])
       const width = text.textContent!.length * 12 * 0.56
       const anchor = text.getAttribute('text-anchor')
-      const left = anchor === 'start' ? x : anchor === 'end' ? x - width : x - width / 2
+      const ax = x + Number(text.getAttribute('x') ?? 0)
+      const left = anchor === 'start' ? ax : anchor === 'end' ? ax - width : ax - width / 2
       const top = eventY + offset - 12
       const bottom = eventY + offset + 3
       for (const curve of curves) {

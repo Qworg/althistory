@@ -126,7 +126,9 @@ short and the caption stays. Only if two labels would still read the same (two
 equal times with no dated tick between them) is every tick its date and time
 instead, and no caption is drawn. A view of a day or less in which no tick names
 a day or a time (a narrow axis may keep only a month's first midnight,
-"66000000-07 BCE") is given the caption too. The reader takes a time to the
+"66000000-07 BCE") is given the caption too. A two-day caption too wide for the SVG shares its
+year and era ("66000000-06-30 – 07-01 BCE") and is never drawn past its edge;
+the full days are its accessible name and read back. The reader takes a time to the
 minute, second or millisecond after a date, so every label and the caption read
 back. `readHistoricalText` reads the date part of such text first and reports
 its error before a malformed time: "1843-02-31 9:3" names the impossible day,

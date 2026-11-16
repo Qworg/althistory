@@ -9,6 +9,7 @@ import {
   type EventLabelPlacement,
 } from './eventLabelLayout'
 import { EVENT_STEM_LENGTH } from './timelineLayout'
+import { DIMMED_OPACITY } from './dimmedOpacity'
 import { eventConfidence } from './eventInspectorUtils'
 import { confidenceTier } from './confidenceTier'
 
@@ -23,6 +24,7 @@ const HIT_RADIUS =
   typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches
     ? 22
     : 12
+
 
 export interface TimelineEventProps {
   event: Event
@@ -186,7 +188,7 @@ export const TimelineEvent = memo(function TimelineEvent({
       data-confidence-tier={tier}
       data-dimmed={isDimmed ? 'true' : undefined}
       data-fresh={isFresh ? 'true' : undefined}
-      opacity={isDimmed ? 0.28 : undefined}
+      opacity={isDimmed ? DIMMED_OPACITY : undefined}
       transform={`translate(${x}, ${y})`}
       tabIndex={isTabStop ? 0 : -1}
       role="button"
@@ -278,6 +280,7 @@ export const TimelineEvent = memo(function TimelineEvent({
       {placement && (
         <text
           className="event-label"
+          x={placement.dx}
           y={placement.offset}
           textAnchor={placement.anchor}
           fontSize={LABEL_FONT_SIZE}

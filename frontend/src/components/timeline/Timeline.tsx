@@ -19,7 +19,7 @@ import {
   filterPressuresInWindow
 } from './timelineVirtualization'
 import { formatHistoricalTimestamp, formatEventDate, formatHistoricalEnd } from '@/utils/historicalTime'
-import { layoutEventLabels, LABEL_FONT_SIZE, TIMELINE_BELOW_ROW_OFFSETS, TIMELINE_LABEL_CONFIG } from './eventLabelLayout'
+import { layoutEventLabels, truncateLabel, PRIORITY_LABEL_MAX_CHARS, extentFor, BESIDE_PX, LABEL_FONT_SIZE, TIMELINE_BELOW_ROW_OFFSETS, TIMELINE_LABEL_CONFIG } from './eventLabelLayout'
 import { tooltipPlacement } from './tooltipPlacement'
 import { useLiveChangesStore } from '@/stores/liveChangesStore'
 import {
@@ -420,7 +420,7 @@ const Timeline = memo(function Timeline({
   // fitted again when the view zooms or pans, not on every render.
   const marginLeft = margin.left
   const marginRight = margin.right
-  const { ticks: axisTickMarks, caption: axisCaption } = useMemo(() => {
+  const { ticks: axisTickMarks, caption: axisCaption, captionFull: axisCaptionFull, captionX: axisCaptionX } = useMemo(() => {
     const maxTicks = mainAxisMaxTicks(innerWidth)
     const [start, end] = xScale.domain()
     return fitAxis(
@@ -598,6 +598,41 @@ const Timeline = memo(function Timeline({
       ),
     [visibleEvents, xScale, innerWidth, reach, labelBelowRows]
   )
+
+  // Names for the marks the user is working with that the layout had no room
+  // for: the selection, the highlighted events, and the selection's causes and
+  // effects. They are drawn on a card-coloured plate in a layer of their own,
+  // over every label and mark, so neighbours never show through or paint over
+  // them; and the layout is not run again, so no other label moves. Each is
+  // kept inside the plot, and one that would overlap another of these takes the
+  // next row up (the selection first, then highlights, then the trace).
+  const pinnedLabels = useMemo(() => {
+    const wanted: Array<{ ev: Event; kind: 'selected' | 'marked' }> = []
+    const seen = new Set<string>()
+    const want = (ev: Event | undefined, kind: 'selected' | 'marked') => {
+      if (!ev || seen.has(ev.id) || eventLabels.has(ev.id)) return
+      seen.add(ev.id)
+      wanted.push({ ev, kind })
+    }
+    const inWindow = new Map(visibleEvents.map((ev) => [ev.id, ev]))
+    want(selectedEventId ? inWindow.get(selectedEventId) : undefined, 'selected')
+    for (const ev of visibleEvents) if (highlightedEventIds?.has(ev.id)) want(ev, 'marked')
+    for (const ev of visibleEvents) if (ripple.causes.has(ev.id) || ripple.effects.has(ev.id)) want(ev, 'marked')
+    const taken: Array<Array<[number, number]>> = TIMELINE_LABEL_CONFIG.rowOffsets.map(() => [])
+    const pinned: Array<{ id: string; x: number; offset: number; anchor: 'start' | 'middle' | 'end'; text: string; left: number; right: number; selected: boolean }> = []
+    for (const { ev, kind } of wanted) {
+      const x = xScale(toInstant(ev.timestamp))
+      if (!(x >= 0 && x <= innerWidth)) continue
+      const text = truncateLabel(ev.description, PRIORITY_LABEL_MAX_CHARS)
+      const width = text.length * TIMELINE_LABEL_CONFIG.fontSize * 0.56
+      const { left, right, anchor } = extentFor(x, width, innerWidth)
+      const row = taken.findIndex((spans) => !spans.some(([l, r]) => left < r + 6 && right + 6 > l))
+      if (row < 0) continue
+      taken[row]!.push([left, right])
+      pinned.push({ id: ev.id, x, offset: TIMELINE_LABEL_CONFIG.rowOffsets[row]!, anchor, text, left, right, selected: kind === 'selected' })
+    }
+    return pinned
+  }, [eventLabels, visibleEvents, selectedEventId, highlightedEventIds, ripple, xScale, innerWidth])
 
   // The mark that last had focus; the tab stop follows it.
   const [activeMarkKey, setActiveMarkKey] = useState<MarkKey | null>(null)
@@ -1631,6 +1666,24 @@ const Timeline = memo(function Timeline({
                 const x = xScale(toInstant(ev.timestamp))
                 const dimmed =
                   isTracing && ev.id !== selectedEventId && !ripple.causes.has(ev.id) && !ripple.effects.has(ev.id)
+                // Beside its mark (a linked one's title clears the link): a dash from the mark's line to the text.
+                if (placement.beside) {
+                  const side = placement.anchor === 'start' ? 1 : -1
+                  const dx = placement.dx ?? side * BESIDE_PX
+                  return (
+                    <line
+                      key={ev.id}
+                      className="event-label-leader"
+                      x1={x + side}
+                      x2={x + dx - side}
+                      y1={eventY + placement.offset - 4}
+                      y2={eventY + placement.offset - 4}
+                      stroke="var(--text-muted)"
+                      strokeOpacity={dimmed ? 0.12 : 0.6}
+                      strokeWidth={1}
+                    />
+                  )
+                }
                 // Below the track, past the first row: from the stem's end down to the label.
                 const firstBelow = TIMELINE_BELOW_ROW_OFFSETS[0]
                 if (placement.offset > firstBelow) {
@@ -1691,9 +1744,8 @@ const Timeline = memo(function Timeline({
                   baseRadius={markBaseRadius(ev.id)}
                   isTabStop={tabStopKey === eventMarkKey(ev.id)}
                   // No room for its title: null (the mark keeps its tooltip and
-                  // name), except the selection, which the mark names over its
-                  // neighbours' labels rather than move them.
-                  label={eventLabels.get(ev.id) ?? (selectedEventId === ev.id ? undefined : null)}
+                  // name; the selection and highlights are named in the pinned layer).
+                  label={eventLabels.get(ev.id) ?? null}
                   onClick={handleEventClick}
                   onContextMenu={handleEventContextMenu}
                   onDragStart={handleEventDragStart}
@@ -1702,6 +1754,47 @@ const Timeline = memo(function Timeline({
                 />
               )
             })}
+
+            {/* Names pinned over the rest (see pinnedLabels). Decorative: each
+                mark carries its own accessible name. */}
+            {pinnedLabels.length > 0 && (
+              <g className="timeline-pinned-labels" aria-hidden="true" pointerEvents="none">
+                {pinnedLabels.map((label) => (
+                  <g key={label.id} data-pinned-label-for={label.id}>
+                    <line
+                      x1={label.x}
+                      x2={label.x}
+                      y1={eventY + label.offset + 4}
+                      y2={eventY - 8}
+                      stroke="var(--text-muted)"
+                      strokeOpacity={0.6}
+                      strokeWidth={1}
+                    />
+                    <rect
+                      className="event-label-plate"
+                      x={label.left - 3}
+                      y={eventY + label.offset - LABEL_FONT_SIZE}
+                      width={label.right - label.left + 6}
+                      height={LABEL_FONT_SIZE + 5}
+                      rx={3}
+                      style={{ fill: 'var(--surface-card)', stroke: label.selected ? 'var(--accent-selected)' : 'var(--border-subtle)' }}
+                      strokeWidth={1}
+                    />
+                    <text
+                      className="event-label event-label-pinned"
+                      x={label.anchor === 'start' ? label.left : label.anchor === 'end' ? label.right : label.x}
+                      y={eventY + label.offset}
+                      textAnchor={label.anchor}
+                      fontSize={LABEL_FONT_SIZE}
+                      fontWeight={600}
+                      style={{ fill: label.selected ? 'var(--accent-selected)' : 'var(--text-primary)' }}
+                    >
+                      {label.text}
+                    </text>
+                  </g>
+                ))}
+              </g>
+            )}
 
             {/* Pressure indicators */}
             {showPressureIndicators && visiblePressures.length > 0 && (
@@ -1801,7 +1894,9 @@ const Timeline = memo(function Timeline({
             ))}
             {axisCaption && (
               <text
+                x={axisCaptionX ?? 0}
                 y={35}
+                aria-label={axisCaptionFull}
                 textAnchor="start"
                 fontSize={LABEL_FONT_SIZE}
                 className="axis-day-caption"

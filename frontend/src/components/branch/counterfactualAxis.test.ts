@@ -4,7 +4,7 @@ import { VAEL } from '@/test/fixtures/worldCalendars'
 import { instantScale } from '@/utils/timeScale'
 import { axisTicks } from '@/utils/d3Calculations'
 import { labelExtent } from '@/utils/axisLabelFit'
-import { counterfactualAxisTicks, counterfactualMargin, counterfactualTickCount, formatTicks } from './counterfactualAxis'
+import { counterfactualAxisTicks, formatTicks } from './counterfactualAxis'
 
 /**
  * What the canvas kept before: left to right, each tick whose centred date

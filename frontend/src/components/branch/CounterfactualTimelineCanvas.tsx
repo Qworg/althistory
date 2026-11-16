@@ -88,8 +88,8 @@ const LABEL_FONT_PX = 12
 const LANE_LABEL_CONFIG: LabelLayoutConfig = {
   rowOffsets: LABEL_ROW_OFFSETS,
   fontSize: LABEL_FONT_PX,
-  maxChars: TIMELINE_LABEL_CONFIG.maxChars,
   fullChars: TIMELINE_LABEL_CONFIG.fullChars,
+  lengthen: true,
 }
 /** Width of the tooltip, which is clamped inside the canvas. */
 const TOOLTIP_WIDTH_PX = 240

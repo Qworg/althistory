@@ -255,7 +255,9 @@ describe('Timeline event labels', () => {
     )
     render(<Timeline events={crowded} arcs={[]} selectedEventId="c7" width={800} height={400} />)
 
+    // Named in its own place if the layout had room, else on a plate over the marks.
     const selected = document.querySelector('[data-event-id="c7"]') as HTMLElement
-    expect(within(selected).getByText('Event c7')).toBeInTheDocument()
+    const pinned = document.querySelector('[data-pinned-label-for="c7"]')
+    expect(within((pinned ?? selected) as HTMLElement).getByText('Event c7')).toBeInTheDocument()
   })
 })

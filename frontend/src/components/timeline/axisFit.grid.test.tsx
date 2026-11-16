@@ -57,7 +57,8 @@ interface Drawn {
   anchor: 'start' | 'middle' | 'end'
 }
 
-const WIDTHS = [360, 600, 1000, 1300]
+/** 280 and 310 are the SVG's widths on a phone of 320 to 390 px, where the page leaves the timeline less than its viewport. */
+const WIDTHS = [280, 310, 360, 600, 1000, 1300]
 
 /** The x the main timeline's SVG reaches each side of its plot at a width: its own margins. */
 const mainRoom = (width: number) => ({ left: -DEFAULT_TIMELINE_MARGIN.left, right: width - DEFAULT_TIMELINE_MARGIN.left })
@@ -83,7 +84,14 @@ function readBack(label: string): bigint | null {
 }
 
 /** What every axis must hold to; `room` is the x the SVG reaches each side of the plot. */
-function expectReadable(axis: string, drawn: readonly Drawn[], caption: string | null, room: { left: number; right: number }, charPx: number) {
+function expectReadable(
+  axis: string,
+  drawn: readonly Drawn[],
+  caption: string | null,
+  room: { left: number; right: number },
+  charPx: number,
+  captionAt?: { full: string | null; x: number }
+) {
   const dated = drawn.filter((tick) => !isBareTime(tick.label))
   expect(dated.length > 0 || Boolean(caption), `${axis}: no date (${JSON.stringify(drawn.map((t) => t.label))})`).toBe(true)
   const sorted = [...drawn].sort((a, b) => a.x - b.x)
@@ -94,7 +102,13 @@ function expectReadable(axis: string, drawn: readonly Drawn[], caption: string |
     if (i > 0) expect(left, `${axis}: "${tick.label}" overprints "${sorted[i - 1]!.label}"`).toBeGreaterThanOrEqual(labelExtent(sorted[i - 1]!, charPx)[1])
   }
   for (const tick of dated) expect(readBack(tick.label), `${axis}: "${tick.label}" does not read back`).not.toBeNull()
-  for (const day of caption?.split(' – ') ?? []) expect(readDateBound(day, 'start', null).ok, `${axis}: caption "${day}"`).toBe(true)
+  // A caption shortened to fit ("66000000-06-30 – 07-01 BCE") names its days in full to a screen reader, and they read back.
+  for (const day of (captionAt?.full ?? caption)?.split(' – ') ?? []) expect(readDateBound(day, 'start', null).ok, `${axis}: caption "${day}"`).toBe(true)
+  if (caption) {
+    const x = captionAt?.x ?? 0
+    expect(x, `${axis}: caption "${caption}" starts left of the SVG`).toBeGreaterThanOrEqual(room.left - 0.5)
+    expect(x + caption.length * charPx, `${axis}: caption "${caption}" runs off the SVG`).toBeLessThanOrEqual(room.right + 0.5)
+  }
 }
 
 function drawnTicks(container: HTMLElement, selector: string): Drawn[] {
@@ -111,8 +125,9 @@ describe('every time axis before 1 CE and in deep time', () => {
       it(`main timeline, ${history}, at ${width} px`, () => {
         const { container } = render(<Timeline events={stamps.map((t, i) => event(`e${i}`, t))} arcs={[]} width={width} height={400} />)
         const drawn = drawnTicks(container, 'text.axis-tick')
-        const caption = container.querySelector('.axis-day-caption')?.textContent ?? null
-        expectReadable(`main ${history} ${width}`, drawn, caption, mainRoom(width), AXIS_LABEL_CHAR_PX)
+        const captionEl = container.querySelector('.axis-day-caption')
+        const caption = captionEl?.textContent ?? null
+        expectReadable(`main ${history} ${width}`, drawn, caption, mainRoom(width), AXIS_LABEL_CHAR_PX, { full: captionEl?.getAttribute('aria-label') ?? null, x: Number(captionEl?.getAttribute('x') ?? 0) })
       })
 
       it(`actor view, ${history}, at ${width} px`, () => {
@@ -121,8 +136,9 @@ describe('every time axis before 1 CE and in deep time', () => {
         const texts = Array.from(container.querySelectorAll('.x-axis text.axis-tick'))
         expect(texts.every((text) => !text.getAttribute('transform')), `actor ${history} ${width}: labels turned`).toBe(true)
         const drawn = drawnTicks(container, '.x-axis text.axis-tick')
-        const caption = container.querySelector('.x-axis .axis-day-caption')?.textContent ?? null
-        expectReadable(`actor ${history} ${width}`, drawn, caption, { left: -DEFAULT_ACTOR_MARGIN.left, right: width - DEFAULT_ACTOR_MARGIN.left }, 6.6)
+        const captionEl = container.querySelector('.x-axis .axis-day-caption')
+        const caption = captionEl?.textContent ?? null
+        expectReadable(`actor ${history} ${width}`, drawn, caption, { left: -DEFAULT_ACTOR_MARGIN.left, right: width - DEFAULT_ACTOR_MARGIN.left }, 6.6, { full: captionEl?.getAttribute('aria-label') ?? null, x: Number(captionEl?.getAttribute('x') ?? 0) })
       })
 
       it(`counterfactual canvas, ${history}, at ${width} px`, () => {
@@ -184,7 +200,7 @@ describe('every time axis before 1 CE and in deep time', () => {
         const maxTicks = mainAxisMaxTicks(inner)
         const ticks = axisTicks(domain, maxTicks > 0 ? maxTicks : 5, null).map((tick) => ({ ...tick, x: x(tick.date) }))
         const fitted = fitAxis(ticks, null, mainRoom(width), domain)
-        expectReadable(`zoom ${from} ${width}`, fitted.ticks, fitted.caption, mainRoom(width), AXIS_LABEL_CHAR_PX)
+        expectReadable(`zoom ${from} ${width}`, fitted.ticks, fitted.caption, mainRoom(width), AXIS_LABEL_CHAR_PX, { full: fitted.captionFull ?? null, x: fitted.captionX ?? 0 })
         for (const tick of fitted.ticks) {
           if (!isBareTime(tick.label)) expect(readBack(tick.label), tick.label).toBe(toAxisTime(tick.date))
         }

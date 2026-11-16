@@ -417,6 +417,14 @@ export interface FittedAxis<T> {
    * labels name their dates.
    */
   caption: string | null
+  /**
+   * The caption in full ("44-03-14 BCE – 44-03-15 BCE"), where {@link caption}
+   * is its short form because the full one would not fit the room. Present
+   * with a caption; the one to read back and to name to a screen reader.
+   */
+  captionFull?: string
+  /** Where the caption starts, in the plot's coordinates: 0 unless it would run past the room's right edge. */
+  captionX?: number
   /** Whether the set was fitted (a typed set): its labels are anchored and thinned, never turned. */
   fitted: boolean
 }
@@ -445,7 +453,12 @@ export function fitAxis<T extends { date: Date; x: number; label: string }>(
   }
   const times = ticks.length === 0 || ticks.some((tick) => isBareTime(tick.label)) || namesNoDay(ticks, domain)
   const kept = thinTickLabels(anchorInward(ticks, charPx, room), { charPx, gapPx: AXIS_LABEL_GAP_PX }, (tick) => times && !isBareTime(tick.label))
-  return { ticks: kept, caption: times ? dayCaption(domain) : null, fitted: true }
+  if (!times) return { ticks: kept, caption: null, fitted: true }
+  const full = dayCaption(domain)
+  // A two-day caption shares its era and year where it must to fit ("66000000-06-30 – 07-01 BCE").
+  const caption = full.length * charPx <= room.right - room.left ? full : shortDayCaption(domain)
+  const captionX = Math.max(room.left, Math.min(0, room.right - caption.length * charPx))
+  return { ticks: kept, caption, captionFull: full, captionX, fitted: true }
 }
 
 /**
@@ -463,6 +476,19 @@ function dayCaption([start, end]: readonly [Date, Date]): string {
   const first = formatBoundAt(start, 'day')
   const last = formatBoundAt(end, 'day')
   return first === last ? first : `${first} – ${last}`
+}
+
+/** The first and last day of a span with what they share said once: "66000000-06-30 – 07-01 BCE", "44-12-31 – 43-01-01 BCE". */
+function shortDayCaption([start, end]: readonly [Date, Date]): string {
+  const first = formatBoundAt(start, 'day')
+  const last = formatBoundAt(end, 'day')
+  if (first === last) return first
+  const era = / BCE$/.test(first) && / BCE$/.test(last) ? ' BCE' : ''
+  const bare = (day: string) => day.replace(/ BCE$/, '')
+  if (era === '' && !(first.length === bare(first).length && last.length === bare(last).length)) return `${first} – ${last}`
+  const [a, b] = [bare(first), bare(last)]
+  const yearOf = (day: string) => day.slice(0, day.length - 6)
+  return yearOf(a) === yearOf(b) ? `${a} – ${b.slice(-5)}${era}` : `${a} – ${b}${era}`
 }
 
 /** The axis label formats from coarsest to finest. */

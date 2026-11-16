@@ -479,9 +479,38 @@ describe('ActorTimeline', () => {
       expect(mark.querySelector('.actor-event-label')).toBeNull()
 
       fireEvent.click(mark)
-      const label = mark.querySelector('.actor-event-label')
-      expect(label).toHaveTextContent('Event e6')
-      expect(label?.getAttribute('fill')).toBe('var(--accent-selected)')
+      // No room for its title: named on a plate over every mark, in the selection colour.
+      const pinned = container.querySelector('[data-pinned-label-for="e6"]')
+      expect(pinned).not.toBeNull()
+      expect(pinned!.querySelector('text')).toHaveTextContent('Event e6')
+      expect(pinned!.querySelector('text')!.getAttribute('style')).toContain('var(--accent-selected)')
+      expect(pinned!.querySelector('rect.event-label-plate')!.getAttribute('style')).toContain('var(--surface-card)')
+      expect(mark.querySelector('.actor-event-label')).toBeNull()
+    })
+
+    it('keeps the selected name inside the plot at both edges, and every other label where it was', () => {
+      const edge = [
+        ...['a1', 'a2', 'a3', 'a4', 'a5'].map((id) => ({ ...actorEvent(id, 'actor', 'Britain'), timestamp: '1700-01-01T00:00:00Z' })),
+        { ...actorEvent('first', 'actor', 'Britain'), description: 'A selected title long enough to need room', timestamp: '1700-01-01T00:00:00Z' },
+        ...['z1', 'z2', 'z3', 'z4', 'z5'].map((id) => ({ ...actorEvent(id, 'actor', 'Britain'), timestamp: '1900-01-01T00:00:00Z' })),
+        { ...actorEvent('last', 'actor', 'Britain'), description: 'A selected title long enough to need room', timestamp: '1900-01-01T00:00:00Z' },
+      ]
+      const { container } = render(<ActorTimeline actor="U.S." layoutMode="chronological" events={edge} arcs={[]} width={500} />)
+      let pinnedCount = 0
+      for (const id of ['first', 'last']) {
+        fireEvent.click(container.querySelector(`.actor-event[data-event-id="${id}"]`)!)
+        const text = container.querySelector(`.actor-pinned-label[data-pinned-label-for="${id}"] text`)
+        if (!text) { fireEvent.click(container.querySelector(`.actor-event[data-event-id="${id}"]`)!); continue }
+        pinnedCount++
+        const x = Number(text!.getAttribute('x') ?? 0)
+        const width = text!.textContent!.length * 12 * 0.56
+        const anchor = text!.getAttribute('text-anchor')
+        const left = anchor === 'start' ? x : anchor === 'end' ? x - width : x - width / 2
+        expect(left).toBeGreaterThanOrEqual(-0.5)
+        expect(left + width).toBeLessThanOrEqual(500 - 80 - 20 + 0.5)
+        fireEvent.click(container.querySelector(`.actor-event[data-event-id="${id}"]`)!)
+      }
+      expect(pinnedCount).toBeGreaterThan(0)
     })
 
     it('keeps every other label where it was when a mark is selected', () => {
@@ -491,7 +520,7 @@ describe('ActorTimeline', () => {
       )
       const drawn = () =>
         new Map(
-          Array.from(container.querySelectorAll<SVGTextElement>('.actor-event-label')).map((text) => [
+          Array.from(container.querySelectorAll<SVGTextElement>('.actor-event .actor-event-label')).map((text) => [
             text.closest('.actor-event')!.getAttribute('data-event-id'),
             [text.getAttribute('y'), text.getAttribute('text-anchor'), text.textContent],
           ])

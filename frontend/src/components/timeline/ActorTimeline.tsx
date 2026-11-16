@@ -6,14 +6,14 @@ import { axisTicks, fitAxis, formatTimeAxisTickSet, getTimeAxisInterval } from '
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import { formatEventDate } from '@/utils/historicalTime'
 import { truncateToWidth } from '@/utils'
-import { layoutEventLabels, truncateLabel, TIMELINE_LABEL_CONFIG, type EventLabelPlacement, type LabelLayoutConfig } from './eventLabelLayout'
+import { layoutEventLabels, extentFor, truncateLabel, TIMELINE_LABEL_CONFIG, type EventLabelPlacement, type LabelLayoutConfig } from './eventLabelLayout'
 import { DEFAULT_ACTOR_MARGIN, actorAxisMaxTicks } from './timelineLayout'
 import { compareInstants, msApart, toAxisTime, toInstant } from '@althistory/calendar'
 
 /** Two rows of 12px labels (the 12px floor); the pitch is the font plus leading. */
-const ACTOR_LABEL_CONFIG: LabelLayoutConfig = { rowOffsets: [-16, -30], fontSize: 12, maxChars: TIMELINE_LABEL_CONFIG.maxChars, fullChars: TIMELINE_LABEL_CONFIG.fullChars }
+const ACTOR_LABEL_CONFIG: LabelLayoutConfig = { rowOffsets: [-16, -30], fontSize: 12, fullChars: TIMELINE_LABEL_CONFIG.fullChars, lengthen: true }
 /** Rows under a mark, for a label with no room above it. */
-const ACTOR_LABEL_BELOW_CONFIG: LabelLayoutConfig = { rowOffsets: [24, 38], fontSize: 12, maxChars: TIMELINE_LABEL_CONFIG.maxChars, fullChars: TIMELINE_LABEL_CONFIG.fullChars }
+const ACTOR_LABEL_BELOW_CONFIG: LabelLayoutConfig = { rowOffsets: [24, 38], fontSize: 12, fullChars: TIMELINE_LABEL_CONFIG.fullChars, lengthen: true }
 /**
  * Arc names are drawn at 12px medium, which runs wider than the regular
  * weight the estimate assumes; measured at 13px so two neighbouring names do
@@ -255,7 +255,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
   // to the room rather than turned (an end label anchored inside the SVG, ticks
   // that would overprint dropped, times of day given a caption naming their
   // day). Any other set is drawn as it always was.
-  const { ticks: xTicks, caption: axisCaption, fitted: fittedAxis } = useMemo(
+  const { ticks: xTicks, caption: axisCaption, captionFull: axisCaptionFull, captionX: axisCaptionX, fitted: fittedAxis } = useMemo(
     () =>
       fitAxis(
         rawTicks,
@@ -363,6 +363,17 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     }
     return placements
   }, [events.length, groups, layoutMode, innerHeight, innerWidth, timeScale, yScale, arcLabelFloor])
+
+  // The selected mark's name when the layout had no room for it (see markLabels).
+  const pinnedSelection = useMemo(() => {
+    const selected = events.find((event) => event.id === state.selectedEventId)
+    if (!selected || markLabels.has(selected.id)) return null
+    const x = timeScale(toInstant(selected.timestamp))
+    if (!(x >= 0 && x <= innerWidth)) return null
+    const text = truncateLabel(selected.description, 32)
+    const { left, right, anchor } = extentFor(x, text.length * 12 * 0.56, innerWidth)
+    return { id: selected.id, x, y: yFor(selected), text, left, right, anchor }
+  }, [events, state.selectedEventId, markLabels, timeScale, innerWidth, yFor])
 
   const selectEvent = useCallback((event: ActorEventData) => {
     setState(prev => ({
@@ -532,7 +543,9 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
                     ))}
                     {axisCaption && (
                       <text
+                        x={axisCaptionX ?? 0}
                         y={36}
+                        aria-label={axisCaptionFull}
                         textAnchor="start"
                         fontSize={11}
                         className="axis-day-caption"
@@ -653,13 +666,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
                       const isHovered = state.hoveredEventId === event.id
                       const roleColor = ROLE_COLOR[event.role]
                       const placed = { event, x, y }
-                      // Where the layout found room; the selection with none is
-                      // named over its neighbours rather than moving them.
-                      const label =
-                        markLabels.get(event.id) ??
-                        (isSelected
-                          ? { offset: -16, anchor: 'middle' as const, text: truncateLabel(event.description, 32), emphasis: true }
-                          : undefined)
+                      const label = markLabels.get(event.id)
                       return (
                         <g
                           key={event.id}
@@ -725,11 +732,6 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
                               fontSize={12}
                               fontWeight={isSelected ? 600 : 400}
                               fill={isSelected ? 'var(--accent-selected)' : 'var(--text-secondary)'}
-                              // A card-coloured halo keeps the selection's label legible over its neighbours'.
-                              stroke={isSelected ? 'var(--surface-card)' : undefined}
-                              strokeWidth={isSelected ? 4 : undefined}
-                              strokeLinejoin="round"
-                              paintOrder="stroke"
                               pointerEvents="none"
                             >
                               {label.text}
@@ -742,6 +744,35 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
                 )
               })}
             </g>
+
+            {/* The selection's name where the layout had no room for it: on a
+                card plate, over every mark and label, inside the plot, and
+                without moving any other label. */}
+            {pinnedSelection && (
+              <g className="actor-pinned-label" data-pinned-label-for={pinnedSelection.id} aria-hidden="true" pointerEvents="none">
+                <rect
+                  className="event-label-plate"
+                  x={pinnedSelection.left - 3}
+                  y={pinnedSelection.y - 16 - 12}
+                  width={pinnedSelection.right - pinnedSelection.left + 6}
+                  height={17}
+                  rx={3}
+                  style={{ fill: 'var(--surface-card)', stroke: 'var(--accent-selected)' }}
+                  strokeWidth={1}
+                />
+                <text
+                  className="actor-event-label"
+                  x={pinnedSelection.anchor === 'start' ? pinnedSelection.left : pinnedSelection.anchor === 'end' ? pinnedSelection.right : pinnedSelection.x}
+                  y={pinnedSelection.y - 16}
+                  textAnchor={pinnedSelection.anchor}
+                  fontSize={12}
+                  fontWeight={600}
+                  style={{ fill: 'var(--accent-selected)' }}
+                >
+                  {pinnedSelection.text}
+                </text>
+              </g>
+            )}
           </g>
         </svg>
 
