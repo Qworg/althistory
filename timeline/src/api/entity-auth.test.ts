@@ -296,13 +296,25 @@ describe('the entity routes with API_AUTH_REQUIRED=true', () => {
   it('charges an authenticated entity request to the key rate limit', async () => {
     // The same per-key budget the other authenticated groups enforce; the
     // headers come from `rateLimit()`, so their presence proves it is mounted.
+    // (The configured ADMIN_API_KEY is exempt and sends none; see
+    // app-key-rate-limit.test.ts. A minted admin key is limited.)
+    const minted = await container.authService.createApiKey({
+      name: 'entity-auth-rate-limited',
+      permissions: ['read:events'],
+    });
     const response = await request(app)
       .get('/api/events')
-      .set('X-API-Key', ADMIN_KEY)
+      .set('X-API-Key', minted.key)
       .expect(200);
 
     expect(response.headers['x-ratelimit-limit']).toBeDefined();
     expect(response.headers['x-ratelimit-remaining']).toBeDefined();
+
+    const exempt = await request(app)
+      .get('/api/events')
+      .set('X-API-Key', ADMIN_KEY)
+      .expect(200);
+    expect(exempt.headers['x-ratelimit-limit']).toBeUndefined();
   });
 
   it('refuses a key that is not allowed to read the graph it names', async () => {

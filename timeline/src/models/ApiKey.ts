@@ -124,6 +124,14 @@ export class ApiKey implements IApiKey {
   public expiresAt?: string;
   public isActive: boolean;
   public metadata?: Record<string, unknown>;
+  /**
+   * True only for the key configured as `ADMIN_API_KEY` -- the app's own key.
+   * It is never stored and never serialised: the repository sets it at start-up
+   * by comparing the stored keys with the configured one, so it follows the
+   * environment, not the file, and no request can set it. A minted admin key,
+   * whatever its permissions, is not exempt.
+   */
+  public rateLimitExempt = false;
 
   constructor(data: CreateApiKeyData) {
     const validation = ApiKey.validate(data);
@@ -252,6 +260,14 @@ export class ApiKey implements IApiKey {
    */
   revoke(): void {
     this.isActive = false;
+  }
+
+  /**
+   * The most streams the key may hold open at once: unlimited for the app's
+   * own key (several browser tabs each hold one), the stored limit otherwise.
+   */
+  maxConcurrentStreams(): number {
+    return this.rateLimitExempt ? Number.POSITIVE_INFINITY : this.rateLimit.concurrentStreams;
   }
 
   /**

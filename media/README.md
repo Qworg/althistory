@@ -27,10 +27,10 @@ Rerun it whenever the interface changes, look at the diff of
    build of the frontend into `media/.build/frontend` (never `frontend/dist`).
 2. **Start** both on free ports: the backend in local mode on a fresh
    temporary data directory with a one-off admin key, and `vite preview`
-   proxying `/api` to it. With that key the run mints a second one with the
-   same permissions and no practical rate limit, and seeds and browses with
-   it: a key's default is 60 requests a minute on the graph routes, which a
-   capture that reloads page after page soon spends. The process environment overrides
+   proxying `/api` to it. That key is the app's own `ADMIN_API_KEY`, which is
+   exempt from rate limits, so the run seeds and browses with it directly: a
+   capture that reloads page after page would spend the 60 requests a minute
+   any other key gets. The process environment overrides
    `timeline/.env.local`, so your own settings cannot leak in. In particular,
    `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` are blanked, which keeps ingestion
    on the deterministic pattern reader and means a run costs nothing.

@@ -589,6 +589,11 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: {
       keyId: { type: 'string' },
       rateLimit: { $ref: '#/components/schemas/ApiKeyRateLimit' },
+      rateLimitExempt: {
+        type: 'boolean',
+        description:
+          'True for the app\'s own key, the one configured as ADMIN_API_KEY: it is not rate limited on any route and holds any number of streams, so its currentUsage windows are always empty and rateLimit is not applied. Every other key, admin permission or not, is limited.',
+      },
       currentUsage: {
         type: 'object',
         required: ['minute', 'hour', 'day'],
