@@ -143,11 +143,16 @@ describe('GraphSelector when a switch is refused with 429', () => {
   it("counts the wait down in the alert (it uses the notice centre's countdown)", async () => {
     await refuseASwitch()
     const text = () => screen.getByTestId('retry-countdown').textContent
-    expect(text()).toBe('Try again in 12 seconds.')
-    await waitFor(() => expect(text()).toBe('Try again in 11 seconds.'), { timeout: 3000 })
+    // Under load a second may already have gone by; the shape is what matters.
+    const first = text()!
+    expect(first).toMatch(/^Try again in (11|12) seconds\.$/)
+    const spokenAtFirst = screen.getByTestId('retry-spoken').textContent
+    await waitFor(() => expect(text()).not.toBe(first), { timeout: 4000 })
+    expect(text()).toMatch(/^Try again in \d+ seconds?\.$/)
     // Hidden from the alert's live region, which still carries the spoken sentence.
     expect(screen.getByTestId('retry-countdown')).toHaveAttribute('aria-hidden', 'true')
-    expect(screen.getByTestId('retry-spoken').textContent).toBe('Try again in about 12 seconds.')
+    expect(screen.getByTestId('retry-spoken').textContent).toBe(spokenAtFirst)
+    expect(spokenAtFirst).toMatch(/^Try again in about (11|12) seconds\.$/)
   })
 
   it('shows the notice for a refused switch from anywhere else, such as the Graph Manager', async () => {

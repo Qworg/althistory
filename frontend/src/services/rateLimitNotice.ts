@@ -140,9 +140,6 @@ export function noticeRateLimited(response: RefusedResponse | undefined, request
   if (response?.status !== 429) return null
   const req = request ?? {}
   if (isStatusPoll(req)) return null
-  // The picker's own switch says so itself (its alert); every other switch,
-  // from the Graph Manager, a branch dialog, a copy and so on, gets the notice.
-  if (req.toldByCaller) return null
 
   const stem = refusalStem(req)
   const wait = retryAfterSeconds(response)
@@ -150,6 +147,10 @@ export function noticeRateLimited(response: RefusedResponse | undefined, request
   const store = useGlobalStore.getState()
 
   let notice = store.errors.find((e) => e.refusal === stem)
+  // The picker's own switch says so itself (its alert); every other switch,
+  // from the Graph Manager, a branch dialog, a copy and so on, gets the notice.
+  // A notice a different door already raised still follows the server's wait.
+  if (req.toldByCaller && !notice) return null
   if (notice) {
     store.updateError(notice.id, { retryAt })
   } else {

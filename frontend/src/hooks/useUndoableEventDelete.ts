@@ -29,7 +29,7 @@ function openGraphId(): string | null {
 const noticeGraph = new Map<string, string | null>()
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('graph-switched', (event) => {
+  const onGraphSwitched = (event: globalThis.Event) => {
     const now = (event as CustomEvent<{ graphId?: string | null }>).detail?.graphId ?? openGraphId()
     const { errors, removeError } = useGlobalStore.getState()
     for (const [id, graph] of noticeGraph) {
@@ -37,7 +37,10 @@ if (typeof window !== 'undefined') {
       if (errors.some((e) => e.id === id)) removeError(id)
       noticeGraph.delete(id)
     }
-  })
+  }
+  window.addEventListener('graph-switched', onGraphSwitched)
+  // A hot reload evaluates this module again: do not leave the old listener.
+  import.meta.hot?.dispose(() => window.removeEventListener('graph-switched', onGraphSwitched))
 }
 
 /** At most this many links are named in a notice; the rest are counted. */
@@ -72,10 +75,14 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
       // The id of the live copy: the original until an undo re-creates it, then
       // the restored one. Redo deletes whichever is live.
       let currentId = event.id
-      // This entry's lasting notices, by id: one slot per history entry, so two
-      // events with identical text never share a notice, and every kind of notice
-      // the entry leaves is taken down by the next step it makes.
-      let slot: string[] = []
+      // This entry's lasting notices, by id, two slots per history entry (so two
+      // events with identical text never share a notice):
+      //  - state: what is true of the event now ("is back, but 2 links weren't
+      //    restored"). Taken down only by a step that changes that state: an undo
+      //    that re-creates the event, or a redo that deletes it.
+      //  - failure: why the last attempt failed. Replaced on every attempt.
+      let stateSlot: string[] = []
+      let failureSlot: string[] = []
       const linkCount = links.length
       const description = `deleted "${event.description}"${
         linkCount ? ` and its ${linkCount} causal link${linkCount === 1 ? '' : 's'}` : ''
@@ -88,14 +95,20 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
         return inView ? `"${inView.description}"` : id
       }
 
-      /** Take down what this entry last said: a new step supersedes it. */
-      const clearSlot = () => {
+      const takeDown = (ids: string[]) => {
         const { errors, removeError } = useGlobalStore.getState()
-        for (const id of slot) {
+        for (const id of ids) {
           if (errors.some((e) => e.id === id)) removeError(id)
           noticeGraph.delete(id)
         }
-        slot = []
+      }
+      const clearState = () => {
+        takeDown(stateSlot)
+        stateSlot = []
+      }
+      const clearFailure = () => {
+        takeDown(failureSlot)
+        failureSlot = []
       }
 
       /**
@@ -106,11 +119,12 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
       const tell = (
         graphAtStart: string | null,
         message: string,
+        kind: 'state' | 'failure',
         type: 'general' | 'network' = 'general'
       ) => {
         if (openGraphId() !== graphAtStart) return
         const id = addError({ type, message })
-        slot.push(id)
+        ;(kind === 'state' ? stateSlot : failureSlot).push(id)
         noticeGraph.set(id, graphAtStart)
       }
 
@@ -120,7 +134,7 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
         // back and a notice that names what is missing; the entry is done.
         undo: async () => {
           const graph = openGraphId()
-          clearSlot()
+          clearFailure()
           try {
             const created = await createEvent({
               description: event.description,
@@ -130,9 +144,11 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
               metadata: event.metadata,
             })
             if (created.delivery === 'queued') {
-              tell(graph, 'You are offline, so the deletion cannot be undone yet.', 'network')
+              tell(graph, 'You are offline, so the deletion cannot be undone yet.', 'failure', 'network')
               return false
             }
+            // The event is back: what an earlier step said about it is superseded.
+            clearState()
             const restoredId = created.value.id
             currentId = restoredId
             let lostLinks = 0
@@ -167,7 +183,8 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
             if (lostLinks > 0) {
               tell(
                 graph,
-                `"${event.description}" is back, but ${lostLinks} of its causal links could not be restored: the event at the other end no longer exists.`
+                `"${event.description}" is back, but ${lostLinks} of its causal links could not be restored: the event at the other end no longer exists.`,
+                'state'
               )
             }
             if (refused.length > 0) {
@@ -182,7 +199,8 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
                 graph,
                 `"${event.description}" is back, but ${count} restored because the server was busy: ${list}. Draw ${
                   refused.length === 1 ? 'it' : 'them'
-                } again with Draw Link in the Causal Graph view once the wait is over.`
+                } again with Draw Link in the Causal Graph view once the wait is over.`,
+                'state'
               )
             }
             return true
@@ -192,6 +210,7 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
               `"${event.description}" could not be restored: ${
                 isRefusal(error) ? 'the server is busy, try again shortly' : sentence(error)
               }. It is still in Version history.`,
+              'failure',
               'network'
             )
             return false
@@ -199,16 +218,20 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
         },
         redo: async () => {
           const graph = openGraphId()
-          clearSlot()
+          clearFailure()
           try {
             const again = await deleteEvent(currentId)
-            return again.delivery === 'sent'
+            if (again.delivery !== 'sent') return false
+            // Deleted again: "is back, but…" no longer holds.
+            clearState()
+            return true
           } catch (error) {
             tell(
               graph,
               `"${event.description}" could not be deleted again: ${
                 isRefusal(error) ? 'the server is busy, try again shortly' : sentence(error)
               }.`,
+              'failure',
               'network'
             )
             return false

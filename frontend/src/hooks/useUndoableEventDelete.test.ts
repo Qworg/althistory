@@ -312,12 +312,46 @@ describe('useUndoableEventDelete', () => {
       expect(messages()).toHaveLength(0)
     })
 
+    it('keeps the list of missing links when a redo is refused, since the event is still back', async () => {
+      createLink.mockRejectedValue(busy())
+      const record = vi.fn<(entry: EditHistoryEntry) => void>()
+      const { result } = renderHook(() => useUndoableEventDelete(record))
+      await act(() => result.current(event, [link('l1', 'e1', 'e2'), link('l2', 'e1', 'e3')]))
+      const entry = record.mock.calls[0]![0]
+      await entry.undo()
+      const stateNotice = messages()[0]!
+      expect(stateNotice).toContain("weren't restored")
+      deleteEvent.mockRejectedValueOnce(Object.assign(new Error('busy'), { status: 429, refusal: 'x' }))
+      await expect(entry.redo()).resolves.toBe(false)
+      // The state notice stands; the failure is told next to it.
+      expect(messages()).toContain(stateNotice)
+      expect(messages().some((m) => m.includes('could not be deleted again'))).toBe(true)
+      // A redo that goes through takes the state notice down.
+      await expect(entry.redo()).resolves.toBe(true)
+      expect(messages()).toHaveLength(0)
+    })
+
+    it('leaves another graph\'s notices alone only when they belong to the graph that was opened', async () => {
+      createLink.mockRejectedValue(busy())
+      const record = vi.fn<(entry: EditHistoryEntry) => void>()
+      const { result } = renderHook(() => useUndoableEventDelete(record))
+      await act(() => result.current(event, [link('l1', 'e1', 'e2')]))
+      await record.mock.calls[0]![0].undo()
+      expect(messages()).toHaveLength(1)
+      // The event says the graph it belongs to is the one now open: nothing to remove.
+      act(() => {
+        window.dispatchEvent(new CustomEvent('graph-switched', { detail: { graphId: 'g1' } }))
+      })
+      expect(messages()).toHaveLength(1)
+    })
+
     it('does not post a notice for an undo that finishes after another graph was opened', async () => {
       let release: (value: unknown) => void = () => undefined
       createEvent.mockReturnValue(new Promise((resolve) => (release = resolve)))
       const record = vi.fn<(entry: EditHistoryEntry) => void>()
       const { result } = renderHook(() => useUndoableEventDelete(record))
-      await act(() => result.current(event, []))
+      // A link the server refuses: without the guard this would post a notice.
+      await act(() => result.current(event, [link('l1', 'e1', 'e2')]))
       createLink.mockRejectedValue(busy())
       const pending = record.mock.calls[0]![0].undo()
       localStorage.setItem('active_graph_id', 'g2')
