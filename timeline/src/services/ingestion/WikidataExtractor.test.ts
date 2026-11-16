@@ -403,4 +403,49 @@ describe('WikidataExtractor', () => {
     expect(result.sources).toHaveLength(0);
     expect(result.overallConfidence).toBe(0);
   });
+
+  it('counts every row it leaves out, and says why (#33)', async () => {
+    const result = await new WikidataExtractor({ httpClient: new SingleResponseHttpClient(deepTime) }).extract({ queryType: 'historical-events' });
+    // Three are older than the timeline's 285 million years.
+    expect(result.droppedRows).toMatchObject({
+      total: 3,
+      reasons: [{ reason: 'before-timeline', count: 3, description: 'their dates are beyond the timeline (older than about 285 million years)' }],
+    });
+  });
+
+  it('reports each kind of dropped row on its own: no date, unreadable, beyond the timeline either way, outside the requested range', async () => {
+    const row = (id: string, date: string | undefined, precision?: string) => ({
+      event: { type: 'uri', value: `http://www.wikidata.org/entity/${id}` },
+      eventLabel: { type: 'literal', value: id },
+      ...(date === undefined ? {} : { date: { type: 'literal', value: date } }),
+      ...(precision === undefined ? {} : { precision: { type: 'literal', value: precision } }),
+    });
+    const payload = {
+      results: {
+        bindings: [
+          row('Q1', '1846-04-24T00:00:00Z', '11'),
+          row('Q2', undefined),
+          row('Q3', 'not a date'),
+          row('Q4', '1066-02-30T00:00:00Z', '11'),
+          row('Q5', '-13787000000-01-01T00:00:00Z', '0'),
+          row('Q6', '+13787000000-01-01T00:00:00Z', '0'),
+          row('Q7', '1900-01-01T00:00:00Z', '9'),
+          'not a row',
+        ],
+      },
+    };
+    const result = await new WikidataExtractor({ httpClient: new SingleResponseHttpClient(payload) }).extract(
+      { queryType: 'historical-events' },
+      { defaultTimeRange: { start: '1800', end: '1850' } }
+    );
+    expect(result.events.map((event) => event.description)).toEqual(['Q1']);
+    const counts = Object.fromEntries(result.droppedRows!.reasons.map((r) => [r.reason, r.count]));
+    expect(counts).toEqual({ 'no-date': 1, unreadable: 3, 'before-timeline': 1, 'after-timeline': 1, 'outside-range': 1 });
+    expect(result.droppedRows!.total).toBe(7);
+  });
+
+  it('reports nothing when nothing was dropped', async () => {
+    const result = await new WikidataExtractor({ httpClient: new SingleResponseHttpClient(normanConquest) }).extract({ queryType: 'historical-events' });
+    expect(result.droppedRows).toBeUndefined();
+  });
 });

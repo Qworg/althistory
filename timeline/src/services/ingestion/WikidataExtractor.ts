@@ -39,6 +39,8 @@ import {
   ExtractionResult,
   Extractor,
   WikidataExtractionInput,
+  DroppedRowReason,
+  DroppedRows,
 } from './types';
 
 const WIKIDATA_ENDPOINT = 'https://query.wikidata.org/sparql';
@@ -200,15 +202,32 @@ function bindingValue(binding: { [key: string]: JsonValue }, key: string): strin
  * ("66000000 BCE"), not one of our own rounding. A date beyond the timeline
  * (the Big Bang, -13787000000) is null.
  */
-export function readWikidataTime(value: string, precision?: number): { timestamp: string; precision: 'day' | 'month' | 'year' } | null {
+export function readWikidataTime(value: string, precision?: number): WikidataTime | null {
+  const read = classifyWikidataTime(value, precision);
+  return read.ok ? read.time : null;
+}
+
+export type WikidataTime = { timestamp: string; precision: 'day' | 'month' | 'year' };
+
+/** Why a Wikidata date value is no date on the timeline. */
+export type UnreadableWikidataTime = 'no-date' | 'unreadable' | 'before-timeline' | 'after-timeline';
+
+/** {@link readWikidataTime}, saying why when the value cannot be read. */
+export function classifyWikidataTime(
+  value: string,
+  precision?: number
+): { ok: true; time: WikidataTime } | { ok: false; reason: UnreadableWikidataTime } {
+  const fail = (reason: UnreadableWikidataTime) => ({ ok: false as const, reason });
+  if (value.trim() === '') return fail('no-date');
   const match = value.trim().match(/^([+-]?)(\d{4,})-(\d{2})-(\d{2})(?:T[\d:.]+Z?)?$/);
-  if (!match) return null;
+  if (!match) return fail('unreadable');
   const [, sign, yearText, monthText, dayText] = match;
   const known = precision !== undefined && Number.isInteger(precision) && precision >= 0 && precision <= 14 ? precision : undefined;
-  if (precision !== undefined && known === undefined) return null;
+  if (precision !== undefined && known === undefined) return fail('unreadable');
   const stated: 'day' | 'month' | 'year' = known === undefined || known >= 11 ? 'day' : known === 10 ? 'month' : 'year';
   const digits = Number(yearText);
-  if (!Number.isSafeInteger(digits)) return null;
+  // Too many digits for a number is far beyond the timeline, whichever way it points.
+  if (!Number.isSafeInteger(digits)) return fail(sign === '-' ? 'before-timeline' : 'after-timeline');
   // XSD 1.1 (0 is 1 BCE) at a year or finer, and without a precision; counted back from 1 CE (no year 0) coarser than that.
   const year = sign !== '-' ? digits : known !== undefined && known <= 8 ? 1 - digits : -digits;
   const month = stated === 'year' ? 1 : Number(monthText);
@@ -217,9 +236,12 @@ export function readWikidataTime(value: string, precision?: number): { timestamp
   // ISO 8601: four digits within 0000-9999, else a sign and six or more.
   const isoYear = year >= 0 && year <= 9999 ? String(year).padStart(4, '0') : `${year < 0 ? '-' : '+'}${String(Math.abs(year)).padStart(6, '0')}`;
   const timestamp = `${isoYear}-${pad2(month)}-${pad2(day)}T00:00:00Z`;
-  // A month or a day that does not exist, or a moment beyond the timeline, is no date.
-  if (!parseIsoInstant(timestamp)) return null;
-  return { timestamp, precision: stated };
+  if (!parseIsoInstant(timestamp)) {
+    // A moment beyond the timeline (its year has no first day on the axis either) or a month or day that does not exist.
+    if (!parseIsoInstant(`${isoYear}-01-01T00:00:00Z`)) return fail(year < 0 ? 'before-timeline' : 'after-timeline');
+    return fail('unreadable');
+  }
+  return { ok: true, time: { timestamp, precision: stated } };
 }
 
 /** A Wikidata date value as an ISO-8601 instant, or null if unusable (see {@link readWikidataTime}). */
@@ -231,10 +253,18 @@ export function normalizeWikidataDate(value: string, precision?: number): string
  * Read `results.bindings` from a SPARQL JSON result set into facts.
  * `entityType` distinguishes the two predefined queries' label semantics.
  */
-export function parseWikidataResponse(
+export function parseWikidataResponse(payload: unknown, entityType: 'event' | 'person'): WikidataFact[] {
+  return readWikidataRows(payload, entityType).facts;
+}
+
+/** Why each row that became no fact was left out, counted. */
+export type DroppedRowCounts = Partial<Record<DroppedRowReason, number>>;
+
+/** {@link parseWikidataResponse}, and the rows it left out, counted by reason. */
+export function readWikidataRows(
   payload: unknown,
   entityType: 'event' | 'person'
-): WikidataFact[] {
+): { facts: WikidataFact[]; dropped: DroppedRowCounts } {
   if (!isJsonObject(payload)) {
     throw new Error('Wikidata response was not a JSON object');
   }
@@ -244,12 +274,22 @@ export function parseWikidataResponse(
   }
 
   const facts: WikidataFact[] = [];
+  const dropped: DroppedRowCounts = {};
+  const drop = (reason: DroppedRowReason): void => {
+    dropped[reason] = (dropped[reason] ?? 0) + 1;
+  };
   for (const rawBinding of results.bindings) {
-    if (!isJsonObject(rawBinding)) continue;
+    if (!isJsonObject(rawBinding)) {
+      drop('unreadable');
+      continue;
+    }
     const precisionText = bindingValue(rawBinding, 'precision');
-    const read = readWikidataTime(bindingValue(rawBinding, 'date'), precisionText === '' ? undefined : Number(precisionText));
-    if (!read) continue;
-    const { timestamp: date, precision: datePrecision } = read;
+    const read = classifyWikidataTime(bindingValue(rawBinding, 'date'), precisionText === '' ? undefined : Number(precisionText));
+    if (!read.ok) {
+      drop(read.reason);
+      continue;
+    }
+    const { timestamp: date, precision: datePrecision } = read.time;
 
     if (entityType === 'event') {
       const entityUrl = bindingValue(rawBinding, 'event');
@@ -280,7 +320,25 @@ export function parseWikidataResponse(
     }
   }
 
-  return facts;
+  return { facts, dropped };
+}
+
+const DROPPED_ROW_TEXT: Record<DroppedRowReason, string> = {
+  'no-date': 'they have no date',
+  unreadable: 'their dates could not be read',
+  'before-timeline': 'their dates are beyond the timeline (older than about 285 million years)',
+  'after-timeline': 'their dates are beyond the timeline (more than about 285 million years ahead)',
+  'outside-range': 'they fall outside the time range asked for',
+};
+
+/** The counts as the report every front end shows; undefined when no row was left out. */
+export function describeDroppedRows(counts: DroppedRowCounts): DroppedRows | undefined {
+  const reasons = (Object.keys(DROPPED_ROW_TEXT) as DroppedRowReason[])
+    .map((reason) => ({ reason, count: counts[reason] ?? 0, description: DROPPED_ROW_TEXT[reason] }))
+    .filter((entry) => entry.count > 0)
+    .sort((a, b) => b.count - a.count);
+  if (reasons.length === 0) return undefined;
+  return { total: reasons.reduce((sum, entry) => sum + entry.count, 0), reasons };
 }
 
 export class WikidataExtractor implements Extractor<WikidataExtractionInput> {
@@ -315,8 +373,10 @@ export class WikidataExtractor implements Extractor<WikidataExtractionInput> {
     });
 
     const payload = parseJsonBody(response.body, 'Wikidata');
-    const facts = parseWikidataResponse(payload, entityType);
+    const { facts, dropped } = readWikidataRows(payload, entityType);
     const filtered = this.applyTimeRange(facts, context);
+    if (filtered.length < facts.length) dropped['outside-range'] = facts.length - filtered.length;
+    const droppedRows = describeDroppedRows(dropped);
     const extractedAt = this.now().toISOString();
 
     const events = filtered.map((fact) => this.toEvent(fact, extractedAt));
@@ -335,6 +395,7 @@ export class WikidataExtractor implements Extractor<WikidataExtractionInput> {
       relationships: [],
       sources: events.length > 0 ? [source] : [],
       overallConfidence: events.length > 0 ? 0.9 : 0,
+      ...(droppedRows ? { droppedRows } : {}),
     };
   }
 

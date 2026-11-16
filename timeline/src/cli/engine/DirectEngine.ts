@@ -733,6 +733,7 @@ export class DirectEngine implements IEngine {
         arcsCreated: arcs.length,
         relationshipsCreated: creatableRelationships.length,
         dryRun: true,
+        ...(extracted.droppedRows ? { droppedRows: extracted.droppedRows } : {}),
         entities: {
           events: events.map((e) => ({
             id: e.tempId,
@@ -880,6 +881,7 @@ export class DirectEngine implements IEngine {
         relationships: createdRelDtos,
       },
       ...(skippedRelationships.length > 0 ? { skippedRelationships } : {}),
+      ...(extracted.droppedRows ? { droppedRows: extracted.droppedRows } : {}),
     };
   }
 

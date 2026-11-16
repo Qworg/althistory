@@ -908,6 +908,8 @@ export class RemoteEngine implements IEngine {
         arcs: arcs.length,
         relationships: relationships.length,
       },
+      // What the extraction left out, as the server counted it.
+      ...(isRecord(extraction.droppedRows) ? { droppedRows: extraction.droppedRows as unknown as IngestResultDto['droppedRows'] } : {}),
       entities: {
         events: events.map((entry) => {
           const event = isRecord(entry) ? entry : {};

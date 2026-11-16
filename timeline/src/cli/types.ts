@@ -4,6 +4,7 @@
 
 import type { SimulationDomain } from '@/services/SimulationService';
 import type { WorldCalendarSet } from '@althistory/calendar';
+import type { DroppedRows } from '@/services/ingestion/types';
 
 
 export type OutputFormat = 'json' | 'ndjson' | 'markdown' | 'plain';
@@ -248,6 +249,12 @@ export interface IngestResultDto {
    * is a fact about the ingest, not a detail to hide.
    */
   skippedRelationships?: SkippedRelationship[];
+  /**
+   * Wikidata rows that became no event, counted by reason (no date, an
+   * unreadable one, one beyond the timeline's range, one outside the range
+   * asked for). Absent when every row was kept.
+   */
+  droppedRows?: DroppedRows;
 }
 
 /**

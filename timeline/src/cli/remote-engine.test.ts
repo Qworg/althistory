@@ -322,6 +322,25 @@ function createDaemon(): { app: Express; requests: RecordedRequest[]; state: Dae
     });
   });
 
+  app.post('/api/ingest/wikidata', (_req, res) => {
+    res.json({
+      jobId: 'job-2',
+      status: 'review',
+      extraction: {
+        events: [],
+        arcs: [],
+        relationships: [],
+        sources: [],
+        overallConfidence: 0,
+        droppedRows: {
+          total: 3,
+          reasons: [{ reason: 'before-timeline', count: 3, description: 'their dates are beyond the timeline (older than about 285 million years)' }],
+        },
+      },
+      validationIssues: [],
+    });
+  });
+
   const exportDocument = (): Record<string, unknown> => ({
     version: '1.0',
     metadata: { graphId: 'g1', graphName: 'First', description: '', graphVersion: 1, ...(state.calendar ? { calendar: state.calendar } : {}) },
@@ -674,6 +693,12 @@ describe('RemoteEngine against a stand-in daemon', () => {
     expect(result.pendingReview?.jobId).toBe('job-1');
     expect(result.pendingReview?.events).toBe(1);
     expect(result.entities.events).toHaveLength(1);
+  });
+
+  it('passes on the Wikidata rows the daemon left out, and why (#33)', async () => {
+    const result = await engine.ingestWikidata('g1', { preset: 'historical-events' });
+
+    expect(result.droppedRows).toMatchObject({ total: 3, reasons: [{ reason: 'before-timeline', count: 3 }] });
   });
 
   it('says that the daemon reads Wikipedia only, instead of failing as a server error', async () => {

@@ -10,6 +10,7 @@ import { ExtractedEvent } from '../services/ingestion/types';
 import { HttpClient, HttpRequest, HttpResponse } from '../services/ingestion/http';
 import wikipediaFixture from '../services/ingestion/fixtures/wikipedia-battle-of-hastings.json';
 import wikidataFixture from '../services/ingestion/fixtures/wikidata-historical-events.json';
+import deepTimeFixture from '../services/ingestion/fixtures/wikidata-deep-time.json';
 
 const mockSource = {
   type: 'text' as const,
@@ -394,5 +395,15 @@ describe('DirectEngine Ingestion from the web', () => {
       '-000403-01-01T00:00:00Z',
       '-000426-01-01T00:00:00Z',
     ]);
+    expect(result.droppedRows).toBeUndefined();
+  });
+
+  it('reports the rows a Wikidata ingest left out, on a dry run and on a real one (#33)', async () => {
+    http = new FixtureHttpClient(() => ({ body: JSON.stringify(deepTimeFixture), headers: {} }));
+    engine = new DirectEngine({ httpClient: http });
+
+    const dry = await engine.ingestWikidata(undefined, { preset: 'historical-events', dryRun: true });
+    expect(dry.eventsCreated).toBe(7);
+    expect(dry.droppedRows).toMatchObject({ total: 3, reasons: [{ reason: 'before-timeline', count: 3 }] });
   });
 });

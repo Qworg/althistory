@@ -82,6 +82,31 @@ export interface ExtractionResult {
   skippedSentences?: number;
   /** The skipped sentences, up to 20, so a reviewer can see and date them. */
   skippedSentenceTexts?: string[];
+  /**
+   * Wikidata: rows the query returned that became no event, counted by why
+   * (no date, an unreadable one, one beyond the timeline, one outside the
+   * requested range). Absent when every row was kept.
+   */
+  droppedRows?: DroppedRows;
+}
+
+export type DroppedRowReason =
+  | 'no-date'
+  | 'unreadable'
+  | 'before-timeline'
+  | 'after-timeline'
+  | 'outside-range';
+
+export interface DroppedRows {
+  /** Every row left out. */
+  total: number;
+  /** One entry per reason that occurred, most common first. */
+  reasons: Array<{
+    reason: DroppedRowReason;
+    count: number;
+    /** The reason as it completes "N rows were left out: ...". */
+    description: string;
+  }>;
 }
 
 /** Optional hints that improve extraction accuracy (spec Req 9.4). */
