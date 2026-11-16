@@ -131,7 +131,7 @@ export function NotificationCenter() {
       // Bottom right, not top right: up there a notice covered the header's
       // graph selector, often the very control it was about. On a phone it
       // sits above the bottom navigation bar.
-      className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-full max-w-md flex-col gap-2 max-lg:inset-x-4 max-lg:bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] max-lg:w-auto"
+      className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-full max-w-md flex-col gap-2 max-lg:inset-x-4 max-lg:bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] max-lg:w-auto max-h-[calc(100dvh-var(--app-header-h,7rem)-5rem)] overflow-y-auto max-lg:max-h-[calc(100dvh-var(--app-header-h,7rem)-7rem-env(safe-area-inset-bottom,0px))]"
     >
       {loadingOperations.size > 0 && (
         <div

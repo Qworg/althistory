@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import { useCreateCausalLink, useCreateEvent, useDeleteEvent } from '@/hooks/useAPI'
 import { useGlobalStore } from '@/stores/globalStore'
 import type { EditHistoryEntry } from '@/hooks/useEditHistory'
@@ -10,6 +10,15 @@ function sentence(error: unknown): string {
   const text = error instanceof Error && error.message ? error.message : 'unknown error'
   return text.replace(/[.\s]+$/, '')
 }
+
+/**
+ * The lasting notices this hook has left. They name events of the graph that
+ * was open, so they go when it changes (as the edit history itself is reset).
+ */
+const leftNotices = new Set<string>()
+
+/** At most this many links are named in a notice; the rest are counted. */
+const MAX_NAMED_LINKS = 3
 
 /**
  * Delete an event and record how to take it back.
@@ -28,6 +37,17 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
   const { mutateAsync: createEvent } = useCreateEvent()
   const { mutateAsync: createLink } = useCreateCausalLink()
   const addError = useGlobalStore((state) => state.addError)
+
+  // Another graph is open: its events are not the ones these notices name.
+  useEffect(() => {
+    const onGraphSwitched = () => {
+      const { errors, removeError } = useGlobalStore.getState()
+      for (const e of errors) if (leftNotices.has(e.message)) removeError(e.id)
+      leftNotices.clear()
+    }
+    window.addEventListener('graph-switched', onGraphSwitched)
+    return () => window.removeEventListener('graph-switched', onGraphSwitched)
+  }, [])
 
   return useCallback(
     async (event: Event, relationships: CausalRelationship[]): Promise<void> => {
@@ -63,7 +83,17 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
       const tell = (message: string, type: 'general' | 'network' = 'general') => {
         const { errors, removeError } = useGlobalStore.getState()
         for (const e of errors) if (e.message === message) removeError(e.id)
+        leftNotices.add(message)
         addError({ type, message })
+      }
+
+      /** Take down the "links weren't restored" notice: it no longer describes the event. */
+      const clearMissing = () => {
+        if (lastMissing === null) return
+        const { errors, removeError } = useGlobalStore.getState()
+        for (const e of errors) if (e.message === lastMissing) removeError(e.id)
+        leftNotices.delete(lastMissing)
+        lastMissing = null
       }
 
       record({
@@ -120,19 +150,21 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
               )
             }
             if (refused.length > 0) {
-              const list = refused
+              const named = refused
+                .slice(0, MAX_NAMED_LINKS)
                 .map((link) => `${nameOf(link.cause_event_id)} \u2192 ${nameOf(link.effect_event_id)}`)
-                .join(', ')
+              const more = refused.length - named.length
+              const list = more > 0 ? `${named.join(', ')}, and ${more} more` : named.join(', ')
               const count =
                 refused.length === 1 ? '1 of its causal links wasn\'t' : `${refused.length} of its causal links weren't`
-              if (lastMissing !== null) {
-                const { errors, removeError } = useGlobalStore.getState()
-                for (const e of errors) if (e.message === lastMissing) removeError(e.id)
-              }
-              lastMissing = `"${event.description}" is back, but ${count} restored because the server was busy: ${list}. Create ${
+              clearMissing()
+              lastMissing = `"${event.description}" is back, but ${count} restored because the server was busy: ${list}. Draw ${
                 refused.length === 1 ? 'it' : 'them'
-              } again with Create Link once the wait is over.`
+              } again with Draw Link in the Causal Graph view once the wait is over.`
               tell(lastMissing)
+            } else {
+              // Every link is back: an earlier "weren't restored" no longer holds.
+              clearMissing()
             }
             return true
           } catch (error) {
@@ -148,7 +180,10 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
         redo: async () => {
           try {
             const again = await deleteEvent(currentId)
-            return again.delivery === 'sent'
+            if (again.delivery !== 'sent') return false
+            // The event is deleted again: "is back, but…" is no longer true.
+            clearMissing()
+            return true
           } catch (error) {
             tell(
               `"${event.description}" could not be deleted again: ${

@@ -42,6 +42,7 @@ describe('noticeRateLimited', () => {
     ['delete', '/causal/r1', 'Deleting the link'],
   ])('says what a refused %s %s was', async (method, url, what) => {
     expect(describeRefusedRequest({ method, url })).toBe(what)
+    if (url.endsWith('/activate')) return // told by the picker's alert; see below
     const message = noticeRateLimited(refused({}, { error: { retryAfter: 3 } }), { method, url })
     expect(message).toContain(`${what} was refused`)
     // No number in the text: the notice centre counts the wait down from retryAt.
@@ -64,14 +65,19 @@ describe('noticeRateLimited', () => {
   })
 
   it('moves the one notice\'s retryAt on a repeat refusal, so its countdown follows the server', () => {
-    noticeRateLimited(refused({}, { error: { retryAfter: 30 } }), { method: 'post', url: '/graphs/g2/activate' })
+    noticeRateLimited(refused({}, { error: { retryAfter: 30 } }), { method: 'post', url: '/events' })
     const first = useGlobalStore.getState().errors[0]!
-    noticeRateLimited(refused({}, { error: { retryAfter: 58 } }), { method: 'post', url: '/graphs/g2/activate' })
+    noticeRateLimited(refused({}, { error: { retryAfter: 58 } }), { method: 'post', url: '/events' })
     const notices = useGlobalStore.getState().errors
     expect(notices).toHaveLength(1)
     expect(notices[0]?.id).toBe(first.id)
     expect(notices[0]?.message).toBe(first.message)
     expect(notices[0]!.retryAt! - first.retryAt!).toBeGreaterThan(20000)
+  })
+
+  it('adds no notice for a refused graph switch: the picker\'s own alert is the message', () => {
+    expect(noticeRateLimited(refused({}, { error: { retryAfter: 12 } }), { method: 'post', url: '/graphs/g2/activate' })).toBeNull()
+    expect(useGlobalStore.getState().errors).toHaveLength(0)
   })
 
   it('does not notify for a job-status poll, and words it as a check if it is ever shown', () => {

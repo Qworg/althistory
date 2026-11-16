@@ -108,8 +108,8 @@ describe('GraphSelector when a switch is refused with 429', () => {
     expect(alert).toHaveTextContent(/Switching graphs was refused/)
     expect(alert).toHaveTextContent(/Try again in 12 seconds/)
 
-    // The app's notification centre carries the same refusal, once.
-    // The alert is the one message: no duplicate notice (and no second "try again now").
+    // The alert is the one message: the notification centre never gets a notice
+    // for a refused switch (so none flashes up first, or is announced twice).
     const notices = useGlobalStore.getState().errors.filter((e) => /Switching graphs was refused/.test(e.message))
     expect(notices).toHaveLength(0)
     expect(screen.getAllByTestId('retry-countdown')).toHaveLength(1)

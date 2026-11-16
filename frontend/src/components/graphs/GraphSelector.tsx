@@ -136,10 +136,6 @@ export const GraphSelector = memo(function GraphSelector({
     if (!switchError) return
     const wait = (switchError as { retryAfter?: number | null }).retryAfter
     const timer = setTimeout(clearSwitchError, ((wait ?? 5) + 3) * 1000)
-    // The alert is the one message for a refused switch: the notice would say it
-    // twice (and announce "You can try again now" twice).
-    const { errors, removeError } = useGlobalStore.getState()
-    for (const e of errors) if (e.refusal?.startsWith('Switching graphs')) removeError(e.id)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [switchError])

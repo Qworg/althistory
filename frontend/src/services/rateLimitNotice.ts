@@ -81,6 +81,12 @@ export function isStatusPoll(request: RefusedRequest): boolean {
   return (request.method ?? 'get').toUpperCase() === 'GET' && /\/jobs\/[^/]+\/?$/.test(path)
 }
 
+/** Whether a request is a graph switch (`POST /graphs/:id/activate`). */
+export function isGraphSwitch(request: RefusedRequest): boolean {
+  const path = (request.url ?? '').split('?')[0] ?? ''
+  return /\/graphs\/[^/]+\/activate$/.test(path)
+}
+
 /** What was refused, without the wait: the identity of a notice. */
 export function refusalStem(request: RefusedRequest): string {
   return `${describeRefusedRequest(request)} was refused because too many requests were sent.`
@@ -135,6 +141,9 @@ export function noticeRateLimited(response: RefusedResponse | undefined, request
   if (response?.status !== 429) return null
   const req = request ?? {}
   if (isStatusPoll(req)) return null
+  // A refused graph switch is told by the picker's own alert; a notice here
+  // would flash up (and be announced) before the picker could replace it.
+  if (isGraphSwitch(req)) return null
 
   const stem = refusalStem(req)
   const wait = retryAfterSeconds(response)

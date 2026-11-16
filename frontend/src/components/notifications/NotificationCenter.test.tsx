@@ -67,6 +67,13 @@ describe('NotificationCenter', () => {
     expect(screen.getByText(/create-copy/)).toBeInTheDocument()
   })
 
+  it('caps the stack to the space under the header so no notice can push its dismiss button off-screen', () => {
+    render(<NotificationCenter />)
+    const stack = screen.getByLabelText('Notifications')
+    expect(stack.className).toContain('max-h-[calc(100dvh-var(--app-header-h')
+    expect(stack.className).toContain('overflow-y-auto')
+  })
+
   describe('a rate-limit notice', () => {
     beforeEach(() => vi.useFakeTimers())
     afterEach(() => vi.useRealTimers())

@@ -113,7 +113,7 @@ describe('useUndoableEventDelete', () => {
     expect(notices[0]).toBe(
       '"Babbage completes the Engine" is back, but 2 of its causal links weren\'t restored because the server was busy: ' +
         '"Babbage completes the Engine" \u2192 "Lovelace publishes her notes", "Bank of England opens" \u2192 "Babbage completes the Engine". ' +
-        'Create them again with Create Link once the wait is over.'
+        'Draw them again with Draw Link in the Causal Graph view once the wait is over.'
     )
     expect(notices[0]).not.toContain('Press Undo')
   })
@@ -125,7 +125,7 @@ describe('useUndoableEventDelete', () => {
     await act(() => result.current(event, [link('l1', 'e1', 'e9')]))
     await record.mock.calls[0]![0].undo()
     expect(messages()[0]).toContain('1 of its causal links wasn\'t restored because the server was busy: "Babbage completes the Engine" \u2192 e9.')
-    expect(messages()[0]).toContain('Create it again with Create Link')
+    expect(messages()[0]).toContain('Draw it again with Draw Link in the Causal Graph view')
   })
 
   it('replaces the notice for the same event on a repeat failure, with no stacking', async () => {
@@ -141,6 +141,56 @@ describe('useUndoableEventDelete', () => {
     // The count changed (2 then 1) and the earlier notice is gone.
     expect(messages()).toHaveLength(1)
     expect(messages()[0]).toContain('1 of its causal links wasn\'t restored')
+  })
+
+  it('names the first 3 missing links and counts the rest', async () => {
+    createLink.mockRejectedValue(busy())
+    const record = vi.fn<(entry: EditHistoryEntry) => void>()
+    const { result } = renderHook(() => useUndoableEventDelete(record))
+    const many = Array.from({ length: 12 }, (_, i) => link(`l${i}`, 'e1', `x${i}`))
+    await act(() => result.current(event, many))
+    await record.mock.calls[0]![0].undo()
+    const message = messages()[0]!
+    expect(message).toContain('12 of its causal links weren\'t restored')
+    expect(message).toContain('\u2192 x0, ')
+    expect(message).toContain('\u2192 x2, and 9 more')
+    expect(message).not.toContain('x3')
+  })
+
+  it('takes the "weren\'t restored" notice down when the event is deleted again, and when a later undo restores everything', async () => {
+    createLink.mockRejectedValueOnce(busy())
+    const record = vi.fn<(entry: EditHistoryEntry) => void>()
+    const { result } = renderHook(() => useUndoableEventDelete(record))
+    await act(() => result.current(event, [link('l1', 'e1', 'e2')]))
+    const entry = record.mock.calls[0]![0]
+    await entry.undo()
+    expect(messages()).toHaveLength(1)
+    await entry.redo()
+    expect(messages()).toHaveLength(0)
+    await entry.undo()
+    expect(messages()).toHaveLength(0)
+
+    // Undo-with-a-refusal, then another undo cycle that restores every link.
+    createLink.mockRejectedValueOnce(busy())
+    await entry.redo()
+    await entry.undo()
+    expect(messages()).toHaveLength(1)
+    await entry.redo()
+    await entry.undo()
+    expect(messages()).toHaveLength(0)
+  })
+
+  it('clears its lasting notices when the open graph changes', async () => {
+    createLink.mockRejectedValue(busy())
+    const record = vi.fn<(entry: EditHistoryEntry) => void>()
+    const { result } = renderHook(() => useUndoableEventDelete(record))
+    await act(() => result.current(event, [link('l1', 'e1', 'e2')]))
+    await record.mock.calls[0]![0].undo()
+    expect(messages()).toHaveLength(1)
+    act(() => {
+      window.dispatchEvent(new CustomEvent('graph-switched', { detail: { graphId: 'g2' } }))
+    })
+    expect(messages()).toHaveLength(0)
   })
 
   it('after redo, the next undo re-creates the event and links all of the snapshot to the new id', async () => {
