@@ -272,8 +272,7 @@ describe('plates under the track', () => {
     ['no links', 40, []],
   ]
 
-  it('use the rows under the track where links hang, clear of every link, stem and kept leader, and keep a leader from the mark to the plate', () => {
-    let under = 0
+  it('stay clear of every link, stem and kept leader wherever they are, and keep a leader from the mark to the plate', () => {
     for (const [name, count, links] of fixtures) {
       const events = crowd(count)
       const base = render(<Timeline events={events} arcs={[]} links={links} width={1000} height={500} />)
@@ -283,18 +282,53 @@ describe('plates under the track', () => {
         if (before.has(ev.id)) continue
         const { container } = render(<Timeline events={events} arcs={[]} links={links} width={1000} height={500} selectedEventId={ev.id} />)
         const covered = expectPlateClean(container, ev.id, before, [], 1000, links.map((l) => l.id))
+        // Under the track, in the first pass, a plate covers no link at all.
         const text = container.querySelector('[data-pinned-label-for] text')
         if (text) {
           const markY = Number(/translate\(\s*[-\d.e]+\s*,\s*([-\d.e]+)\)/.exec(container.querySelector(`[data-event-id="${ev.id}"]`)!.getAttribute('transform')!)![1])
-          if (Number(text.getAttribute('y')) > markY) {
-            under++
-            // Under the track, in the first pass, a plate covers no link at all.
-            expect(covered, `${name}: the plate of ${ev.id} covers ${covered.join(',')}`).toEqual([])
-          }
+          if (Number(text.getAttribute('y')) > markY) expect(covered, `${name}: the plate of ${ev.id} covers ${covered.join(',')}`).toEqual([])
         }
         cleanup()
       }
     }
-    expect(under, 'some selection gets a plate under the track').toBeGreaterThan(0)
+  })
+})
+
+describe('the point of divergence', () => {
+  it("keeps its label under every selection: it is the one a branch view turns on, so no plate hides it", () => {
+    const events = crowd(40)
+    let plates = 0
+    for (const at of [4, 9, 14, 19, 24, 29, 34]) {
+      const ghost = { label: 'Baseline', events: events.slice(0, at), divergence: new Date(events[at]!.timestamp) }
+      const base = render(<Timeline events={events} arcs={[]} width={1000} height={500} ghost={ghost} />)
+      const before = labelBoxes(base.container)
+      cleanup()
+      const atDivergence = events[at]!.id
+      for (const ev of events) {
+        const { container } = render(<Timeline events={events} arcs={[]} width={1000} height={500} ghost={ghost} selectedEventId={ev.id} />)
+        if (container.querySelector('[data-pinned-label-for]')) plates++
+        if (before.has(atDivergence)) expect(container.querySelector(`[data-event-id="${atDivergence}"] text.event-label`), `selecting ${ev.id} hid the label of the point of divergence (event ${at})`).not.toBeNull()
+        cleanup()
+      }
+    }
+    expect(plates).toBeGreaterThan(0)
+  }, 120_000)
+})
+
+describe('the plate\'s leader', () => {
+  it('is a heavier accent stroke, so that it stays continuous and apart from the divergence line', () => {
+    const events = crowd(40)
+    for (const ev of events) {
+      const { container } = render(<Timeline events={events} arcs={[]} width={1000} height={500} selectedEventId={ev.id} />)
+      const leader = container.querySelector('line[data-pinned-leader-for]')
+      if (leader) {
+        expect(Number(leader.getAttribute('stroke-width'))).toBeGreaterThanOrEqual(1.5)
+        expect(leader.getAttribute('stroke')).toBe('var(--accent-selected)')
+        expect(leader.getAttribute('stroke-dasharray')).toBeNull()
+        return
+      }
+      cleanup()
+    }
+    throw new Error('no selection got a plate')
   })
 })

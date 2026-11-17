@@ -164,3 +164,8 @@ export function timelineContentHeight(
     margin: options.margin,
   }).height
 }
+
+/** The row of a plate alone, above the top label row and under the arcs (within the band the layout keeps there). */
+export const PLATE_ONLY_ROWS = [-76] as const
+/** Below this viewport width the inspector's sheet is docked over the bottom of the page. */
+export const DOCKED_SHEET_BELOW_PX = 1024

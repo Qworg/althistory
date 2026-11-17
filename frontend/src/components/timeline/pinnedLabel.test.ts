@@ -152,4 +152,61 @@ describe('planPinnedText', () => {
     const found = planPinnedText({ x: 300, markY: 100, innerWidth: 700, rows: [-20, -34], labels }, [{ text: 'Selected', width: 60 }])
     expect(found?.plan.hidden).toEqual(['s1', 's2'])
   })
+
+  describe('the ranking of a plate\'s leader', () => {
+    const row = (id: string, left: number, right: number, offset: number, extra: Partial<PlacedLabelBox> = {}) => label(id, left, right, offset, { length: 20, ...extra })
+
+    it('counts the kept labels it passes behind, not obstacles, nor labels the plate hides, nor those above the plate', () => {
+      // A label above the mark in row -20; a plate in row -34 hangs its leader behind it.
+      const q = row('q', 250, 350, -20, { protectedLabel: true })
+      expect(planPinnedLabel({ x: 300, markY: 100, width: 60, innerWidth: 700, rows: [-34], labels: [q] })?.crossings).toBe(1)
+      // ...an obstacle (a link, a stem) is not a label.
+      expect(planPinnedLabel({ x: 300, markY: 100, width: 60, innerWidth: 700, rows: [-34], labels: [{ ...q, obstacle: true }] })?.crossings).toBe(0)
+      // ...a label the plate hides goes with its leader, so it is not crossed even if it reaches into the leader's way.
+      const tall: PlacedLabelBox = { id: 't', left: 270, right: 330, top: 100 - 34 - 10.5 + 1, bottom: 100 - 34 + 3.5 + 9, length: 20 }
+      const hides = planPinnedLabel({ x: 300, markY: 100, width: 60, innerWidth: 700, rows: [-34], labels: [tall] })
+      expect(hides?.hidden).toEqual(['t'])
+      expect(hides?.crossings).toBe(0)
+      // ...and one above the plate is not between it and the mark.
+      expect(planPinnedLabel({ x: 300, markY: 100, width: 60, innerWidth: 700, rows: [-20], labels: [row('above', 250, 350, -34, { protectedLabel: true })] })?.crossings).toBe(0)
+    })
+
+    it('counts a label between the mark and a plate under the track', () => {
+      const between = row('between', 250, 350, 34, { protectedLabel: true })
+      expect(planPinnedLabel({ x: 300, markY: 100, width: 60, innerWidth: 700, rows: [48], labels: [between] })?.crossings).toBe(1)
+    })
+
+    it('ranks the fewer crossings first across the texts, before the longer name', () => {
+      // The wide name fits only above (one crossing); the narrow one fits under the track (none).
+      const q = row('q', 250, 350, -20, { protectedLabel: true })
+      const stem = (id: string, at: number): PlacedLabelBox => ({ id, left: at - 1, right: at + 1, top: 100 + 24 - 10.5, bottom: 100 + 24 + 3.5, length: 0, protectedLabel: true, obstacle: true })
+      const found = planPinnedText({ x: 300, markY: 100, innerWidth: 700, rows: [-34, 24], labels: [q, stem('o1', 360), stem('o2', 240)] }, [
+        { text: 'A wide name', width: 120 },
+        { text: 'Narrow', width: 40 },
+      ])
+      expect(found?.text).toBe('Narrow')
+      expect(found?.plan.offset).toBe(24)
+    })
+
+    it("ranks the leader that avoids the selection's own trace first across the texts, before the longer name", () => {
+      // The wide name fits only under the track, its leader along a traced obstacle; the narrow one fits in row -20.
+      const traced: PlacedLabelBox = { id: 'trace', left: 298, right: 302, top: 100 + 8, bottom: 100 + 30, length: 0, protectedLabel: true, obstacle: true, traced: true }
+      const guard = (id: string, at: number): PlacedLabelBox => ({ id, left: at - 5, right: at + 5, top: 100 - 20 - 9.6, bottom: 100 - 20 + 3, length: 20, protectedLabel: true })
+      const found = planPinnedText({ x: 300, markY: 100, innerWidth: 700, rows: [-20, 48], labels: [traced, guard('g1', 355), guard('g2', 245)] }, [
+        { text: 'A wide name', width: 120 },
+        { text: 'Narrow', width: 40 },
+      ])
+      expect(found?.text).toBe('Narrow')
+      expect(found?.plan.offset).toBe(-20)
+    })
+
+    it("ranks a leader along the selection's own trace below one that avoids it", () => {
+      // A traced obstacle lies between the mark and a plate under the track; the plate above, listed second, avoids it.
+      const traced: PlacedLabelBox = { id: 'trace', left: 298, right: 302, top: 100 + 8, bottom: 100 + 30, length: 0, protectedLabel: true, obstacle: true, traced: true }
+      const found = planPinnedLabel({ x: 300, markY: 100, width: 60, innerWidth: 700, rows: [48, -20], labels: [traced] })
+      expect(found?.offset).toBe(-20)
+      expect(found?.tracedHits).toBe(0)
+      expect(planPinnedLabel({ x: 300, markY: 100, width: 60, innerWidth: 700, rows: [48], labels: [traced] })?.tracedHits).toBe(1)
+    })
+  })
 })

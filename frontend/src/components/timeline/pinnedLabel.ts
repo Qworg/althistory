@@ -36,6 +36,8 @@ export interface PlacedLabelBox {
    * passes behind.
    */
   obstacle?: boolean
+  /** An obstacle that is part of the selection's own trace (its links and loops): a plate's leader passing through it is ranked down. */
+  traced?: boolean
   /** The vertical hairline that joins it to its mark (it goes when the label does). */
   leader?: { x: number; top: number; bottom: number }
 }
@@ -50,6 +52,8 @@ export interface PinnedPlan {
   hidden: string[]
   /** How many kept labels the plate's leader passes behind (each is a halo that breaks it). */
   crossings: number
+  /** How many pieces of the selection's own trace the plate's leader runs through. */
+  tracedHits: number
 }
 
 /** The plate reaches this far above its baseline and below it (14px in all, the pitch of the label rows, so it never touches the rows beside it), and past the text on each side. */
@@ -125,6 +129,9 @@ export function planPinnedLabel(input: PinnedInput): PinnedPlan | null {
       if (!allowed) continue
       // The leader runs from the plate to its mark's edge: count the kept labels it passes behind.
       const [from, to] = offset < 0 ? [plate.bottom, markY - 8] : [markY + 8, plate.top]
+      const tracedHits = labels.filter(
+        (label) => label.traced && x >= label.left - 1 && x <= label.right + 1 && label.bottom > Math.min(from, to) && label.top < Math.max(from, to)
+      ).length
       const crossings = labels.filter(
         (label) =>
           !label.obstacle && !hidden.includes(label) && x >= label.left - 2 && x <= label.right + 2 && label.bottom > Math.min(from, to) && label.top < Math.max(from, to)
@@ -134,9 +141,15 @@ export function planPinnedLabel(input: PinnedInput): PinnedPlan | null {
       const better =
         !best ||
         hidden.length < best.hidden ||
-        (hidden.length === best.hidden && (crossings < best.plan.crossings || (crossings === best.plan.crossings && text < best.text)))
+        (hidden.length === best.hidden &&
+          (tracedHits < best.plan.tracedHits ||
+            (tracedHits === best.plan.tracedHits && (crossings < best.plan.crossings || (crossings === best.plan.crossings && text < best.text)))))
       if (better) {
-        best = { hidden: hidden.length, text, plan: { offset, anchor: extent.anchor, left: extent.left, right: extent.right, hidden: hidden.map((label) => label.id), crossings } }
+        best = {
+          hidden: hidden.length,
+          text,
+          plan: { offset, anchor: extent.anchor, left: extent.left, right: extent.right, hidden: hidden.map((label) => label.id), crossings, tracedHits },
+        }
       }
     }
   }
@@ -165,9 +178,11 @@ export function planPinnedText(
         !best ||
         plan.hidden.length < best.plan.hidden.length ||
         (plan.hidden.length === best.plan.hidden.length &&
-          (plan.crossings < best.plan.crossings ||
-            (plan.crossings === best.plan.crossings &&
-              (lengthOf(plan.hidden) < lengthOf(best.plan.hidden) || (lengthOf(plan.hidden) === lengthOf(best.plan.hidden) && width > best.width)))))
+          (plan.tracedHits < best.plan.tracedHits ||
+            (plan.tracedHits === best.plan.tracedHits &&
+              (plan.crossings < best.plan.crossings ||
+                (plan.crossings === best.plan.crossings &&
+                  (lengthOf(plan.hidden) < lengthOf(best.plan.hidden) || (lengthOf(plan.hidden) === lengthOf(best.plan.hidden) && width > best.width)))))))
       if (better) best = { text, plan, width }
     }
     return best ? { text: best.text, plan: best.plan } : null

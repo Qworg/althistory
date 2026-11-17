@@ -18,6 +18,17 @@ vi.mock('./labelWidth', async (original) => ({
   measureLabelWidth: (text: string) => text.length * widthPerChar.value,
 }))
 const planned: Array<ReadonlyArray<{ text: string; width: number }>> = []
+const selectionInputs: Array<{ links: ReadonlyArray<{ id: string; x1: number; x2: number }>; belowRows: readonly number[]; plateOnlyRows: readonly number[]; aboveRows: readonly number[]; preferAbove?: boolean }> = []
+vi.mock('./selectionPlate', async (original) => {
+  const actual = await original<typeof import('./selectionPlate')>()
+  return {
+    ...actual,
+    planSelectionPlate: (input: Parameters<typeof actual.planSelectionPlate>[0]) => {
+      selectionInputs.push({ links: input.links, belowRows: input.belowRows, plateOnlyRows: input.plateOnlyRows, aboveRows: input.aboveRows, preferAbove: input.preferAbove })
+      return actual.planSelectionPlate(input)
+    },
+  }
+})
 vi.mock('./pinnedLabel', async (original) => {
   const actual = await original<typeof import('./pinnedLabel')>()
   return {
@@ -44,6 +55,7 @@ const crowd = (count: number): Event[] =>
 beforeEach(() => {
   widthPerChar.value = 6.72
   planned.length = 0
+  selectionInputs.length = 0
   Object.defineProperty(SVGSVGElement.prototype, 'width', { configurable: true, get: () => ({ baseVal: { value: 1000 } }) })
   Object.defineProperty(SVGSVGElement.prototype, 'height', { configurable: true, get: () => ({ baseVal: { value: 500 } }) })
 })
@@ -125,5 +137,66 @@ describe('the plate follows the fonts', () => {
     widthPerChar.value = 9
     act(() => fontsLoaded())
     expect(plate()).toBeGreaterThan(before)
+  })
+})
+
+describe('the plate is planned again when the links change', () => {
+  it('follows a link whose ends move, the selection and everything else the same', () => {
+    const events = crowd(40)
+    const linkA = { id: 'l1', causeId: 'e00', effectId: 'e05', type: 'direct' as const, weight: 0.5 }
+    const linkB = { ...linkA, effectId: 'e30' }
+    let replanned = 0
+    for (const ev of events) {
+      selectionInputs.length = 0
+      const view = render(<Timeline events={events} arcs={[]} links={[linkA]} width={1000} height={500} selectedEventId={ev.id} />)
+      if (selectionInputs.length > 0) {
+        const calls = selectionInputs.length
+        const before = selectionInputs[calls - 1]!.links[0]!.x2
+        view.rerender(<Timeline events={events} arcs={[]} links={[linkB]} width={1000} height={500} selectedEventId={ev.id} />)
+        // Where the selection is still unnamed in place, the plate is planned again, over the new link.
+        if (selectionInputs.length > calls) {
+          replanned++
+          expect(selectionInputs[selectionInputs.length - 1]!.links[0]!.x2).not.toBe(before)
+        }
+      }
+      view.unmount()
+    }
+    expect(replanned, 'a selection planned again after the link changed').toBeGreaterThan(0)
+  })
+})
+
+describe('the rows the plate is offered', () => {
+  const firstPlanned = (links: Array<{ id: string; causeId: string; effectId: string; type: 'direct'; weight: number }>) => {
+    const events = crowd(40)
+    for (const ev of events) {
+      selectionInputs.length = 0
+      const view = render(<Timeline events={events} arcs={[]} links={links} width={1000} height={500} selectedEventId={ev.id} />)
+      view.unmount()
+      if (selectionInputs.length > 0) return selectionInputs[0]!
+    }
+    throw new Error('no selection was planned')
+  }
+
+  it('the four label rows, a plate-only row above them, and two rows under the track where links hang there', () => {
+    const input = firstPlanned([{ id: 'l1', causeId: 'e00', effectId: 'e39', type: 'direct', weight: 0.5 }])
+    expect(input.aboveRows).toEqual([-20, -34, -48, -62])
+    expect(input.plateOnlyRows).toEqual([-76])
+    expect(input.belowRows).toEqual([34, 48])
+  })
+
+  it('and only the one row a track without links keeps under it', () => {
+    expect(firstPlanned([]).belowRows).toEqual([24])
+  })
+
+  it('tries the rows above alone first where the inspector sheet is docked (below 1024px), and not on a wide screen', () => {
+    const original = window.innerWidth
+    try {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 800 })
+      expect(firstPlanned([]).preferAbove).toBe(true)
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 })
+      expect(firstPlanned([]).preferAbove).toBe(false)
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: original })
+    }
   })
 })

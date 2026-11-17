@@ -41,12 +41,8 @@ const HISTORIES: Record<string, { events: Event[]; links: TimelineLink[] }> = {
   Branch: history([...scenario.events, ...scenario.branch.events], [...scenario.links, ...scenario.branch.links], null),
 }
 
-/** Selections no label or plate can name once the plate may not cover a traced link or another mark's stem, or hide a protected label. */
-const EXCEPTIONS: Record<string, string[]> = {
-  'Engine Age': ['race at 800px'],
-  Vael: ['siege at 600px', 'siege at 800px'],
-  'Deep time': ['sapiens at 600px'],
-}
+/** Selections no label or plate can name once the plate may not cover a traced link or another mark's stem, or hide a protected label: none, since the plate-only row above the labels. */
+const EXCEPTIONS: Record<string, string[]> = {}
 
 beforeEach(() => {
   Object.defineProperty(SVGSVGElement.prototype, 'width', { configurable: true, get: () => ({ baseVal: { value: 1300 } }) })
