@@ -505,6 +505,8 @@ graphRoutes.post('/:id/rollback/:version', ...writeGraphAuth, async (req: Reques
       throw new ValidationError('Version must be a non-negative integer', 'version', req.params.version);
     }
 
+    // A report a rebuild left that nobody collected is not this rollback's.
+    req.container.liveStoreSyncService?.takeReport?.(req.params.id);
     const versionRef = await service.rollbackGraph(req.params.id, version);
 
     // The client stores the response as the graph detail, so return the graph's
@@ -630,6 +632,7 @@ graphRoutes.post(
         );
       }
 
+      req.container.liveStoreSyncService?.takeReport?.(req.params.id);
       const result = await service.mergeGraph(req.params.id, request);
 
       if (!result.success) {

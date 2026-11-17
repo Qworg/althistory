@@ -278,14 +278,24 @@ its child. If the end state is not a valid hierarchy the whole batch is refused
 with a `400` (`VALIDATION_ERROR`) before any step runs, atomic or not, so nothing
 lands.
 
+A create that names the id of an arc that already exists in the graph, or twice in
+one batch, is refused with a `400` that names the id: a create never takes the
+place of another arc. In an atomic transaction a step that does not apply (an
+`update_arc` or `delete_arc` of an id that is not there) is a failed step like any
+other: the whole transaction is undone and the response is `400`.
+
 **The arc steps of a batch land or fail together.** If any arc step fails when it
 is carried out (a create the store refuses, say), every arc write the batch made
 is put back, whether `atomic` is set or not, and every arc step that had
 succeeded is reported as failed with "not applied: another arc step in this batch
 failed" (`207`; `400` for an atomic transaction, which undoes the whole
 transaction). Event and link steps of a non-atomic transaction keep their own
-per-step results. `POST /api/batch/arcs` is the same for every `onError`
-(`collect` or `skip`): either every arc is made or none is.
+per-step results; when the arc steps are undone, an event that a step had put in
+an arc that was then not made no longer names it, and its step carries a
+`warning`. `POST /api/batch/arcs` is the same for every `onError` (`collect` or
+`skip`): either every arc is made or none is, and an arc that was skipped or left
+out by lenient validation is named in `failed` under its own index with its own
+error.
 
 A graph rebuilt from its history (rollback, branch, merge, import) keeps every
 arc, including one that lies outside its parent's span because it was stored

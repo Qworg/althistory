@@ -141,6 +141,26 @@ describe('demo server', () => {
     expect((await respond(request('get', '/causal/relationships'))).data.data).toHaveLength(9)
   })
 
+  it('keeps the arc hierarchy: a root is level 0, a child sits under its parent, a delete lifts, a move takes the subtree', async () => {
+    const { respond } = await load()
+    const make = async (body: Record<string, unknown>) => (await respond(request('post', '/arcs', { start_time: '1800-01-01T00:00:00Z', end_time: '1900-01-01T00:00:00Z', ...body }))).data.data as { id: string; level: number }
+    const levels = async () => Object.fromEntries(((await respond(request('get', '/arcs'))).data.data as Array<{ id: string; level: number }>).map((arc) => [arc.id, arc.level]))
+    const top = await make({ name: 'Top' })
+    expect(top.level).toBe(0)
+    const mid = await make({ name: 'Mid', parent_arc_id: top.id })
+    const leaf = await make({ name: 'Leaf', parent_arc_id: mid.id })
+    expect([mid.level, leaf.level]).toEqual([1, 2])
+
+    // Moving Mid to the top takes Leaf with it.
+    await respond(request('put', `/arcs/${mid.id}`, { level: 0, parent_arc_id: null }))
+    expect(await levels()).toMatchObject({ [mid.id]: 0, [leaf.id]: 1 })
+
+    // Deleting Mid keeps Leaf, which moves up to Mid's parent (the top: Mid has none).
+    await respond(request('delete', `/arcs/${mid.id}`))
+    expect(await levels()).toMatchObject({ [leaf.id]: 0 })
+    expect(await levels()).not.toHaveProperty(mid.id)
+  })
+
   it('keeps the calendar on a branch of the world', async () => {
     const { respond } = await load()
     const made = await respond(request('post', '/graphs/graph_vael/branch', { name: 'The Last King Lives' }))

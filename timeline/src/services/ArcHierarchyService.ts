@@ -439,7 +439,7 @@ type Planned = { lifted?: string[] } | null;
 /** An arc of the request graph, with the repositories a hierarchy edit writes through. */
 export interface ArcHierarchyRepositories {
   arcRepository: Pick<ArcRepository, 'findAll' | 'findById' | 'create' | 'update' | 'delete' | 'setHierarchy'>;
-  eventRepository?: Pick<EventRepository, 'findAll' | 'update'>;
+  eventRepository?: Pick<EventRepository, 'findAll' | 'findById' | 'update'>;
 }
 
 function toCreateRequest(arc: Arc): CreateArcRequest & { id: string } {
@@ -534,7 +534,8 @@ export class ArcHierarchySession {
   private async needsBase(steps: PlanStep[]): Promise<boolean> {
     for (const step of steps) {
       if (step.kind === 'delete') return true;
-      if (step.kind === 'create' && namedParent(step.data)?.value) return true;
+      // A create naming an id has to be checked against the arcs that hold it: a store takes a create for an upsert.
+      if (step.kind === 'create' && (namedParent(step.data)?.value || typeof step.data.id === 'string')) return true;
       if (step.kind === 'update' && (await this.updateNeedsPlan(step.id, step.data))) return true;
     }
     return false;
@@ -553,7 +554,12 @@ export class ArcHierarchySession {
       this.planned.set(key, [...(this.planned.get(key) ?? []), planned]);
     };
     for (const step of steps) {
-      if (step.kind === 'create') dry.create(step.data);
+      if (step.kind === 'create') {
+        if (typeof step.data.id === 'string' && dry.get(step.data.id)) {
+          throw new ValidationError(`An arc with the id "${step.data.id}" already exists in this graph or earlier in this batch; a create cannot take its place`, 'id', step.data.id);
+        }
+        dry.create(step.data);
+      }
       else if (step.kind === 'update') queue('update', step.id, needsBase && dry.update(step.id, step.data) ? {} : null);
       else {
         const lifted = dry.delete(step.id);
@@ -688,6 +694,55 @@ export class ArcHierarchySession {
     }
   }
 
+  /**
+   * Give back the arc reference a delete took from an event: only those keys, and
+   * only while the event has neither (a later step may have assigned it elsewhere,
+   * or changed anything else about it, and that stays).
+   */
+  private async restoreEvents(): Promise<void> {
+    const { eventRepository } = this.repositories;
+    if (!eventRepository) return;
+    for (const [id, write] of this.eventWrites) {
+      try {
+        const current = await eventRepository.findById(id);
+        const before = write.before.metadata ?? {};
+        if (!current || current.metadata?.arcId !== undefined || current.metadata?.arc_id !== undefined) continue;
+        const removed: Record<string, unknown> = {};
+        if (before.arcId !== undefined) removed.arcId = before.arcId;
+        if (before.arc_id !== undefined) removed.arc_id = before.arc_id;
+        await eventRepository.update(id, { metadata: { ...(current.metadata ?? {}), ...removed } });
+      } catch (error) {
+        logger.error('Could not give an event back its arc', error, { id });
+      }
+    }
+  }
+
+  /** Events that name an arc this session made and then took back, now naming nothing. */
+  private readonly clearedEvents = new Set<string>();
+
+  /** An arc the session created is gone: the events a step assigned to it no longer name it. */
+  private async clearReferencesTo(arcIds: string[]): Promise<void> {
+    const { eventRepository } = this.repositories;
+    if (!eventRepository || arcIds.length === 0) return;
+    const gone = new Set(arcIds);
+    for (const event of await eventRepository.findAll()) {
+      const metadata = event.metadata;
+      if (!metadata || !(gone.has(String(metadata.arcId)) || gone.has(String(metadata.arc_id)))) continue;
+      const { arcId: _a, arc_id: _b, ...rest } = metadata;
+      try {
+        await eventRepository.update(event.id, { metadata: rest });
+        this.clearedEvents.add(event.id);
+      } catch (error) {
+        logger.error('Could not clear an event\'s reference to an arc that was not made', error, { id: event.id });
+      }
+    }
+  }
+
+  /** The events whose reference to an arc that was not made was cleared. */
+  clearedEventIds(): string[] {
+    return [...this.clearedEvents];
+  }
+
   /** Put back everything the session wrote: arcs, deleted arcs, events. */
   async undo(): Promise<void> {
     const ids = [...this.arcWrites.keys()];
@@ -706,9 +761,8 @@ export class ArcHierarchySession {
         logger.error('Could not remove a created arc', error, { id });
       }
     }
-    for (const [id, write] of this.eventWrites) {
-      await this.repositories.eventRepository?.update(id, { metadata: write.before.metadata ?? {} });
-    }
+    await this.restoreEvents();
+    await this.clearReferencesTo(ids.filter((key) => this.arcWrites.get(key)!.before === null));
     this.arcWrites.clear();
     this.deletedIds.clear();
     this.eventWrites.clear();

@@ -395,6 +395,31 @@ function events(method: string, path: string, params: URLSearchParams, body: Jso
   return undefined
 }
 
+/** The parent an arc names, however it names it (the field, or the metadata's `parentArcId`). */
+function parentOf(arc: Json): string | undefined {
+  const field = arc.parent_arc_id
+  if (typeof field === 'string' && field) return field
+  const recorded = (arc.metadata as Json | undefined)?.parentArcId
+  return typeof recorded === 'string' && recorded ? recorded : undefined
+}
+
+/** Set every arc below `rootId` to its parent's level + 1 (a seen-set keeps a cycle finite). */
+function relevel(graph: GraphState, rootId: string): void {
+  const seen = new Set<string>([rootId])
+  const queue = [rootId]
+  while (queue.length > 0) {
+    const next = queue.shift()
+    const parent = graph.arcs.find((arc) => arc.id === next)
+    if (!parent) continue
+    for (const arc of graph.arcs) {
+      if (seen.has(arc.id) || parentOf(arc) !== parent.id) continue
+      seen.add(arc.id)
+      arc.level = parent.level + 1
+      queue.push(arc.id)
+    }
+  }
+}
+
 function arcs(method: string, path: string, params: URLSearchParams, body: Json, graph: GraphState): Reply | undefined {
   const sorted = () => [...graph.arcs].sort((a, b) => a.level - b.level || compareInstants(toInstant(a.start_time), toInstant(b.start_time)))
   if (path === '/arcs' && method === 'GET') return list(sorted(), params, { filters: { level: null, timeRange: null } })
@@ -403,7 +428,9 @@ function arcs(method: string, path: string, params: URLSearchParams, body: Json,
     if (typeof body.name !== 'string' || typeof body.start_time !== 'string' || typeof body.end_time !== 'string') {
       return badRequest('An arc needs a name, a start and an end')
     }
-    const arc = { level: 1, ...body, id: newId('arc') } as DemoArc
+    // As the server: an arc with no parent is top level, a child is one level below its parent.
+    const parent = parentOf(body) ? graph.arcs.find((candidate) => candidate.id === parentOf(body)) : undefined
+    const arc = { ...body, level: typeof body.level === 'number' ? body.level : parent ? parent.level + 1 : 0, id: newId('arc') } as DemoArc
     graph.arcs.push(arc)
     return ok(arc, 201)
   }
@@ -415,11 +442,24 @@ function arcs(method: string, path: string, params: URLSearchParams, body: Json,
   if (method === 'GET') return ok(graph.arcs[index])
   if (method === 'PUT' || method === 'PATCH') {
     const updated = { ...graph.arcs[index], ...body, id } as DemoArc
+    const moved = updated.level !== graph.arcs[index]!.level || parentOf(updated) !== parentOf(graph.arcs[index]!)
     graph.arcs[index] = updated
+    // Its subtree moves with it.
+    if (moved) relevel(graph, id)
     return ok(updated)
   }
   if (method === 'DELETE') {
-    graph.arcs.splice(index, 1)
+    // Its child arcs are kept: they move up to its parent (or the top), each with its subtree.
+    const [gone] = graph.arcs.splice(index, 1)
+    const grandparent = gone ? parentOf(gone) : undefined
+    const above = grandparent ? graph.arcs.find((arc) => arc.id === grandparent) : undefined
+    for (const arc of graph.arcs) {
+      if (parentOf(arc) !== id) continue
+      arc.parent_arc_id = above ? above.id : null
+      arc.metadata = { ...((arc.metadata as Json | undefined) ?? {}), parentArcId: above ? above.id : undefined }
+      arc.level = above ? above.level + 1 : 0
+      relevel(graph, arc.id)
+    }
     return ok({ id, deleted: true })
   }
   return undefined

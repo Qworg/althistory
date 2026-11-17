@@ -166,6 +166,15 @@ describe('ArcRepository Unit Tests', () => {
         expect((await repository.update(childId, { level: 3 }))?.metadata).toEqual({ parentArcId: parentId, note: 'kept' });
       });
 
+      it('is judged when an edit changes it, and not when it only repeats it', async () => {
+        const { parentId, childId } = await parentAndChild();
+        const other = await repository.create({ name: 'Elsewhere', start_time: new Date('2030-01-01T00:00:00Z'), end_time: new Date('2030-12-31T00:00:00Z'), level: 0 });
+        // Naming a different parent the arc does not lie within is refused.
+        await expect(repository.update(childId, { metadata: { parentArcId: other.id } })).rejects.toThrow(/Temporal boundary violation.*Reign.*Elsewhere/);
+        // Naming the parent it has is no change, even for an arc stored outside it.
+        await expect(repository.update(childId, { metadata: { parentArcId: parentId, note: 'again' } })).resolves.toBeDefined();
+      });
+
       it('is left alone by an edit that does not change the level', async () => {
         const { parentId, childId } = await parentAndChild();
         expect((await repository.update(childId, { name: 'Reign, renamed' }))?.metadata).toEqual({ parentArcId: parentId, note: 'kept' });

@@ -39,6 +39,16 @@ export interface LiveNotice {
   at: number
   /** Notices with one key stand for one thing, so a later one replaces the earlier. */
   key?: string
+  /**
+   * Says something wrong (a graph that was rebuilt without parts of itself): it is
+   * drawn as a warning and stays until it is dismissed, not for a few seconds.
+   */
+  warning?: boolean
+}
+
+/** The keys of notices that are warnings. */
+function isWarningKey(key: string): boolean {
+  return key.startsWith('rebuild:')
 }
 
 type FreshKind = 'event' | 'arc' | 'relationship'
@@ -107,8 +117,9 @@ export const useLiveChangesStore = create<LiveChangesState>((set, get) => {
         }
       }
     }
-    const liveNotices = notices.filter((notice) => notice.at + NOTICE_MS > now)
-    for (const notice of liveNotices) soonest = Math.min(soonest, notice.at + NOTICE_MS)
+    // A warning stays until it is dismissed.
+    const liveNotices = notices.filter((notice) => notice.warning || notice.at + NOTICE_MS > now)
+    for (const notice of liveNotices) if (!notice.warning) soonest = Math.min(soonest, notice.at + NOTICE_MS)
     if (changed || liveNotices.length !== notices.length) {
       set({ fresh: changed ? next : fresh, notices: liveNotices })
     }
@@ -167,7 +178,7 @@ export const useLiveChangesStore = create<LiveChangesState>((set, get) => {
       set({
         notices: existing
           ? notices.map((notice) => (notice === existing ? { ...notice, message, at: now } : notice))
-          : [...notices, { id: `live-${++noticeCounter}`, message, at: now, key }].slice(-MAX_NOTICES),
+          : [...notices, { id: `live-${++noticeCounter}`, message, at: now, key, ...(isWarningKey(key) ? { warning: true } : {}) }].slice(-MAX_NOTICES),
       })
       schedulePrune()
     },

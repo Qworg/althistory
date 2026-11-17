@@ -329,7 +329,7 @@ interface BatchResult {
 
 interface TransactionResult {
   success: boolean;
-  results: Array<{ index: number; type: string; id?: string; success: boolean; error?: string }>;
+  results: Array<{ index: number; type: string; id?: string; success: boolean; error?: string; warning?: string }>;
   rollbackPerformed?: boolean;
 }
 
@@ -531,6 +531,8 @@ batchRoutes.post(
 
     const calendarOf = calendarLookup(req);
     const createdAt = new Map<string, number>();
+    /** The arcs that were not made and are not in `failed` yet (skipped, or left out by lenient validation), with why. */
+    const notMade = new Map<number, string>();
     for (let i = 0; i < arcs.length; i++) {
       let arcData = arcs[i];
 
@@ -543,6 +545,7 @@ batchRoutes.post(
         if (warnings.length > 0) {
           result.validationWarnings!.push(...warnings.map((w) => ({ index: i, warning: w })));
           if (validation === 'lenient') {
+            notMade.set(i, `Validation failed: ${warnings.join(', ')}`);
             continue;
           }
           throw new Error(`Validation failed: ${warnings.join(', ')}`);
@@ -583,6 +586,7 @@ batchRoutes.post(
         }
 
         if (onError === 'skip') {
+          notMade.set(i, errorMessage);
           continue;
         }
 
@@ -593,6 +597,8 @@ batchRoutes.post(
 
     // The arcs of a batch are judged as one end state, so they land or fail
     // together: if any was not made, none is.
+    // An arc left out says why under its own index, whatever onError is.
+    for (const [index, error] of notMade) result.failed.push({ index, error });
     if (result.created.length < arcs.length && result.created.length > 0) {
       await arcSession.undo();
       for (const id of result.created) result.failed.push({ index: createdAt.get(id) ?? -1, error: ARC_STEPS_TOGETHER });
@@ -976,6 +982,9 @@ batchRoutes.post(
             throw new Error(`Unknown operation type: ${op.type}`);
         }
 
+        // A step that did not apply (an id that is not there) is a failed step, so an
+        // atomic transaction rolls back and the arc steps fail together.
+        if (!opResult.success) throw new Error(opResult.error ?? `Not found: ${op.type}${opResult.id ? ` ${opResult.id}` : ''}`);
         result.results.push({ index: i, type: op.type, ...opResult });
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -1065,6 +1074,14 @@ batchRoutes.post(
       if (result.results.some((step) => arcStep(step) && !step.success)) {
         absorbArcMoves(touched, arcSession, []);
         await arcSession.undo();
+        // An event a step put in an arc that was not made no longer names it.
+        const cleared = new Set(arcSession.clearedEventIds());
+        cleared.forEach((id) => touched.events.add(id));
+        for (const step of result.results) {
+          if (step.success && step.id !== undefined && /_event$/.test(step.type) && cleared.has(step.id)) {
+            step.warning = 'its arc was not applied (another arc step in this batch failed), so the event is in no arc';
+          }
+        }
         for (const step of result.results) {
           if (arcStep(step) && step.success) {
             step.success = false;
