@@ -524,6 +524,7 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
         );
       const liveLinks = async (cause: string): Promise<Array<{ id: string; evidence: string }>> => {
         const res = await http('GET', '/api/causal/relationships', agentKey, graphA);
+        expect(res.status).toBe(200);
         return (res.body.data as Array<{ id: string; evidence: string; cause_event_id: string }>).filter((l) => l.cause_event_id === cause);
       };
 
@@ -650,8 +651,13 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
         await migrate();
         const settled = (await neo4jLinks(cause, effect)).map((l) => l.id);
 
-        const reads = await Promise.all(Array.from({ length: 30 }, () => liveLinks(cause)));
-        for (const links of reads) expect(links.map((l) => l.id).sort()).toEqual([...settled].sort());
+        // Three waves of ten concurrent reads. One wave of thirty queues long enough on a slow CI
+        // runner for the last reads to pass the default 2 s request budget (408), which says
+        // nothing about the ids.
+        for (let wave = 0; wave < 3; wave += 1) {
+          const reads = await Promise.all(Array.from({ length: 10 }, () => liveLinks(cause)));
+          for (const links of reads) expect(links.map((l) => l.id).sort()).toEqual([...settled].sort());
+        }
         expect((await neo4jLinks(cause, effect)).map((l) => l.id)).toEqual(settled);
 
         // An edge that appears after the migration is read under its pair name and left alone:
