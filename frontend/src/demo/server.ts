@@ -529,7 +529,12 @@ function arcs(method: string, path: string, params: URLSearchParams, body: Json,
     // A span that no longer holds one of its children is refused too, as the server does.
     if (!problem && spanChanged) {
       const [from, to] = [toInstant(updated.start_time), toInstant(updated.end_time)]
-      const orphaned = graph.arcs.find((child) => child.id !== id && parentOf(child) === id && (compareInstants(toInstant(child.start_time), from) < 0 || compareInstants(toInstant(child.end_time), to) > 0))
+      // (A child whose dates cannot be read is skipped, as the server's check skips it.)
+      const outside = (child: DemoArc): boolean => {
+        const [start, end] = [toInstant(child.start_time), toInstant(child.end_time)]
+        return !Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && (compareInstants(start, from) < 0 || compareInstants(end, to) > 0)
+      }
+      const orphaned = graph.arcs.find((child) => child.id !== id && parentOf(child) === id && outside(child))
       if (orphaned) problem = `An arc must contain its child arcs: "${orphaned.name}" (${orphaned.start_time} to ${orphaned.end_time}) would fall outside it`
     }
     if (problem) return badRequest(problem)

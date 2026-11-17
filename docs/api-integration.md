@@ -284,7 +284,7 @@ earlier step of the batch uses (a delete and a create of one id included), is
 refused with a `400` that names the id, before any step runs: a create never takes
 the place of another arc. Use an update, or another id. (One case is only caught
 when the step runs: in a Neo4j deployment, an id that only *another graph* holds.
-That step fails with the same message, so a non-atomic transaction answers `207`
+That step fails with a message that names the id, so a non-atomic transaction answers `207`
 with the other steps applied as for any failed step, and an atomic one `400`
 with what the failure undoes, as above.)
 

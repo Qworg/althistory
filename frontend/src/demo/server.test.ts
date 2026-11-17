@@ -286,6 +286,25 @@ describe('demo server', () => {
       expect(shown).toEqual({ cx: [0, null], cy: [1, 'cx'], leads: [1, 'cx'] })
     })
 
+    it('lets a legacy child be re-saved with its dates spelled another way (the same moments)', async () => {
+      const { respond } = await reopenWith([arc('top', 0, null), arc('out', 1, 'top', { start_time: '1700-01-01T00:00:00.000Z', end_time: '1950-01-01T00:00:00.000Z' })])
+      expect((await respond(request('put', '/arcs/out', { start_time: '1700-01-01T00:00:00Z', end_time: '1950-01-01T00:00:00Z' }))).status).toBe(200)
+    })
+
+    it('keeps the parent of a chain that is listed before the cycle it leads into', async () => {
+      const { shown } = await reopenWith([arc('leads', 2, 'cx'), arc('cx', 1, 'cy'), arc('cy', 1, 'cx')])
+      expect(shown.leads?.[1]).toBe('cx')
+      expect(shown.cx?.[1]).toBeNull()
+    })
+
+    it('lets a legacy parent be renamed when a child already lies outside it, and when a child\'s dates cannot be read', async () => {
+      const { respond } = await reopenWith([arc('top', 0, null), arc('out', 1, 'top', { start_time: '1700-01-01T00:00:00.000Z', end_time: '1950-01-01T00:00:00.000Z' })])
+      expect((await respond(request('put', '/arcs/top', { name: 'renamed' }))).status).toBe(200)
+      const unreadable = await reopenWith([arc('top', 0, null), arc('odd', 1, 'top', { start_time: 'not a date' })])
+      // Its span shrinks: a child that cannot be read does not refuse it.
+      expect((await unreadable.respond(request('put', '/arcs/top', { start_time: '1850-01-01T00:00:00Z' }))).status).toBe(200)
+    })
+
     it('still lets an arc stored outside its parent be renamed, but judges a change of its dates', async () => {
       const { respond, shown } = await reopenWith([arc('top', 0, null), arc('out', 1, 'top', { start_time: '1700-01-01T00:00:00.000Z', end_time: '1950-01-01T00:00:00.000Z' })])
       expect(shown.out).toEqual([1, 'top'])

@@ -1021,12 +1021,6 @@ batchRoutes.post(
             // An event a step of this transaction put in an arc that is now gone no longer names it.
             await arcSession.clearReferences(made, arcRefsWrittenBy(operations, result.results));
             arcSession.clearedEventIds().forEach((id) => touched.events.add(id));
-            // A step that stays (an update_event) and put an event in an arc that is gone says so.
-            for (const step of result.results) {
-              if (step.success && step.id !== undefined && step.type === 'update_event' && arcSession.clearedEventIds().includes(step.id)) {
-                step.warning = 'its arc was not applied (the transaction failed), so the event is in no arc';
-              }
-            }
           } catch (rollbackError) {
             logger.error('Rollback of the arc hierarchy failed', rollbackError);
           }
@@ -1057,6 +1051,15 @@ batchRoutes.post(
           }
 
           result.rollbackPerformed = true;
+
+          // A step that stays (an update_event) and put an event in an arc that is gone says so; an
+          // event the rollback has just deleted (made earlier in this transaction) is not one that stays.
+          const cleared = new Set(arcSession.clearedEventIds());
+          for (const step of result.results) {
+            if (step.success && step.id !== undefined && step.type === 'update_event' && cleared.has(step.id) && !rolledBack.has(step.id)) {
+              step.warning = 'its arc was not applied (the transaction failed), so the event is in no arc';
+            }
+          }
 
           // The rollback undoes only what the transaction created. The updates
           // and deletes that ran before the failing step stay in the store, and

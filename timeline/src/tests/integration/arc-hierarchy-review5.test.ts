@@ -224,6 +224,25 @@ describe('the arc hierarchy, fifth review', () => {
         });
       });
 
+      describe('the seventh review', () => {
+        it('puts no warning on an update_event whose event the rollback deletes', async () => {
+          const graphId = await graphOf(kind, tree);
+          const response = await transaction(
+            graphId,
+            [
+              { type: 'create_arc', data: { id: 'NEW2', name: 'NEW2', start_time: iso(1820), end_time: iso(1840), level: 0 } },
+              { type: 'create_event', data: { id: 'E3', description: 'E3', actor: 'A', target: 'B', timestamp: iso(1850) } },
+              { type: 'update_event', data: { id: 'E3', metadata: { arcId: 'NEW2' } } },
+              noSuchEvent,
+            ],
+            true
+          );
+          expect(response.status).toBe(400);
+          expect((response.body.result.results as Array<{ warning?: string }>).filter((step) => step.warning !== undefined)).toEqual([]);
+          expect(await liveEvents(graphId)).toEqual({});
+        });
+      });
+
       describe('LOW 3: an atomic failure that keeps an update_event says what it dropped', () => {
         it('warns on the kept step whose arc was undone, in the 400 body', async () => {
           const graphId = await graphOf(kind, tree);
