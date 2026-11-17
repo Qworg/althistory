@@ -188,6 +188,42 @@ describe('the arc hierarchy, fifth review', () => {
         });
       });
 
+      describe('the sixth review: which references an undo clears, and which steps are told', () => {
+        it('C1 and C5: an arc_id (snake_case) a step wrote is cleared, and the step says so', async () => {
+          const graphId = await graphOf(kind, tree);
+          await asKey(request(app).post('/api/events'), graphId).send({ id: 'snake', description: 'snake', actor: 'A', target: 'B', timestamp: iso(1850) }).expect(201);
+          const response = await transaction(graphId, [futureArc, { type: 'update_event', data: { id: 'snake', metadata: { arc_id: 'future', note: 'n' } } }, bad], false);
+          expect(response.status).toBe(207);
+          expect((await liveEvents(graphId)).snake).toEqual({ note: 'n' });
+          expect(await headEvents(graphId)).toEqual(await liveEvents(graphId));
+          expect(response.body.results.find((step: { type: string }) => step.type === 'update_event').warning).toMatch(/its arc was not applied/);
+        });
+
+        it('C4: an event the batch did not write keeps its reference, though another event step names an arc', async () => {
+          const graphId = await graphOf(kind, tree);
+          await asKey(request(app).post('/api/events'), graphId).send({ id: 'planned', description: 'planned', actor: 'A', target: 'B', timestamp: iso(1850), metadata: { arcId: 'future' } }).expect(201);
+          // Another event step names an existing arc, so the batch does write arc references.
+          await transaction(graphId, [futureArc, { type: 'create_event', data: { id: 'in-s', description: 'in S', actor: 'A', target: 'B', timestamp: iso(1850), metadata: { arcId: 'S' } } }, bad], false);
+          expect((await liveEvents(graphId)).planned).toEqual({ arcId: 'future' });
+          expect((await liveEvents(graphId))['in-s']).toEqual({ arcId: 'S' });
+          expect(await headEvents(graphId)).toEqual(await liveEvents(graphId));
+        });
+
+        it('warns only on the kept update_event, not on the create_event the rollback removes', async () => {
+          const graphId = await graphOf(kind, tree);
+          await asKey(request(app).post('/api/events'), graphId).send({ id: 'E7', description: 'E7', actor: 'A', target: 'B', timestamp: iso(1850) }).expect(201);
+          const response = await transaction(
+            graphId,
+            [{ type: 'create_arc', data: { id: 'N', name: 'N', start_time: iso(1801), end_time: iso(1802), level: 0 } }, { type: 'create_event', data: { id: 'made', description: 'made', actor: 'A', target: 'B', timestamp: iso(1850), metadata: { arcId: 'N' } } }, { type: 'update_event', data: { id: 'E7', metadata: { arcId: 'N' } } }, noSuchEvent],
+            true
+          );
+          const steps = response.body.result.results as Array<{ type: string; warning?: string }>;
+          expect(steps.find((step) => step.type === 'create_event')?.warning).toBeUndefined();
+          expect(steps.find((step) => step.type === 'update_event' && step.warning !== undefined)).toBeDefined();
+          expect(await liveEvents(graphId)).toEqual({ E7: {} });
+        });
+      });
+
       describe('LOW 3: an atomic failure that keeps an update_event says what it dropped', () => {
         it('warns on the kept step whose arc was undone, in the 400 body', async () => {
           const graphId = await graphOf(kind, tree);

@@ -1023,7 +1023,7 @@ batchRoutes.post(
             arcSession.clearedEventIds().forEach((id) => touched.events.add(id));
             // A step that stays (an update_event) and put an event in an arc that is gone says so.
             for (const step of result.results) {
-              if (step.success && step.id !== undefined && /_event$/.test(step.type) && arcSession.clearedEventIds().includes(step.id)) {
+              if (step.success && step.id !== undefined && step.type === 'update_event' && arcSession.clearedEventIds().includes(step.id)) {
                 step.warning = 'its arc was not applied (the transaction failed), so the event is in no arc';
               }
             }

@@ -282,7 +282,11 @@ A create that names the id of an arc that already exists in the graph (or, in a
 Neo4j deployment, in another graph: an arc id is unique across them), or that an
 earlier step of the batch uses (a delete and a create of one id included), is
 refused with a `400` that names the id, before any step runs: a create never takes
-the place of another arc. Use an update, or another id.
+the place of another arc. Use an update, or another id. (One case is only caught
+when the step runs: in a Neo4j deployment, an id that only *another graph* holds.
+That step fails with the same message, so a non-atomic transaction answers `207`
+with the other steps applied as for any failed step, and an atomic one `400`
+with what the failure undoes, as above.)
 
 **A step that does not apply is a failed step**, whatever its type: an `update_*`
 or `delete_*` of an id that is not there fails with the reason ("Not found: …"),
@@ -310,8 +314,9 @@ transaction keep their own per-step results. When the arc steps are undone, an
 event that a step had put in an arc that was then not made **loses that
 reference**: a kept `update_event` (in an atomic transaction too) that named the
 arc ends up in no arc, and its step carries a `warning` saying so. An event the
-batch only edited without naming the arc, or that named the id before the batch,
-is left as it was. `POST /api/batch/arcs` is the same for every `onError` (`collect` or
+batch only edited without naming the arc is left as it was, and so is one that
+named the id before the batch, unless a step of the batch writes that reference
+again (a step that restates the arc id is the batch's own reference, and goes with it). `POST /api/batch/arcs` is the same for every `onError` (`collect` or
 `skip`): either every arc is made or none is, and an arc that was skipped or left
 out by lenient validation is named in `failed` under its own index with its own
 error.

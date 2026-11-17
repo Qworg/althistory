@@ -259,6 +259,78 @@ describe('demo server', () => {
     })
   })
 
+  describe('arcs saved in a tab before the hierarchy was enforced', () => {
+    type Saved = { active: string; graphs: Record<string, { arcs: Array<Record<string, unknown>> }> }
+    const arc = (id: string, level: number, parent: string | null, extra: Record<string, unknown> = {}) => ({ id, name: id, start_time: '1800-01-01T00:00:00.000Z', end_time: '1900-01-01T00:00:00.000Z', level, parent_arc_id: parent, metadata: {}, ...extra })
+
+    /** A tab whose saved arcs are these, read back by a freshly loaded demo. */
+    async function reopenWith(arcs: Array<Record<string, unknown>>) {
+      const first = await load()
+      await first.respond(request('post', '/arcs', { name: 'seed the saved state', start_time: '1800-01-01T00:00:00Z', end_time: '1900-01-01T00:00:00Z' }))
+      const saved = JSON.parse(sessionStorage.getItem('althistory-demo') ?? '{}') as Saved
+      saved.graphs[saved.active]!.arcs = arcs
+      sessionStorage.setItem('althistory-demo', JSON.stringify(saved))
+      const { respond } = await load()
+      const shown = (await respond(request('get', '/arcs'))).data.data as Array<{ id: string; level: number; parent_arc_id: string | null }>
+      return { respond, shown: Object.fromEntries(shown.map((a) => [a.id, [a.level, a.parent_arc_id]])) as Record<string, [number, string | null]> }
+    }
+
+    it('drops a parent that is itself, or not there, and levels the subtree from the top', async () => {
+      const { shown } = await reopenWith([arc('self', 3, 'self'), arc('lost', 2, 'nowhere'), arc('below', 7, 'lost'), arc('deeper', 7, 'below'), arc('root', 5, null)])
+      expect(shown).toEqual({ self: [0, null], lost: [0, null], below: [1, 'lost'], deeper: [2, 'below'], root: [0, null] })
+    })
+
+    it('cuts a cycle at an arc on it, and keeps the parent of one that only leads into it', async () => {
+      const { shown } = await reopenWith([arc('cx', 1, 'cy'), arc('cy', 1, 'cx'), arc('leads', 2, 'cx')])
+      // The first arc on the cycle is cut loose and the rest follow it; the chain keeps its parent.
+      expect(shown).toEqual({ cx: [0, null], cy: [1, 'cx'], leads: [1, 'cx'] })
+    })
+
+    it('still lets an arc stored outside its parent be renamed, but judges a change of its dates', async () => {
+      const { respond, shown } = await reopenWith([arc('top', 0, null), arc('out', 1, 'top', { start_time: '1700-01-01T00:00:00.000Z', end_time: '1950-01-01T00:00:00.000Z' })])
+      expect(shown.out).toEqual([1, 'top'])
+      expect((await respond(request('put', '/arcs/out', { name: 'renamed' }))).status).toBe(200)
+      await expect(respond(request('put', '/arcs/out', { end_time: '1960-01-01T00:00:00.000Z' }))).rejects.toMatchObject({ response: { status: 400 } })
+    })
+  })
+
+  describe('a span edit is judged as the server judges it', () => {
+    const refused = (promise: Promise<unknown>) => expect(promise).rejects.toMatchObject({ response: { status: 400 } })
+    async function family() {
+      const { respond } = await load()
+      const make = async (body: Record<string, unknown>) => (await respond(request('post', '/arcs', { start_time: '1800-01-01T00:00:00Z', end_time: '1900-01-01T00:00:00Z', ...body }))).data.data as { id: string }
+      const parent = await make({ name: 'Parent' })
+      const child = await make({ name: 'Child', parent_arc_id: parent.id, start_time: '1820-01-01T00:00:00Z', end_time: '1880-01-01T00:00:00Z' })
+      return { respond, parent, child }
+    }
+
+    it('refuses a parent that shrinks past its children, on either end', async () => {
+      const { respond, parent } = await family()
+      await refused(respond(request('put', `/arcs/${parent.id}`, { end_time: '1850-01-01T00:00:00Z' })))
+      await refused(respond(request('put', `/arcs/${parent.id}`, { start_time: '1850-01-01T00:00:00Z' })))
+      expect((await respond(request('put', `/arcs/${parent.id}`, { start_time: '1810-01-01T00:00:00Z', end_time: '1890-01-01T00:00:00Z' }))).status).toBe(200)
+    })
+
+    it('refuses a child moved past its parent on either end', async () => {
+      const { respond, child } = await family()
+      await refused(respond(request('put', `/arcs/${child.id}`, { end_time: '1950-01-01T00:00:00Z' })))
+      await refused(respond(request('put', `/arcs/${child.id}`, { start_time: '1700-01-01T00:00:00Z' })))
+    })
+
+    it('treats the same moment written another way as no change', async () => {
+      const { respond, parent, child } = await family()
+      // "…:00Z" and "….000Z" are one moment: neither is a span change (a child re-saved as the panel does).
+      expect((await respond(request('put', `/arcs/${child.id}`, { start_time: '1820-01-01T00:00:00.000Z', end_time: '1880-01-01T00:00:00.000Z' }))).status).toBe(200)
+      expect((await respond(request('put', `/arcs/${parent.id}`, { name: 'P', start_time: '1800-01-01T00:00:00.000Z', end_time: '1900-01-01T00:00:00.000Z' }))).status).toBe(200)
+    })
+
+    it('does not let level 0 hide naming a new parent', async () => {
+      const { respond, child } = await family()
+      const other = (await respond(request('post', '/arcs', { name: 'Other', start_time: '1800-01-01T00:00:00Z', end_time: '1900-01-01T00:00:00Z' }))).data.data as { id: string }
+      await refused(respond(request('put', `/arcs/${child.id}`, { level: 0, parent_arc_id: other.id })))
+    })
+  })
+
   it('keeps the calendar on a branch of the world', async () => {
     const { respond } = await load()
     const made = await respond(request('post', '/graphs/graph_vael/branch', { name: 'The Last King Lives' }))

@@ -463,11 +463,13 @@ function normalizeArcs(graph: GraphState): void {
   }
   for (const arc of graph.arcs) {
     const seen = new Set<string>([arc.id])
+    // Only an arc that is itself on a cycle is cut loose; one that merely leads into a cycle keeps its parent.
     for (let up = parentOf(arc); up; up = parentOf(graph.arcs.find((candidate) => candidate.id === up) ?? {})) {
-      if (seen.has(up)) {
+      if (up === arc.id) {
         arc.parent_arc_id = null
         break
       }
+      if (seen.has(up)) break
       seen.add(up)
     }
   }
@@ -519,8 +521,17 @@ function arcs(method: string, path: string, params: URLSearchParams, body: Json,
       updated.level = target ? target.level + 1 : 0
     }
     // Only what the edit changes is judged: an arc stored out of place can still be renamed.
-    const changed = newParent !== oldParent || updated.level !== old.level || updated.start_time !== old.start_time || updated.end_time !== old.end_time
-    const problem = changed ? misplaced(graph, updated, id) : null
+    // (Dates are compared as moments: "…:00Z" and "….000Z" are the same one.)
+    const sameMoment = (a: unknown, b: unknown): boolean => compareInstants(toInstant(a as string), toInstant(b as string)) === 0
+    const spanChanged = !sameMoment(updated.start_time, old.start_time) || !sameMoment(updated.end_time, old.end_time)
+    const changed = newParent !== oldParent || updated.level !== old.level || spanChanged
+    let problem = changed ? misplaced(graph, updated, id) : null
+    // A span that no longer holds one of its children is refused too, as the server does.
+    if (!problem && spanChanged) {
+      const [from, to] = [toInstant(updated.start_time), toInstant(updated.end_time)]
+      const orphaned = graph.arcs.find((child) => child.id !== id && parentOf(child) === id && (compareInstants(toInstant(child.start_time), from) < 0 || compareInstants(toInstant(child.end_time), to) > 0))
+      if (orphaned) problem = `An arc must contain its child arcs: "${orphaned.name}" (${orphaned.start_time} to ${orphaned.end_time}) would fall outside it`
+    }
     if (problem) return badRequest(problem)
     const moved = updated.level !== old.level || newParent !== oldParent
     graph.arcs[index] = updated
