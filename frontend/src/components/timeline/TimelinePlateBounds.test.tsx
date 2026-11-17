@@ -171,7 +171,8 @@ describe('the plate\'s own box', () => {
     expect(Number(withBand.container.querySelector('clipPath rect')!.getAttribute('y'))).toBe(0)
     cleanup()
     const bare = render(<Timeline events={events} arcs={[]} width={1000} height={500} selectedEventId="e03" />)
-    expect(Number(bare.container.querySelector('clipPath rect')!.getAttribute('y'))).toBeLessThan(0)
+    // The whole of the 16px top margin: the plate's limit (-14) less the two pixels the clip keeps beyond it.
+    expect(Number(bare.container.querySelector('clipPath rect')!.getAttribute('y'))).toBe(-16)
   })
 
   it("a plate does not sit flush under a narrow arc it could avoid (it would read as the arc's label)", () => {

@@ -174,17 +174,47 @@ describe('planSelectionPlate', () => {
   })
 
   describe('the order of the passes', () => {
-    it('runs every pass that hides nothing before any that hides a label, whichever pass finds it', () => {
-      // Every row above is walled except -20, which holds a small unprotected label a plate there covers whole (hidden by the ordinary rules).
-      const labels = [
-        ...ABOVE.filter((offset) => offset !== -20).map((offset) => box(`w${offset}`, 0, 700, offset, { protectedLabel: true })),
-        box('w-75', 0, 700, -75, { protectedLabel: true }),
-        box('small', 280, 330, -20, { length: 8 }),
-      ]
-      // An untraced link under the mark blocks both rows under the track in the first two passes only.
-      const found = planSelectionPlate(input({ labels, links: [link('u', 250, 350)] }))
+    const walled = (extra: PlacedLabelBox[]) => [
+      ...ABOVE.filter((offset) => offset !== -20).map((offset) => box(`w${offset}`, 0, 700, offset, { protectedLabel: true })),
+      box('w-75', 0, 700, -75, { protectedLabel: true }),
+      ...extra,
+    ]
+
+    it('links win over hiding nothing: a plate hides a label it covers before it covers an untraced link', () => {
+      // Row -20 holds a small unprotected label a plate there covers whole (hidden by the ordinary rules); an untraced link under the mark
+      // blocks both rows under the track in passes 1 and 2. Pass 3, which would cover the link and hide nothing, comes after the hiding.
+      const found = planSelectionPlate(input({ labels: walled([box('small', 280, 330, -20, { length: 8 })]), links: [link('u', 250, 350)] }))
+      expect(found?.plan.hidden).toEqual(['small'])
+      expect(found!.plan.offset).toBe(-20)
+    })
+
+    it('with no link in the way, a plate that hides nothing beats one that hides a label', () => {
+      // The same, without the link: the rows under the track are free (pass 1), so the plate goes there, hiding nothing.
+      const found = planSelectionPlate(input({ labels: walled([box('small', 280, 330, -20, { length: 8 })]) }))
       expect(found?.plan.hidden).toEqual([])
       expect(found!.plan.offset).toBeGreaterThan(0)
+    })
+
+    it('a later pass that hides nothing beats an earlier one that hides a label (pass 2 after pass 1)', () => {
+      // Pass 1 respects the sliver over the plate-only row, so its plate goes in row -20 and hides the small label; pass 2 sets the sliver aside
+      // and puts the plate in the plate-only row, hiding nothing.
+      const sliver: PlacedLabelBox = { id: 'arc:s', left: 0, right: 700, top: Y - 100, bottom: Y - 83, length: 0, protectedLabel: true, obstacle: true }
+      const labels = [
+        ...ABOVE.filter((offset) => offset !== -20).map((offset) => box(`w${offset}`, 0, 700, offset, { protectedLabel: true })),
+        box('small', 280, 330, -20, { length: 8 }),
+      ]
+      const found = planSelectionPlate(input({ labels, softObstacles: [sliver], belowRows: [] }))
+      expect(found?.plan.hidden).toEqual([])
+      expect(found?.plan.offset).toBe(-75)
+    })
+
+    it('ordinary hiding in a later pass beats the last resort in the first', () => {
+      // Row -20: two wide labels any plate touches by a sliver (the ordinary rules refuse; the last resort hides both). Row -75, under a sliver
+      // arc (soft): one small label a plate there covers whole (the ordinary rules hide it, in pass 2).
+      const labels = [box('L1', 0, 290, -20, { length: 40 }), box('L2', 310, 700, -20, { length: 40 }), box('S', 285, 315, -75, { length: 5 })]
+      const sliver: PlacedLabelBox = { id: 'arc:s', left: 0, right: 700, top: Y - 100, bottom: Y - 83, length: 0, protectedLabel: true, obstacle: true }
+      const found = planSelectionPlate(input({ aboveRows: [-20], belowRows: [], labels, softObstacles: [sliver] }))
+      expect(found?.plan.hidden).toEqual(['S'])
     })
 
     it('runs the last resort when every pass that hides nothing is walled', () => {

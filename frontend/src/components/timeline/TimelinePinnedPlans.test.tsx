@@ -448,6 +448,47 @@ describe('the divergence band\'s landmarks, as obstacles', () => {
   })
 })
 
+describe('the band\'s label sides differ between 60% and 70% of the width', () => {
+  it('the divergence label is before its diamond past 60% and a branch mark\'s only past 70%', () => {
+    widthPerChar.value = 9
+    const events = crowd(40)
+    const planned = (props: Partial<React.ComponentProps<typeof Timeline>>) => {
+      for (const ev of events) {
+        selectionInputs.length = 0
+        const view = render(<Timeline events={events} arcs={[]} width={1000} height={500} selectedEventId={ev.id} {...props} />)
+        if (selectionInputs.length > 0) {
+          const out = { labels: selectionInputs[0]!.labels, view }
+          return out
+        }
+        view.unmount()
+      }
+      throw new Error('no selection was planned')
+    }
+    // Find the event whose x lies between 60% and 70% of the plot (928px).
+    let index = -1
+    for (const candidate of [24, 25, 26, 27, 28, 29]) {
+      const probe = planned({ ghost: { label: 'B', events: [], divergence: new Date(events[candidate]!.timestamp), divergenceEventId: null } })
+      const cx = Number(/M ([-\d.e]+)/.exec(probe.view.container.querySelector('.timeline-divergence path')!.getAttribute('d')!)![1])
+      probe.view.unmount()
+      if (cx / 928 > 0.62 && cx / 928 < 0.68) {
+        index = candidate
+        break
+      }
+    }
+    expect(index, 'an event between 60% and 70% of the width').toBeGreaterThan(0)
+    const date = new Date(events[index]!.timestamp)
+    const div = planned({ ghost: { label: 'B', events: [], divergence: date, divergenceEventId: null } })
+    const divX = Number(/M ([-\d.e]+)/.exec(div.view.container.querySelector('.timeline-divergence path')!.getAttribute('d')!)![1])
+    const divLabel = div.labels.find((l) => l.id === 'band:divergence:label')!
+    expect(divLabel.right, 'before the diamond').toBeCloseTo(divX - 10, 3)
+    div.view.unmount()
+    const mark = planned({ branchMarks: [{ id: 'bm', label: 'A mark', date }] })
+    const markX = Number(/M ([-\d.e]+)/.exec(mark.view.container.querySelector('.timeline-branch-mark path')!.getAttribute('d')!)![1])
+    const markLabel = mark.labels.find((l) => l.id === 'band:bm:label')!
+    expect(markLabel.left, 'after the diamond').toBeCloseTo(markX + 10, 3)
+  })
+})
+
 describe('the plate is planned again when the band changes', () => {
   const afterChange = (first: Partial<React.ComponentProps<typeof Timeline>>, second: Partial<React.ComponentProps<typeof Timeline>>) => {
     const events = crowd(40)
