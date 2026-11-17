@@ -534,8 +534,7 @@ export class ArcHierarchySession {
   private async needsBase(steps: PlanStep[]): Promise<boolean> {
     for (const step of steps) {
       if (step.kind === 'delete') return true;
-      // A create naming an id has to be checked against the arcs that hold it: a store takes a create for an upsert.
-      if (step.kind === 'create' && (namedParent(step.data)?.value || typeof step.data.id === 'string')) return true;
+      if (step.kind === 'create' && namedParent(step.data)?.value) return true;
       if (step.kind === 'update' && (await this.updateNeedsPlan(step.id, step.data))) return true;
     }
     return false;
@@ -553,13 +552,19 @@ export class ArcHierarchySession {
       const key = `${kind}:${id}`;
       this.planned.set(key, [...(this.planned.get(key) ?? []), planned]);
     };
+    // A store takes a create for an upsert, so a create may not name an id an arc holds, or that
+    // an earlier step of this batch touched (a delete and a create of one id would leave the
+    // undo nothing to put back). Checked by id, without reading the graph's arcs.
+    const touchedIds = new Set<string>();
     for (const step of steps) {
-      if (step.kind === 'create') {
-        if (typeof step.data.id === 'string' && dry.get(step.data.id)) {
-          throw new ValidationError(`An arc with the id "${step.data.id}" already exists in this graph or earlier in this batch; a create cannot take its place`, 'id', step.data.id);
+      const id = step.kind === 'create' ? (typeof step.data.id === 'string' ? step.data.id : undefined) : step.id;
+      if (step.kind === 'create' && id !== undefined) {
+        if (touchedIds.has(id) || (await this.arcOf(id)) !== null) {
+          throw new ValidationError(`An arc with the id "${id}" already exists in this graph, or an earlier step of this batch uses it; a create cannot take its place (use an update, or another id)`, 'id', id);
         }
-        dry.create(step.data);
       }
+      if (id !== undefined) touchedIds.add(id);
+      if (step.kind === 'create') dry.create(step.data);
       else if (step.kind === 'update') queue('update', step.id, needsBase && dry.update(step.id, step.data) ? {} : null);
       else {
         const lifted = dry.delete(step.id);
@@ -587,7 +592,9 @@ export class ArcHierarchySession {
     // Judged by the preflight (against the end state) when there was one.
     const created = await this.repositories.arcRepository.create(request, { validated: this.target !== undefined });
     this.current.set(created.id, created);
-    this.arcWrites.set(created.id, { before: null });
+    // An id the session already wrote (deleted, say) keeps its before-image: the create is
+    // refused for such an id by the preflight, and must never overwrite what undo restores.
+    if (!this.arcWrites.has(created.id)) this.arcWrites.set(created.id, { before: null });
     return created;
   }
 
@@ -720,14 +727,23 @@ export class ArcHierarchySession {
   /** Events that name an arc this session made and then took back, now naming nothing. */
   private readonly clearedEvents = new Set<string>();
 
-  /** An arc the session created is gone: the events a step assigned to it no longer name it. */
-  private async clearReferencesTo(arcIds: string[]): Promise<void> {
+  /** The arcs this session created (and so would remove), for `clearReferences` after an undo. */
+  createdArcIds(): string[] {
+    return [...this.arcWrites].filter(([, write]) => write.before === null).map(([id]) => id);
+  }
+
+  /**
+   * Arcs this session made are gone: the events that a step of the batch (`stepEvents`) put
+   * in them no longer name them. An event the batch did not write, which names an arc id
+   * that simply does not exist yet, is left as it is.
+   */
+  async clearReferences(arcIds: string[], stepEvents: ReadonlySet<string>): Promise<void> {
     const { eventRepository } = this.repositories;
-    if (!eventRepository || arcIds.length === 0) return;
+    if (!eventRepository || arcIds.length === 0 || stepEvents.size === 0) return;
     const gone = new Set(arcIds);
     for (const event of await eventRepository.findAll()) {
       const metadata = event.metadata;
-      if (!metadata || !(gone.has(String(metadata.arcId)) || gone.has(String(metadata.arc_id)))) continue;
+      if (!stepEvents.has(event.id) || !metadata || !(gone.has(String(metadata.arcId)) || gone.has(String(metadata.arc_id)))) continue;
       const { arcId: _a, arc_id: _b, ...rest } = metadata;
       try {
         await eventRepository.update(event.id, { metadata: rest });
@@ -762,7 +778,6 @@ export class ArcHierarchySession {
       }
     }
     await this.restoreEvents();
-    await this.clearReferencesTo(ids.filter((key) => this.arcWrites.get(key)!.before === null));
     this.arcWrites.clear();
     this.deletedIds.clear();
     this.eventWrites.clear();

@@ -250,6 +250,11 @@ function absorbArcMoves(touched: Touched, session: ArcHierarchySession, steps: B
   return [...steps, ...extra];
 }
 
+/** The ids of the events the steps that succeeded wrote. */
+function eventsWrittenBy(steps: Array<{ type: string; id?: string; success: boolean }>): Set<string> {
+  return new Set(steps.filter((step) => step.success && step.id !== undefined && /_event$/.test(step.type)).map((step) => step.id!));
+}
+
 /** Why an arc step that was fine on its own was not applied. */
 const ARC_STEPS_TOGETHER = 'not applied: another arc step in this batch failed';
 
@@ -1000,8 +1005,12 @@ batchRoutes.post(
           arcIds.forEach((id) => touched.arcs.add(id));
           let arcsRestored = false;
           try {
+            const made = arcSession.createdArcIds();
             await arcSession.undo();
             arcsRestored = true;
+            // An event a step of this transaction put in an arc that is now gone no longer names it.
+            await arcSession.clearReferences(made, eventsWrittenBy(result.results));
+            arcSession.clearedEventIds().forEach((id) => touched.events.add(id));
           } catch (rollbackError) {
             logger.error('Rollback of the arc hierarchy failed', rollbackError);
           }
@@ -1073,8 +1082,10 @@ batchRoutes.post(
       const arcStep = (step: { type: string }): boolean => /_arc$/.test(step.type);
       if (result.results.some((step) => arcStep(step) && !step.success)) {
         absorbArcMoves(touched, arcSession, []);
+        const made = arcSession.createdArcIds();
         await arcSession.undo();
         // An event a step put in an arc that was not made no longer names it.
+        await arcSession.clearReferences(made, eventsWrittenBy(result.results));
         const cleared = new Set(arcSession.clearedEventIds());
         cleared.forEach((id) => touched.events.add(id));
         for (const step of result.results) {

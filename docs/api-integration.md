@@ -278,11 +278,24 @@ its child. If the end state is not a valid hierarchy the whole batch is refused
 with a `400` (`VALIDATION_ERROR`) before any step runs, atomic or not, so nothing
 lands.
 
-A create that names the id of an arc that already exists in the graph, or twice in
-one batch, is refused with a `400` that names the id: a create never takes the
-place of another arc. In an atomic transaction a step that does not apply (an
-`update_arc` or `delete_arc` of an id that is not there) is a failed step like any
-other: the whole transaction is undone and the response is `400`.
+A create that names the id of an arc that already exists in the graph, or that an
+earlier step of the batch uses (a delete and a create of one id included), is
+refused with a `400` that names the id, before any step runs: a create never takes
+the place of another arc. Use an update, or another id.
+
+**A step that does not apply is a failed step**, whatever its type: an `update_*`
+or `delete_*` of an id that is not there fails with the reason ("Not found: …"),
+as a step that throws does.
+
+- With `atomic` (the default), any failed step ends the transaction with a `400`
+  (`TRANSACTION_FAILED`, `rollbackPerformed: true`). What it **undoes**: the
+  entities it created (events, links and arcs) and every arc write (updates,
+  deletes, lifted children, unassigned events). What it **does not undo**: an
+  `update_event`, `delete_event` or link change made before the failing step; those
+  stay in the graph (and are versioned). It is not a database transaction.
+- Without it, the other steps carry on, and a transaction with any failed step
+  answers `207` with `success: false` (before, a step that did not apply left it a
+  `200`).
 
 **The arc steps of a batch land or fail together.** If any arc step fails when it
 is carried out (a create the store refuses, say), every arc write the batch made

@@ -1005,8 +1005,12 @@ export const OPERATIONS: Record<string, OperationSpec> = {
   },
   'POST /api/batch/transaction': {
     summary:
-      'Apply many changes at once. With `atomic` (the default) a failing step undoes the entities the ' +
-      'transaction created; the updates and deletes before it stay. What the transaction leaves is ' +
+      'Apply many changes at once. A step that does not apply (an id that is not there) is a failed step, ' +
+      'like one that throws. With `atomic` (the default) a failed step ends the transaction with a `400`: it ' +
+      'undoes the entities the transaction created and every arc write, but not an earlier `update_event`, ' +
+      '`delete_event` or link change, which stay. Without `atomic` the other steps carry on and any failed ' +
+      'step makes the response a `207` with `success: false`. A create of an arc whose id exists, or that ' +
+      'an earlier step uses, is a `400`. What the transaction leaves is ' +
       'recorded as one version of the graph. Its arc steps are judged once, against the state they end in: ' +
       'a hierarchy that is not valid there (a parent that is the arc itself, its descendant or missing, a ' +
       'level that does not fit, dates outside the parent\'s span) is a `400` before any step runs, whatever ' +
@@ -1018,6 +1022,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     response: 'BatchTransactionResult',
     auth: 'required',
     graphScoped: true,
+    responses: { 207: 'Not atomic, and a step failed; the other steps were applied (the arc steps all fail together).' },
   },
 
   // --- stream --------------------------------------------------------------

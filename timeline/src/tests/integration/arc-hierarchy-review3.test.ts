@@ -180,14 +180,12 @@ describe('the arc hierarchy, third review', () => {
           }
         }
 
-        it('refuses two creates of one id in a batch, and allows a create of an id the batch deleted', async () => {
+        it('refuses two creates of one id in a batch', async () => {
           const graphId = await graphOf(kind, tree);
           const before = await expectConsistent(graphId);
           await transaction(graphId, [{ type: 'create_arc', data: create('N') }, { type: 'create_arc', data: create('N') }]).expect(400);
           await asKey(request(app).post('/api/batch/arcs'), graphId).send({ graphId, arcs: [create('N'), create('N')] }).expect(400);
           expect(await expectConsistent(graphId)).toEqual(before);
-          await transaction(graphId, [{ type: 'delete_arc', data: { id: 'S' } }, { type: 'create_arc', data: create('S', { start_time: iso(1801), end_time: iso(1802) }) }]).expect(200);
-          expect((await expectConsistent(graphId)).S).toEqual([0, null]);
         });
       });
 

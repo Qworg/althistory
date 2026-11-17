@@ -161,6 +161,46 @@ describe('demo server', () => {
     expect(await levels()).not.toHaveProperty(mid.id)
   })
 
+  it('follows the hierarchy on the path ArcDetailPanel uses: a parent named without a level, a cycle, a misfit, a delete', async () => {
+    const { respond } = await load()
+    const arcsNow = async () => (await respond(request('get', '/arcs'))).data.data as Array<{ id: string; level: number; parent_arc_id?: string | null }>
+    const make = async (body: Record<string, unknown>) => (await respond(request('post', '/arcs', { start_time: '1800-01-01T00:00:00Z', end_time: '1900-01-01T00:00:00Z', ...body }))).data.data as { id: string; level: number }
+    const a = await make({ name: 'A' })
+    const b = await make({ name: 'B', parent_arc_id: a.id })
+    const c = await make({ name: 'C', parent_arc_id: b.id })
+    const d = await make({ name: 'D', parent_arc_id: c.id })
+    const other = await make({ name: 'Other' })
+    const levels = async () => Object.fromEntries((await arcsNow()).map((arc) => [arc.id, arc.level]))
+
+    // B goes under Other with no level: it follows its parent, and C and D (three deep) follow it.
+    const moved = await respond(request('put', `/arcs/${b.id}`, { parent_arc_id: other.id }))
+    expect(moved.status).toBe(200)
+    expect(await levels()).toMatchObject({ [b.id]: 1, [c.id]: 2, [d.id]: 3 })
+    // Cleared with no level, it is top level, and its subtree comes up.
+    await respond(request('put', `/arcs/${b.id}`, { parent_arc_id: null }))
+    expect(await levels()).toMatchObject({ [b.id]: 0, [c.id]: 1, [d.id]: 2 })
+
+    // A cycle, a parent that is not there, and a level that does not fit are refused.
+    await expect(respond(request('put', `/arcs/${b.id}`, { parent_arc_id: d.id }))).rejects.toMatchObject({ response: { status: 400 } })
+    await expect(respond(request('put', `/arcs/${b.id}`, { parent_arc_id: 'nowhere' }))).rejects.toMatchObject({ response: { status: 400 } })
+    await expect(respond(request('put', `/arcs/${c.id}`, { level: 5 }))).rejects.toMatchObject({ response: { status: 400 } })
+    expect(await levels()).toMatchObject({ [b.id]: 0, [c.id]: 1, [d.id]: 2 })
+
+    // Deleting C lifts D to B, and says so in the arc itself.
+    await respond(request('delete', `/arcs/${c.id}`))
+    const after = await arcsNow()
+    expect(after.find((arc) => arc.id === d.id)).toMatchObject({ level: 1, parent_arc_id: b.id })
+  })
+
+  it('unassigns the events of a deleted arc, which stay', async () => {
+    const { respond } = await load()
+    const arc = (await respond(request('post', '/arcs', { name: 'Gone', start_time: '1800-01-01T00:00:00Z', end_time: '1900-01-01T00:00:00Z' }))).data.data as { id: string }
+    const event = (await respond(request('post', '/events', { description: 'In it', actor: 'A', target: 'B', timestamp: '1850-01-01T00:00:00Z', metadata: { arcId: arc.id, note: 'kept' } }))).data.data as { id: string }
+    await respond(request('delete', `/arcs/${arc.id}`))
+    const kept = (await respond(request('get', `/events/${event.id}`))).data.data as { metadata?: Record<string, unknown> }
+    expect(kept.metadata).toEqual({ note: 'kept' })
+  })
+
   it('keeps the calendar on a branch of the world', async () => {
     const { respond } = await load()
     const made = await respond(request('post', '/graphs/graph_vael/branch', { name: 'The Last King Lives' }))

@@ -89,4 +89,14 @@ describe('live changes store', () => {
       expect(store.getState().notices.map((notice) => notice.message)).toEqual(['two'])
     })
   })
+
+  it('never evicts a warning for the cap on ordinary notices', () => {
+    const store = useLiveChangesStore.getState()
+    store.setNotice('rebuild:g1', 'Rebuilt, but 1 arc lies outside its parent')
+    store.addNotices(['one', 'two', 'three', 'four', 'five', 'six'])
+    store.setNotice('some-key', 'another ordinary notice')
+    const notices = useLiveChangesStore.getState().notices
+    expect(notices.filter((notice) => notice.warning).map((notice) => notice.message)).toEqual(['Rebuilt, but 1 arc lies outside its parent'])
+    expect(notices.filter((notice) => !notice.warning)).toHaveLength(4)
+  })
 })

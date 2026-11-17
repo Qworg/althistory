@@ -420,6 +420,23 @@ function relevel(graph: GraphState, rootId: string): void {
   }
 }
 
+/** Why an arc cannot sit where it says (as the server refuses it), or null when it fits. */
+function misplaced(graph: GraphState, arc: Json, id: string | undefined): string | null {
+  const parentId = parentOf(arc)
+  const level = arc.level as number
+  if (!parentId) return level > 0 ? 'An arc with no parent is top level (level 0)' : null
+  if (parentId === id) return 'An arc cannot be its own parent'
+  const parent = graph.arcs.find((candidate) => candidate.id === parentId)
+  if (!parent) return 'The parent is not an arc of this graph'
+  // Its own descendants cannot be its parent.
+  const seen = new Set<string>()
+  for (let up: DemoArc | undefined = parent; up && !seen.has(up.id); up = graph.arcs.find((candidate) => candidate.id === parentOf(up!))) {
+    if (up.id === id) return 'An arc cannot be placed under one of its own descendants'
+    seen.add(up.id)
+  }
+  return level === parent.level + 1 ? null : `A child of a level ${parent.level} arc is level ${parent.level + 1}`
+}
+
 function arcs(method: string, path: string, params: URLSearchParams, body: Json, graph: GraphState): Reply | undefined {
   const sorted = () => [...graph.arcs].sort((a, b) => a.level - b.level || compareInstants(toInstant(a.start_time), toInstant(b.start_time)))
   if (path === '/arcs' && method === 'GET') return list(sorted(), params, { filters: { level: null, timeRange: null } })
@@ -431,6 +448,8 @@ function arcs(method: string, path: string, params: URLSearchParams, body: Json,
     // As the server: an arc with no parent is top level, a child is one level below its parent.
     const parent = parentOf(body) ? graph.arcs.find((candidate) => candidate.id === parentOf(body)) : undefined
     const arc = { ...body, level: typeof body.level === 'number' ? body.level : parent ? parent.level + 1 : 0, id: newId('arc') } as DemoArc
+    const problem = misplaced(graph, arc, undefined)
+    if (problem) return badRequest(problem)
     graph.arcs.push(arc)
     return ok(arc, 201)
   }
@@ -441,8 +460,22 @@ function arcs(method: string, path: string, params: URLSearchParams, body: Json,
   if (index < 0) return notFound('Arc')
   if (method === 'GET') return ok(graph.arcs[index])
   if (method === 'PUT' || method === 'PATCH') {
-    const updated = { ...graph.arcs[index], ...body, id } as DemoArc
-    const moved = updated.level !== graph.arcs[index]!.level || parentOf(updated) !== parentOf(graph.arcs[index]!)
+    const old = graph.arcs[index]!
+    const updated = { ...old, ...body, id } as DemoArc
+    // The parent the edit names ("parent_arc_id": null clears it); an edit that moves an arc without a level
+    // puts it one below its new parent (the top, with none), as the server does.
+    if ('parent_arc_id' in body) {
+      updated.parent_arc_id = parentOf({ parent_arc_id: body.parent_arc_id }) ?? null
+      updated.metadata = { ...((updated.metadata as Json | undefined) ?? {}), parentArcId: undefined }
+    }
+    const newParent = parentOf(updated)
+    if (typeof body.level !== 'number' && newParent !== parentOf(old)) {
+      const target = newParent ? graph.arcs.find((candidate) => candidate.id === newParent) : undefined
+      updated.level = target ? target.level + 1 : 0
+    }
+    const problem = misplaced(graph, updated, id)
+    if (problem) return badRequest(problem)
+    const moved = updated.level !== old.level || newParent !== parentOf(old)
     graph.arcs[index] = updated
     // Its subtree moves with it.
     if (moved) relevel(graph, id)
@@ -459,6 +492,16 @@ function arcs(method: string, path: string, params: URLSearchParams, body: Json,
       arc.metadata = { ...((arc.metadata as Json | undefined) ?? {}), parentArcId: above ? above.id : undefined }
       arc.level = above ? above.level + 1 : 0
       relevel(graph, arc.id)
+    }
+    // Its events stay, without it.
+    for (const event of graph.events) {
+      const metadata = event.metadata as Json | undefined
+      if (metadata && (metadata.arcId === id || metadata.arc_id === id)) {
+        const rest = { ...metadata }
+        delete rest.arcId
+        delete rest.arc_id
+        event.metadata = rest
+      }
     }
     return ok({ id, deleted: true })
   }

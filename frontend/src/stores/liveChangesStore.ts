@@ -46,6 +46,13 @@ export interface LiveNotice {
   warning?: boolean
 }
 
+/** The newest `MAX_NOTICES` ordinary notices, and every warning: a warning stays until it is dismissed, so the cap never evicts one. */
+function capNotices(notices: LiveNotice[]): LiveNotice[] {
+  const ordinary = notices.filter((notice) => !notice.warning).slice(-MAX_NOTICES)
+  const keep = new Set(ordinary)
+  return notices.filter((notice) => notice.warning || keep.has(notice))
+}
+
 /** The keys of notices that are warnings. */
 function isWarningKey(key: string): boolean {
   return key.startsWith('rebuild:')
@@ -168,7 +175,7 @@ export const useLiveChangesStore = create<LiveChangesState>((set, get) => {
     addNotices: (messages, now = Date.now()) => {
       if (messages.length === 0) return
       const added = messages.map((message) => ({ id: `live-${++noticeCounter}`, message, at: now }))
-      set({ notices: [...get().notices, ...added].slice(-MAX_NOTICES) })
+      set({ notices: capNotices([...get().notices, ...added]) })
       schedulePrune()
     },
 
@@ -178,7 +185,7 @@ export const useLiveChangesStore = create<LiveChangesState>((set, get) => {
       set({
         notices: existing
           ? notices.map((notice) => (notice === existing ? { ...notice, message, at: now } : notice))
-          : [...notices, { id: `live-${++noticeCounter}`, message, at: now, key, ...(isWarningKey(key) ? { warning: true } : {}) }].slice(-MAX_NOTICES),
+          : capNotices([...notices, { id: `live-${++noticeCounter}`, message, at: now, key, ...(isWarningKey(key) ? { warning: true } : {}) }]),
       })
       schedulePrune()
     },
