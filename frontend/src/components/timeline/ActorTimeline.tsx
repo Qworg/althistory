@@ -391,7 +391,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     const y = yFor(selected)
     // The full name if a plate fits; else the shorter forms the layout uses.
     const found = planPinnedText(
-      { x, markY: y, innerWidth, rows: [-16, -30, 24, 38], labels, markRadius: 10 },
+      { x, markY: y, innerWidth, rows: [-16, -30, 24, 38], labels },
       [32, 24, 18, 14].map((chars) => {
         const text = truncateLabel(selected.description, chars)
         return { text, width: measureLabelWidth(text, 12, 600) }
@@ -662,6 +662,24 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
               })}
             </g>
 
+            {/* The selection's plate hangs from its mark by a leader in the accent,
+                beneath every mark and label (labels have no halo here, but the
+                plate is opaque and the leader is a hairline). */}
+            {pinnedSelection && (
+              <line
+                className="event-label-plate-leader"
+                data-pinned-leader-for={pinnedSelection.id}
+                aria-hidden="true"
+                pointerEvents="none"
+                x1={pinnedSelection.x}
+                x2={pinnedSelection.x}
+                y1={pinnedSelection.y + (pinnedSelection.plan.offset < 0 ? pinnedSelection.plan.offset + PLATE_DESCENT : 10)}
+                y2={pinnedSelection.y + (pinnedSelection.plan.offset < 0 ? -10 : pinnedSelection.plan.offset - PLATE_ASCENT)}
+                stroke="var(--accent-selected)"
+                strokeWidth={1}
+              />
+            )}
+
             {/* Event marks */}
             <g className="events-layer">
               {events.length > 0 && groups.map(([groupKey, groupEvents]) => {
@@ -783,16 +801,6 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
                 without moving any other label. */}
             {pinnedSelection && (
               <g className="actor-pinned-label" data-pinned-label-for={pinnedSelection.id} aria-hidden="true" pointerEvents="none">
-                {!pinnedSelection.plan.noLeader && (
-                <line
-                  x1={pinnedSelection.x}
-                  x2={pinnedSelection.x}
-                  y1={pinnedSelection.y + (pinnedSelection.plan.offset < 0 ? pinnedSelection.plan.offset + PLATE_DESCENT : 10)}
-                  y2={pinnedSelection.y + (pinnedSelection.plan.offset < 0 ? -10 : pinnedSelection.plan.offset - PLATE_ASCENT)}
-                  stroke="var(--accent-selected)"
-                  strokeWidth={1}
-                />
-                )}
                 <rect
                   className="event-label-plate"
                   x={pinnedSelection.plan.left - PLATE_PAD}

@@ -43,13 +43,13 @@ describe('planPinnedLabel', () => {
     expect(plan(wall)).toBeNull()
   })
 
-  it('refuses a row whose leader would cross a label that stays', () => {
-    // A wide label over the mark in row 0 is covered by less than half by a plate there, and a plate in any row above would hang its leader across it.
+  it('lets the plate\'s own leader pass behind a label, hiding nothing for it', () => {
+    // A wide label over the mark in row 0 is covered by less than half by a plate there; a plate above it hangs its leader behind it.
     const wide = label('over', 100, 500, -20)
-    expect(plan([wide])).toBeNull()
-    // A narrow one the row-0 plate covers wholly is hidden instead, and the plate stays in the nearest row.
+    expect(plan([wide])).toMatchObject({ offset: -34, hidden: [] })
+    // A narrow one the row-0 plate covers wholly is hidden only if no row above is free: the leader passes behind it.
     const narrow = label('under', 290, 330, -20)
-    expect(plan([narrow])).toMatchObject({ offset: -20, hidden: ['under'] })
+    expect(plan([narrow])).toMatchObject({ offset: -34, hidden: [] })
   })
 
   it('keeps the plate inside the plot at both edges', () => {
@@ -83,21 +83,51 @@ describe('planPinnedText', () => {
   })
 
   it('names the selection as a last resort by hiding a neighbour whole with its leader, never a protected one', () => {
-    // A wide neighbour in row 2 whose mark is 1px from ours: a plate in row 2 covers it by less than half, one in row 1 has the neighbour's leader through it, and one above row 2 hangs its own leader across the neighbour.
-    const near = (protectedLabel: boolean) => label('near', 100, 500, -34, { leader: { x: 301, top: 100 - 34 + 4, bottom: 90 }, protectedLabel, length: 40 })
-    const input = (protectedLabel: boolean) => ({ x: 300, markY: 100, innerWidth: 700, rows: ROWS, labels: [near(protectedLabel)] })
-    // The ordinary rules find no place.
+    // A wide label in every row: a plate in any row would cover one by less than half, so the ordinary rules refuse them all.
+    const wall = (protectedLabel: boolean) => ROWS.map((offset, i) => label(`w${i}`, 100, 500, offset, { leader: i > 0 ? { x: 301, top: 100 + offset + 4, bottom: 90 } : undefined, protectedLabel, length: 40 + i }))
+    const input = (protectedLabel: boolean) => ({ x: 300, markY: 100, innerWidth: 700, rows: ROWS, labels: wall(protectedLabel) })
     expect(planPinnedLabel({ ...input(false), width: 120 })).toBeNull()
     const texts = [{ text: 'The selected name', width: 120 }, { text: 'The selected…', width: 80 }]
     const found = planPinnedText(input(false), texts)
     expect(found).not.toBeNull()
-    // Named in full, the neighbour hidden whole.
-    expect(found!.plan.hidden).toEqual(['near'])
+    // Named in full; only the one label it touches is hidden whole, in the row where the others' leaders do not run through the plate.
     expect(found!.text).toBe('The selected name')
-    // A protected neighbour is never hidden: the plate goes above it, without a leader across it.
-    const kept = planPinnedText(input(true), texts)
-    expect(kept?.plan.hidden).toEqual([])
-    expect(kept?.plan.noLeader).toBe(true)
-    expect(kept!.plan.offset).toBeLessThan(-34)
+    expect(found!.plan.hidden).toEqual(['w3'])
+    // A protected wall is never hidden: no plate.
+    expect(planPinnedText(input(true), texts)).toBeNull()
+  })
+
+  it("does not hide a label for the plate's own leader, which passes behind it", () => {
+    // The case of Deep time's Triassic: protected labels fill the near rows around a free neighbour in row 0, and the only room is up in row 3, its leader behind that neighbour.
+    const box = (id: string, left: number, right: number, offset: number, extra: Partial<PlacedLabelBox> = {}) => label(id, left, right, offset, { length: 20, ...extra })
+    const labels = [
+      box('U', 90, 110, -20),
+      box('R1', 0, 89, -20, { protectedLabel: true }),
+      box('R2', 111, 200, -20, { protectedLabel: true }),
+      box('Q', 0, 200, -34, { protectedLabel: true }),
+      box('P', 0, 200, -48, { protectedLabel: true }),
+    ]
+    const found = planPinnedText({ x: 100, markY: 100, innerWidth: 400, rows: ROWS, labels }, [{ text: 'Selected', width: 50 }])
+    expect(found?.plan.hidden).toEqual([])
+    expect(found?.plan.offset).toBe(-62)
+  })
+
+  it('ranks placements by the fewest labels hidden across the texts, before the longest name', () => {
+    // A mark at the left edge: a plate can only start at it. A label sits just right of the mark.
+    const edge = label('edge', 60, 120, -20, { length: 12 })
+    const input = { x: 5, markY: 100, innerWidth: 700, rows: [-20], labels: [edge] }
+    // The long name (100) covers the label wholly (hiding it); the short one (40) hides nothing: it wins though shorter.
+    const found = planPinnedText(input, [
+      { text: 'A long name that covers', width: 100 },
+      { text: 'Short', width: 40 },
+    ])
+    expect(found?.text).toBe('Short')
+    expect(found?.plan.hidden).toEqual([])
+    // Where both hide the same, the longer wins.
+    const both = planPinnedText({ ...input, labels: [label('edge', 20, 120, -20, { length: 12 })] }, [
+      { text: 'A long name that covers', width: 100 },
+      { text: 'Short', width: 40 },
+    ])
+    expect(both?.text).toBe('A long name that covers')
   })
 })

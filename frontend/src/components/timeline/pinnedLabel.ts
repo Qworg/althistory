@@ -10,7 +10,8 @@
  *   placement is refused;
  * - protected labels (the selection's own in-place label, the highlighted and
  *   traced events') are never covered;
- * - the leader from the plate to its mark crosses no label that stays.
+ * - the plate's own leader may pass behind a label (it is drawn beneath the
+ *   labels, which carry a card-coloured halo), so it hides nothing.
  *
  * Every row and every extent (centred, starting at the mark, ending at it) is
  * tried; the one that hides the least text wins, the nearest row and the
@@ -41,11 +42,6 @@ export interface PinnedPlan {
   right: number
   /** Labels the plate hides entirely. */
   hidden: string[]
-  /**
-   * The plate's leader would cross a protected label (which stays), so it is
-   * not drawn: the plate sits over the mark's column, named by its position.
-   */
-  noLeader?: boolean
 }
 
 /** The plate reaches this far above its baseline and below it (14px in all, the pitch of the label rows, so it never touches the rows beside it), and past the text on each side. */
@@ -70,19 +66,16 @@ export interface PinnedInput {
   /** Baseline offsets to try, nearest the mark first. */
   rows: readonly number[]
   labels: readonly PlacedLabelBox[]
-  /** The mark's radius, so the leader stops at its edge. */
-  markRadius?: number
   /**
    * The last resort: a label the plate touches, or whose leader runs through
-   * it, or that its leader crosses, is hidden whole (with its leader) however
-   * little the plate covers it, unless it is protected. Without it, such a
-   * placement is refused.
+   * it, is hidden whole (with its leader) however little the plate covers it,
+   * unless it is protected. Without it, such a placement is refused.
    */
   relaxed?: boolean
 }
 
 export function planPinnedLabel(input: PinnedInput): PinnedPlan | null {
-  const { x, markY, width, innerWidth, rows, labels, markRadius = 8, relaxed = false } = input
+  const { x, markY, width, innerWidth, rows, labels, relaxed = false } = input
   let best: { plan: PinnedPlan; hidden: number; text: number } | null = null
   for (const offset of rows) {
     for (const extent of extentsFor(x, width, innerWidth)) {
@@ -122,29 +115,10 @@ export function planPinnedLabel(input: PinnedInput): PinnedPlan | null {
         }
       }
       if (!allowed) continue
-      // The plate's own leader: straight along the mark's x between the plate and the mark.
-      const [from, to] = offset < 0 ? [plate.bottom, markY - markRadius] : [markY + markRadius, plate.top]
-      let noLeader = false
-      for (const label of labels) {
-        if (hidden.includes(label)) continue
-        if (x >= label.left - 2 && x <= label.right + 2 && label.bottom > Math.min(from, to) && label.top < Math.max(from, to) && !hide(label)) {
-          // A protected label stays: as a last resort the plate goes without its leader rather than cross it.
-          if (relaxed && label.protectedLabel) noLeader = true
-          else {
-            allowed = false
-            break
-          }
-        }
-      }
-      if (!allowed) continue
       // Fewest labels hidden, then the least text; the nearest row and centred extent on a tie.
       const text = hidden.reduce((sum, label) => sum + label.length, 0)
-      if (!best || hidden.length < best.hidden || (hidden.length === best.hidden && text < best.text) || (best.plan.noLeader && !noLeader && hidden.length === best.hidden)) {
-        best = {
-          hidden: hidden.length,
-          text,
-          plan: { offset, anchor: extent.anchor, left: extent.left, right: extent.right, hidden: hidden.map((label) => label.id), ...(noLeader ? { noLeader } : {}) },
-        }
+      if (!best || hidden.length < best.hidden || (hidden.length === best.hidden && text < best.text)) {
+        best = { hidden: hidden.length, text, plan: { offset, anchor: extent.anchor, left: extent.left, right: extent.right, hidden: hidden.map((label) => label.id) } }
       }
     }
   }
@@ -152,30 +126,31 @@ export function planPinnedLabel(input: PinnedInput): PinnedPlan | null {
 }
 
 /**
- * The first of several texts (the full name, then shorter forms) for which a
- * plate fits under the ordinary rules, with its plan. Where none does, the
- * last resort: the placement that hides the fewest neighbours whole (then the
- * least of their text, then the longest name), so that every selection is named.
+ * The best plate over several texts (the full name, then shorter forms). Of the
+ * placements the ordinary rules allow, the one that hides the fewest labels
+ * wins, then the one that hides the least text, then the longest name. Only
+ * where the ordinary rules allow none does the last resort run (a plate may
+ * hide a neighbour it touches, whole), ranked the same way, so that every
+ * selection that can be named is.
  */
 export function planPinnedText(
   input: Omit<PinnedInput, 'width' | 'relaxed'>,
   texts: ReadonlyArray<{ text: string; width: number }>
 ): { text: string; plan: PinnedPlan } | null {
-  for (const { text, width } of texts) {
-    const plan = planPinnedLabel({ ...input, width })
-    if (plan) return { text, plan }
-  }
   const lengthOf = (ids: string[]) => ids.reduce((sum, id) => sum + (input.labels.find((label) => label.id === id)?.length ?? 0), 0)
-  let best: { text: string; plan: PinnedPlan; width: number } | null = null
-  for (const { text, width } of texts) {
-    const plan = planPinnedLabel({ ...input, width, relaxed: true })
-    if (!plan) continue
-    const better =
-      !best ||
-      plan.hidden.length < best.plan.hidden.length ||
-      (plan.hidden.length === best.plan.hidden.length &&
-        (lengthOf(plan.hidden) < lengthOf(best.plan.hidden) || (lengthOf(plan.hidden) === lengthOf(best.plan.hidden) && width > best.width)))
-    if (better) best = { text, plan, width }
+  const rank = (relaxed: boolean) => {
+    let best: { text: string; plan: PinnedPlan; width: number } | null = null
+    for (const { text, width } of texts) {
+      const plan = planPinnedLabel({ ...input, width, relaxed })
+      if (!plan) continue
+      const better =
+        !best ||
+        plan.hidden.length < best.plan.hidden.length ||
+        (plan.hidden.length === best.plan.hidden.length &&
+          (lengthOf(plan.hidden) < lengthOf(best.plan.hidden) || (lengthOf(plan.hidden) === lengthOf(best.plan.hidden) && width > best.width)))
+      if (better) best = { text, plan, width }
+    }
+    return best ? { text: best.text, plan: best.plan } : null
   }
-  return best ? { text: best.text, plan: best.plan } : null
+  return rank(false) ?? rank(true)
 }

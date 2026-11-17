@@ -513,7 +513,7 @@ describe('ActorTimeline', () => {
       expect(pinnedCount).toBeGreaterThan(0)
     })
 
-    it('puts the selection\'s plate where it covers no label by less than half, hides what it covers whole, and crosses none with its leader', () => {
+    it('puts the selection\'s plate where it covers no label by less than half, hides what it covers whole, and keeps its leader beneath the marks', () => {
       // Marks piled at both ends of a narrow chart: the selected ones at the edges find no room in the layout.
       const crowd = [
         ...['a1', 'a2', 'a3', 'a4', 'a5'].map((id) => ({ ...actorEvent(id, 'actor', 'Britain'), timestamp: '1700-01-01T00:00:00Z' })),
@@ -552,12 +552,13 @@ describe('ActorTimeline', () => {
             if (after.has(key)) {
               expect(after.get(key)).toEqual(box)
               expect(covered(box), `${key} is partly covered`).toBe(0)
-            } else expect(covered(box), `${key} hidden but barely covered`).toBeGreaterThanOrEqual(0.5)
+            } else expect(covered(box), `${key} hidden though the plate does not touch it`).toBeGreaterThan(0)
           }
-          const line = pinned.querySelector('line')!
-          const [y1, y2] = [+line.getAttribute('y1')!, +line.getAttribute('y2')!].sort((p, q) => p - q) as [number, number]
-          const lx = +line.getAttribute('x1')!
-          for (const [key, box] of after) expect(lx >= box.left - 1 && lx <= box.right + 1 && box.bottom > y1 && box.top < y2, `the leader crosses ${key}`).toBe(false)
+          // Every plate hangs from its mark by a leader, in a layer before the marks and labels.
+          const line = container.querySelector(`line[data-pinned-leader-for="${event.id}"]`)
+          expect(line, `${event.id}'s plate has a leader`).not.toBeNull()
+          const firstMark = container.querySelector('.actor-event')!
+          expect(line!.compareDocumentPosition(firstMark) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
         }
         fireEvent.click(container.querySelector(`.actor-event[data-event-id="${event.id}"]`)!)
       }

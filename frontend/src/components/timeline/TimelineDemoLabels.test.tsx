@@ -37,7 +37,12 @@ const HISTORIES: Record<string, { events: Event[]; links: TimelineLink[] }> = {
   'Engine Age': history(scenario.events, scenario.links, null),
   Vael: history(world.events, world.links, world.graph.calendar as WorldCalendarSet),
   'Deep time': history(deep.events, deep.links, null),
+  // The branch: the copied history with the events and links it adds.
+  Branch: history([...scenario.events, ...scenario.branch.events], [...scenario.links, ...scenario.branch.links], null),
 }
+
+/** Selections no label or plate can name (a traced neighbour's leader runs through every place): none today. */
+const EXCEPTIONS: Record<string, string[]> = {}
 
 beforeEach(() => {
   Object.defineProperty(SVGSVGElement.prototype, 'width', { configurable: true, get: () => ({ baseVal: { value: 1300 } }) })
@@ -171,6 +176,7 @@ describe.each(Object.keys(HISTORIES))('selecting each event of %s', (name) => {
   it('keeps every other label where it was, names the selection in its own place or on a clean plate, and never covers a traced label', () => {
     // Narrower widths crowd the rows, so plates are drawn; at 1300 px most events are named in place.
     let plates = 0
+    const unnamed: string[] = []
     for (const width of [600, 800, 1300]) {
       const base = render(<Timeline events={events} arcs={[]} links={links} width={width} height={600} />)
       const before = labelBoxes(base.container)
@@ -180,9 +186,15 @@ describe.each(Object.keys(HISTORIES))('selecting each event of %s', (name) => {
         const ripple = computeRipple(event.id, links)
         expectPlateClean(container, event.id, before, [...ripple.causes, ...ripple.effects.keys()], width)
         if (container.querySelector('[data-pinned-label-for]')) plates++
+        // Every selection is named: in its own place, or on its plate (the exceptions are listed, none today).
+        const named = container.querySelector(`[data-event-id="${event.id}"] text.event-label`) !== null || container.querySelector(`[data-pinned-label-for="${event.id}"]`) !== null
+        // (An event beyond the plot's right edge, which jsdom's unfitted view leaves off screen, has no mark to name.)
+        const markX = Number(/translate\(\s*([-\d.e]+)/.exec(container.querySelector(`[data-event-id="${event.id}"]`)?.getAttribute('transform') ?? '')?.[1])
+        if (!named && markX >= 0 && markX <= width - 72) unnamed.push(`${event.id} at ${width}px`)
         cleanup()
       }
     }
     expect(plates, 'a plate is drawn for some selection').toBeGreaterThan(0)
+    expect(unnamed, 'selections named neither in place nor on a plate').toEqual(EXCEPTIONS[name] ?? [])
   })
 })

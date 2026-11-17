@@ -637,12 +637,15 @@ const Timeline = memo(function Timeline({
         leader:
           placement.offset < (TIMELINE_LABEL_CONFIG.rowOffsets[0] ?? -20)
             ? { x: markX, top: eventY + placement.offset + 4, bottom: eventY - markBaseRadius(ev.id) - 2 }
-            : undefined,
+            : placement.offset > TIMELINE_BELOW_ROW_OFFSETS[0]
+              ? { x: markX, top: eventY + EVENT_STEM_LENGTH, bottom: eventY + placement.offset - LABEL_FONT_SIZE + 1 }
+              : undefined,
       })
     }
     // The full name if a plate fits; else the shorter forms the layout uses.
     const found = planPinnedText(
-      { x, markY: eventY, innerWidth, rows: TIMELINE_LABEL_CONFIG.rowOffsets, labels, markRadius: markBaseRadius(selected.id) + 4 },
+      { x, markY: eventY, innerWidth, // The rows above the track, then under it (two where links hang there, one in the room a link-less track keeps).
+      rows: [...TIMELINE_LABEL_CONFIG.rowOffsets, ...(layout.linkBand ? TIMELINE_BELOW_ROW_OFFSETS : [24])], labels},
       [PRIORITY_LABEL_MAX_CHARS, 24, 18, 14].map((chars) => {
         const text = truncateLabel(selected.description, chars)
         return { text, width: measureLabelWidth(text, LABEL_FONT_SIZE, 600) }
@@ -650,7 +653,7 @@ const Timeline = memo(function Timeline({
     )
     return found ? { id: selected.id, x, text: found.text, plan: found.plan } : null
     // fontEpoch: widths are measured again once the fonts have loaded.
-  }, [eventLabels, visibleEvents, selectedEventId, highlightedEventIds, ripple, xScale, innerWidth, eventY, markBaseRadius, fontEpoch])
+  }, [eventLabels, visibleEvents, selectedEventId, highlightedEventIds, ripple, xScale, innerWidth, eventY, markBaseRadius, layout.linkBand, fontEpoch])
 
   // The labels drawn: the layout's, less any the selection's plate hides whole.
   const shownLabels = useMemo(() => {
@@ -1684,6 +1687,21 @@ const Timeline = memo(function Timeline({
                 down to its mark. One layer under every mark and label, so a
                 label's halo knocks out any leader that passes behind it. */}
             <g className="timeline-label-leaders" aria-hidden="true" pointerEvents="none">
+              {/* The selection's plate hangs from its mark by a leader in the accent,
+                  beneath every label (they carry a card-coloured halo, so it passes
+                  behind them legibly). */}
+              {pinned && (
+                <line
+                  className="event-label-plate-leader"
+                  data-pinned-leader-for={pinned.id}
+                  x1={pinned.x}
+                  x2={pinned.x}
+                  y1={pinned.plan.offset < 0 ? eventY + pinned.plan.offset + PLATE_DESCENT : eventY + markBaseRadius(pinned.id) + 4}
+                  y2={pinned.plan.offset < 0 ? eventY - markBaseRadius(pinned.id) - 4 : Math.max(eventY + markBaseRadius(pinned.id) + 4, eventY + pinned.plan.offset - PLATE_ASCENT)}
+                  stroke="var(--accent-selected)"
+                  strokeWidth={1}
+                />
+              )}
               {visibleEvents.map(ev => {
                 const placement = shownLabels.get(ev.id)
                 const firstRow = TIMELINE_LABEL_CONFIG.rowOffsets[0] ?? -20
@@ -1789,16 +1807,6 @@ const Timeline = memo(function Timeline({
             {pinned && (
               <g className="timeline-pinned-labels" aria-hidden="true" pointerEvents="none">
                 <g data-pinned-label-for={pinned.id}>
-                  {!pinned.plan.noLeader && (
-                  <line
-                    x1={pinned.x}
-                    x2={pinned.x}
-                    y1={eventY + pinned.plan.offset + PLATE_DESCENT}
-                    y2={eventY - markBaseRadius(pinned.id) - 4}
-                    stroke="var(--accent-selected)"
-                    strokeWidth={1}
-                  />
-                  )}
                   <rect
                     className="event-label-plate"
                     x={pinned.plan.left - PLATE_PAD}
