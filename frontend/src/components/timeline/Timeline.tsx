@@ -1789,6 +1789,7 @@ const Timeline = memo(function Timeline({
             {pinned && (
               <g className="timeline-pinned-labels" aria-hidden="true" pointerEvents="none">
                 <g data-pinned-label-for={pinned.id}>
+                  {!pinned.plan.noLeader && (
                   <line
                     x1={pinned.x}
                     x2={pinned.x}
@@ -1797,6 +1798,7 @@ const Timeline = memo(function Timeline({
                     stroke="var(--accent-selected)"
                     strokeWidth={1}
                   />
+                  )}
                   <rect
                     className="event-label-plate"
                     x={pinned.plan.left - PLATE_PAD}

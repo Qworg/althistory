@@ -66,7 +66,10 @@ export function expectPlateClean(container: HTMLElement, id: string, before: Map
     const covered = area(plate, box) / ((box.right - box.left) * (box.bottom - box.top))
     if (after.has(key)) expect(covered, `${key} is covered by the plate but still drawn`).toBe(0)
     else {
-      expect(covered, `${key} was hidden though the plate covers little of it`).toBeGreaterThanOrEqual(0.5)
+      // Covered by half or more; or, as a last resort so that every selection is named, in the plate's way (its leader
+      // through the plate, or the plate's leader through it): then hidden whole, text and leader.
+      const inTheWay = box.right > plate.left - 1 && box.left < plate.right + 1
+      expect(covered >= 0.5 || inTheWay, `${key} was hidden though it is clear of the plate`).toBe(true)
       expect(protectedIds, `${key} is protected`).not.toContain(key)
     }
   }
@@ -78,11 +81,14 @@ export function expectPlateClean(container: HTMLElement, id: string, before: Map
     const through = lx >= plate.left && lx <= plate.right && Math.max(ly1, ly2) > plate.top && Math.min(ly1, ly2) < plate.bottom
     expect(through, `the leader of ${leader.getAttribute('data-leader-for')} runs through the plate of ${id}`).toBe(false)
   }
-  const line = pinned.querySelector('line')!
-  const [y1, y2] = [Number(line.getAttribute('y1')), Number(line.getAttribute('y2'))].sort((p, q) => p - q) as [number, number]
-  const lx = Number(line.getAttribute('x1'))
-  for (const [key, box] of after) {
-    expect(lx >= box.left - 1 && lx <= box.right + 1 && box.bottom > y1 && box.top < y2, `the leader crosses ${key}`).toBe(false)
+  // Its leader (absent where it would cross a protected label) crosses no label that stays.
+  const line = pinned.querySelector('line')
+  if (line) {
+    const [y1, y2] = [Number(line.getAttribute('y1')), Number(line.getAttribute('y2'))].sort((p, q) => p - q) as [number, number]
+    const lx = Number(line.getAttribute('x1'))
+    for (const [key, box] of after) {
+      expect(lx >= box.left - 1 && lx <= box.right + 1 && box.bottom > y1 && box.top < y2, `the leader crosses ${key}`).toBe(false)
+    }
   }
 }
 

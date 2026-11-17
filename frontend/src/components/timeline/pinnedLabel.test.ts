@@ -81,4 +81,23 @@ describe('planPinnedText', () => {
     ])
     expect(found?.text).toBe('A name…')
   })
+
+  it('names the selection as a last resort by hiding a neighbour whole with its leader, never a protected one', () => {
+    // A wide neighbour in row 2 whose mark is 1px from ours: a plate in row 2 covers it by less than half, one in row 1 has the neighbour's leader through it, and one above row 2 hangs its own leader across the neighbour.
+    const near = (protectedLabel: boolean) => label('near', 100, 500, -34, { leader: { x: 301, top: 100 - 34 + 4, bottom: 90 }, protectedLabel, length: 40 })
+    const input = (protectedLabel: boolean) => ({ x: 300, markY: 100, innerWidth: 700, rows: ROWS, labels: [near(protectedLabel)] })
+    // The ordinary rules find no place.
+    expect(planPinnedLabel({ ...input(false), width: 120 })).toBeNull()
+    const texts = [{ text: 'The selected name', width: 120 }, { text: 'The selected…', width: 80 }]
+    const found = planPinnedText(input(false), texts)
+    expect(found).not.toBeNull()
+    // Named in full, the neighbour hidden whole.
+    expect(found!.plan.hidden).toEqual(['near'])
+    expect(found!.text).toBe('The selected name')
+    // A protected neighbour is never hidden: the plate goes above it, without a leader across it.
+    const kept = planPinnedText(input(true), texts)
+    expect(kept?.plan.hidden).toEqual([])
+    expect(kept?.plan.noLeader).toBe(true)
+    expect(kept!.plan.offset).toBeLessThan(-34)
+  })
 })

@@ -783,6 +783,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
                 without moving any other label. */}
             {pinnedSelection && (
               <g className="actor-pinned-label" data-pinned-label-for={pinnedSelection.id} aria-hidden="true" pointerEvents="none">
+                {!pinnedSelection.plan.noLeader && (
                 <line
                   x1={pinnedSelection.x}
                   x2={pinnedSelection.x}
@@ -791,6 +792,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
                   stroke="var(--accent-selected)"
                   strokeWidth={1}
                 />
+                )}
                 <rect
                   className="event-label-plate"
                   x={pinnedSelection.plan.left - PLATE_PAD}
