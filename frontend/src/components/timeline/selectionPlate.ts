@@ -9,7 +9,7 @@
  * locally and the selection's own never is. See pinnedLabel.ts for the rest.
  */
 
-import { PLATE_ASCENT, PLATE_DESCENT, planPinnedText, type PinnedPlan, type PlacedLabelBox } from './pinnedLabel'
+import { PLATE_ASCENT, PLATE_DESCENT, PLATE_ONLY_ASCENT, PLATE_ONLY_DESCENT, planPinnedText, type PinnedPlan, type PlacedLabelBox } from './pinnedLabel'
 import { linkSpansInBands } from './timelineLinks'
 
 export interface PlateLink {
@@ -84,12 +84,22 @@ export function planSelectionPlate(input: SelectionPlateInput): { text: string; 
     }
     return boxes
   }
-  const attempt = (rows: readonly number[]) =>
-    planPinnedText({ x, markY, innerWidth, rows, labels: [...labels, ...softObstacles, ...obstacles(links)] }, texts) ??
-    planPinnedText(
-      { x, markY, innerWidth, rows, labels: [...labels, ...obstacles(links.filter((link) => link.traced || Math.abs(link.x2 - link.x1) < 2))] },
-      texts
-    )
+  const plateBox = (offset: number) => (plateOnlyRows.includes(offset) ? { ascent: PLATE_ONLY_ASCENT, descent: PLATE_ONLY_DESCENT } : { ascent: PLATE_ASCENT, descent: PLATE_DESCENT })
+  const attempt = (rows: readonly number[]) => {
+    // Every pass that hides no label comes before any that may: covering a sliver arc's edge, or an untraced link, is better than hiding a neighbour.
+    const passes = [
+      [...labels, ...softObstacles, ...obstacles(links)],
+      [...labels, ...obstacles(links)],
+      [...labels, ...obstacles(links.filter((link) => link.traced || Math.abs(link.x2 - link.x1) < 2))],
+    ]
+    for (const allowHide of [false, true]) {
+      for (const pass of passes) {
+        const found = planPinnedText({ x, markY, innerWidth, rows, labels: pass, plateBox }, texts, allowHide)
+        if (found) return found
+      }
+    }
+    return null
+  }
   if (preferAbove) {
     const found = attempt(above)
     if (found) return found

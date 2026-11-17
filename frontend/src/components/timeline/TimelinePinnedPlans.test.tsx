@@ -19,7 +19,7 @@ vi.mock('./labelWidth', async (original) => ({
   measureLabelWidth: (text: string) => text.length * widthPerChar.value,
 }))
 const planned: Array<ReadonlyArray<{ text: string; width: number }>> = []
-const selectionInputs: Array<{ links: ReadonlyArray<{ id: string; x1: number; x2: number; traced?: boolean }>; belowRows: readonly number[]; plateOnlyRows: readonly number[]; aboveRows: readonly number[]; preferAbove?: boolean; labels: ReadonlyArray<{ id: string; protectedLabel?: boolean; obstacle?: boolean }>; softObstacles?: ReadonlyArray<{ id: string; protectedLabel?: boolean; obstacle?: boolean }> }> = []
+const selectionInputs: Array<{ links: ReadonlyArray<{ id: string; x1: number; x2: number; traced?: boolean }>; belowRows: readonly number[]; plateOnlyRows: readonly number[]; aboveRows: readonly number[]; preferAbove?: boolean; labels: ReadonlyArray<{ id: string; protectedLabel?: boolean; obstacle?: boolean }>; softObstacles?: ReadonlyArray<{ id: string; left: number; right: number; top: number; bottom: number; protectedLabel?: boolean; obstacle?: boolean }> }> = []
 vi.mock('./selectionPlate', async (original) => {
   const actual = await original<typeof import('./selectionPlate')>()
   return {
@@ -182,18 +182,29 @@ describe('the rows the plate is offered', () => {
   it('the four label rows, a plate-only row above them, and two rows under the track where links hang there', () => {
     const input = firstPlanned([{ id: 'l1', causeId: 'e00', effectId: 'e39', type: 'direct', weight: 0.5 }])
     expect(input.aboveRows).toEqual([-20, -34, -48, -62])
-    expect(input.plateOnlyRows).toEqual([-75.2])
+    expect(input.plateOnlyRows).toEqual([-75])
     expect(input.belowRows).toEqual([34, 48])
   })
 
   it('a plate-only row only where its whole plate lies in the plot and under the arc band and the divergence band', () => {
-    // With an arc, the row lies under its bar. With no arcs the plot has 74px above the track, and the row (top at -11.7) would be cut off.
-    expect(firstPlanned([], [arc]).plateOnlyRows).toEqual([-75.2])
-    expect(firstPlanned([], []).plateOnlyRows).toEqual([])
-    // With the divergence band (its labels fill the top 24px) and no arcs, the plate would cover them.
+    // With an arc, the row lies under its bar (the plate's top is the bar's foot).
+    expect(firstPlanned([], [arc]).plateOnlyRows).toEqual([-75])
+    // With no arcs and no band, the plot has 74px above the track and the plate (top at -10) rises into the top margin, which the clip now includes.
+    expect(firstPlanned([], []).plateOnlyRows).toEqual([-75])
+    // With a divergence band and no arcs it is offered too, the band's diamond and label being obstacles; with arcs too.
     const ghost = { label: 'Baseline', events: [], divergence: new Date('2024-01-01T10:00:00Z') }
-    expect(firstPlanned([], [], ghost).plateOnlyRows).toEqual([])
-    expect(firstPlanned([], [arc], ghost).plateOnlyRows).toEqual([-75.2])
+    expect(firstPlanned([], [], ghost).plateOnlyRows).toEqual([-75])
+    expect(firstPlanned([], [arc], ghost).plateOnlyRows).toEqual([-75])
+    // A margin too small for the plate to rise into it (no arcs, no band) takes the row away.
+    const events = crowd(40)
+    selectionInputs.length = 0
+    for (const ev of events) {
+      selectionInputs.length = 0
+      const view = render(<Timeline events={events} arcs={[]} margin={{ top: 4, right: 16, bottom: 40, left: 56 }} width={1000} height={500} selectedEventId={ev.id} />)
+      view.unmount()
+      if (selectionInputs.length > 0) break
+    }
+    expect(selectionInputs[0]!.plateOnlyRows).toEqual([])
   })
 
   it('and only the one row a track without links keeps under it', () => {
@@ -274,23 +285,105 @@ describe('the links the plate is planned over', () => {
 })
 
 describe('arc bars as obstacles', () => {
-  const arcOf = (id: string, start: string, end: string) => ({ id, name: id, description: '', start_time: start, end_time: end, level: 0, parent_arc_id: null, created_at: 'x', updated_at: 'x' })
+  const arcOf = (id: string, start: string, end: string, level = 0) => ({ id, name: id, description: '', start_time: start, end_time: end, level, parent_arc_id: null, created_at: 'x', updated_at: 'x' })
   const planned = (arcs: ReturnType<typeof arcOf>[]) => {
     const events = crowd(40)
     for (const ev of events) {
       selectionInputs.length = 0
       const view = render(<Timeline events={events} arcs={arcs} width={1000} height={500} selectedEventId={ev.id} />)
+      const bars = new Map(
+        arcs.map((arc) => {
+          const ring = view.container.querySelector(`[data-arc-id="${arc.id}"] rect.arc-focus-ring`)
+          return [arc.id, ring ? { left: Number(ring.getAttribute('x')) + 3, top: Number(ring.getAttribute('y')) + 3, width: Number(ring.getAttribute('width')) - 6, height: Number(ring.getAttribute('height')) - 6 } : null] as const
+        })
+      )
       view.unmount()
-      if (selectionInputs.length > 0) return selectionInputs[0]!.softObstacles ?? []
+      if (selectionInputs.length > 0) return { soft: selectionInputs[0]!.softObstacles ?? [], bars }
     }
     throw new Error('no selection was planned')
   }
 
-  it('a bar narrower than a plate is an obstacle (a plate over a sliver arc would read as its label); a wide one is not', () => {
-    // Four hours of a forty-hour axis (about 90px) against the whole of it.
-    const narrow = planned([arcOf('sliver', '2024-01-01T18:00:00Z', '2024-01-01T22:00:00Z')])
-    expect(narrow.find((box) => box.id === 'arc:sliver')).toMatchObject({ obstacle: true, protectedLabel: true })
-    const wide = planned([arcOf('wide', '2024-01-01T00:00:00Z', '2024-01-02T15:00:00Z')])
-    expect(wide.find((box) => box.id === 'arc:wide')).toBeUndefined()
+  it('a bar narrower than a plate is an obstacle where it is drawn (a plate over a sliver arc would read as its label); a wider one is not', () => {
+    // Four hours of a forty-hour axis (about 95px), six and a half (about 150px), and the whole of it.
+    const { soft, bars } = planned([
+      arcOf('sliver', '2024-01-01T18:00:00Z', '2024-01-01T22:00:00Z'),
+      arcOf('mid', '2024-01-01T02:00:00Z', '2024-01-01T08:30:00Z'),
+      arcOf('wide', '2024-01-01T00:00:00Z', '2024-01-02T15:00:00Z'),
+    ])
+    const box = soft.find((b) => b.id === 'arc:sliver')!
+    expect(box).toMatchObject({ obstacle: true, protectedLabel: true })
+    const bar = bars.get('sliver')!
+    expect(box.left).toBeCloseTo(bar.left, 0)
+    expect(box.right - box.left).toBeCloseTo(bar.width, 0)
+    expect(box.top).toBeCloseTo(bar.top, 0)
+    expect(box.bottom - box.top).toBeCloseTo(bar.height, 0)
+    expect(soft.find((b) => b.id === 'arc:mid'), 'an arc of 150px is wider than a plate').toBeUndefined()
+    expect(soft.find((b) => b.id === 'arc:wide')).toBeUndefined()
+  })
+
+  it('at the level its bar is drawn: a sliver in a lower row of arcs has its box there', () => {
+    // Two overlapping slivers stack in two rows.
+    const { soft, bars } = planned([arcOf('a', '2024-01-01T18:00:00Z', '2024-01-01T22:00:00Z'), arcOf('b', '2024-01-01T19:00:00Z', '2024-01-01T23:00:00Z', 1)])
+    for (const id of ['a', 'b']) {
+      const bar = bars.get(id)
+      const box = soft.find((b) => b.id === `arc:${id}`)
+      expect(box, id).toBeDefined()
+      expect(box!.top).toBeCloseTo(bar!.top, 0)
+    }
+    expect(bars.get('a')!.top).not.toBe(bars.get('b')!.top)
+  })
+})
+
+describe('the plate is planned again when what it depends on changes', () => {
+  const arcOf = (id: string, start: string, end: string) => ({ id, name: id, description: '', start_time: start, end_time: end, level: 0, parent_arc_id: null, created_at: 'x', updated_at: 'x' })
+  /**
+   * Render a selection with `first`, then `second` over it (same selection, same everything else): the input of the
+   * last plan, for the first selection that is still planned after the change.
+   */
+  const afterChange = (first: Partial<React.ComponentProps<typeof Timeline>>, second: Partial<React.ComponentProps<typeof Timeline>>) => {
+    const events = crowd(40)
+    for (const ev of events) {
+      selectionInputs.length = 0
+      const props = { events, arcs: [], width: 1000, height: 500, selectedEventId: ev.id }
+      const view = render(<Timeline {...props} {...first} />)
+      const calls = selectionInputs.length
+      if (calls > 0) {
+        const before = selectionInputs[calls - 1]!
+        view.rerender(<Timeline {...props} {...second} />)
+        if (selectionInputs.length > calls) {
+          const result = { before, after: selectionInputs[selectionInputs.length - 1]! }
+          view.unmount()
+          return result
+        }
+      }
+      view.unmount()
+    }
+    throw new Error('no selection was planned again')
+  }
+
+  it('when an arc changes (a narrow one is drawn elsewhere)', () => {
+    const { before, after } = afterChange(
+      { arcs: [arcOf('s', '2024-01-01T18:00:00Z', '2024-01-01T22:00:00Z')] },
+      { arcs: [arcOf('s', '2024-01-01T02:00:00Z', '2024-01-01T06:00:00Z')] }
+    )
+    expect(after.softObstacles![0]!.left).not.toBe(before.softObstacles![0]!.left)
+  })
+
+  it('when the layout\'s limit changes with nothing else moving (a top margin too small to rise into)', () => {
+    const { before, after } = afterChange({ margin: { top: 16, right: 16, bottom: 40, left: 56 } }, { margin: { top: 4, right: 16, bottom: 40, left: 56 } })
+    expect(before.plateOnlyRows).toEqual([-75])
+    expect(after.plateOnlyRows).toEqual([])
+  })
+
+  it('when the divergence event changes', () => {
+    const base = crowd(40)
+    // The same instant (one Date): only the event the divergence names changes.
+    const divergence = new Date(base[10]!.timestamp)
+    const ghostEvents: Event[] = []
+    const ghostOf = (divergenceEventId: string) => ({ label: 'Baseline', events: ghostEvents, divergence, divergenceEventId })
+    const { before, after } = afterChange({ ghost: ghostOf('e10') }, { ghost: ghostOf('e11') })
+    const flag = (input: typeof before, id: string) => input.labels.find((l) => l.id === id)?.protectedLabel
+    expect(flag(before, 'e10')).toBe(true)
+    expect(flag(after, 'e10')).toBeFalsy()
   })
 })

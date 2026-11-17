@@ -93,11 +93,24 @@ describe('planSelectionPlate', () => {
 
   it('respects a soft obstacle (a sliver arc) in the first pass, and sets it aside rather than leave the selection unnamed', () => {
     const sliver = box('sliver', 0, 700, -76, { protectedLabel: true, obstacle: true })
-    const labelRowsWalled = ABOVE.map((offset) => box(`w${offset}`, 0, 700, offset, { protectedLabel: true }))
-    // With a row under the track free, the plate takes it rather than cover the sliver's edge.
-    expect(planSelectionPlate(input({ labels: labelRowsWalled, softObstacles: [sliver] }))?.plan.offset).toBe(34)
+    // The label rows are blocked by things that are not labels (so the plate-only row and the first row under the track cost the same and the earlier row wins a tie).
+    const rowsBlocked = ABOVE.map((offset) => box(`o${offset}`, 0, 700, offset, { protectedLabel: true, obstacle: true }))
+    expect(planSelectionPlate(input({ labels: rowsBlocked }))?.plan.offset).toBe(-76)
+    // With the sliver there, the plate takes the row under the track rather than cover the sliver's edge.
+    expect(planSelectionPlate(input({ labels: rowsBlocked, softObstacles: [sliver] }))?.plan.offset).toBe(34)
     // With nowhere else, the plate-only row is used over the sliver.
-    expect(planSelectionPlate(input({ labels: labelRowsWalled, softObstacles: [sliver], belowRows: [] }))?.plan.offset).toBe(-76)
+    expect(planSelectionPlate(input({ labels: rowsBlocked, softObstacles: [sliver], belowRows: [] }))?.plan.offset).toBe(-76)
+  })
+
+  it('sets a soft obstacle aside before it hides a neighbour: covering a sliver is better than hiding a label', () => {
+    // Row -20 holds a wide label a plate would cover by less than a third (hidden only by the last resort); the plate-only row is under a sliver.
+    const wide = box('wide', 100, 500, -20, { length: 40 })
+    const sliver = box('sliver', 0, 700, -76, { protectedLabel: true, obstacle: true })
+    const found = planSelectionPlate(input({ aboveRows: [-20], belowRows: [], labels: [wide], softObstacles: [sliver] }))
+    expect(found?.plan.offset).toBe(-76)
+    expect(found?.plan.hidden).toEqual([])
+    // Without the sliver, the same: nothing is hidden.
+    expect(planSelectionPlate(input({ aboveRows: [-20], belowRows: [], labels: [wide] }))?.plan.hidden).toEqual([])
   })
 
   describe('links under the track', () => {

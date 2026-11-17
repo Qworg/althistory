@@ -21,7 +21,7 @@ import {
 import { formatHistoricalTimestamp, formatEventDate, formatHistoricalEnd } from '@/utils/historicalTime'
 import { measureLabelWidth } from './labelWidth'
 import { useFontEpoch } from './useFontEpoch'
-import { PLATE_ASCENT, PLATE_DESCENT, PLATE_PAD, type PlacedLabelBox } from './pinnedLabel'
+import { PLATE_ONLY_ASCENT, PLATE_PAD, type PlacedLabelBox } from './pinnedLabel'
 import { planSelectionPlate, type PlateLink } from './selectionPlate'
 import { layoutEventLabels, truncateLabel, PRIORITY_LABEL_MAX_CHARS, BESIDE_PX, LABEL_FONT_SIZE, TIMELINE_BELOW_ROW_OFFSETS, TIMELINE_LABEL_CONFIG } from './eventLabelLayout'
 import { tooltipPlacement } from './tooltipPlacement'
@@ -672,6 +672,27 @@ const Timeline = memo(function Timeline({
       const top = yScale(arc.renderLevel)
       softObstacles.push({ id: `arc:${arc.id}`, left, right, top, bottom: top + ARC_BAR_HEIGHT, length: 0, protectedLabel: true, obstacle: true })
     }
+    // The divergence band's diamond and label, and each branch mark's: landmarks a plate is not to cover (the
+    // plate may reach into the band only where they are not).
+    const bandObstacles: PlacedLabelBox[] = []
+    {
+      const midY = DIVERGENCE_BAND_HEIGHT / 2
+      const landmark = (id: string, cx: number, label: string | null, labelBefore: boolean, em = 0.56) => {
+        bandObstacles.push({ id: `band:${id}:diamond`, left: cx - 7, right: cx + 7, top: midY - 7, bottom: midY + 7, length: 0, protectedLabel: true, obstacle: true })
+        if (!label) return
+        const width = label.length * LABEL_FONT_SIZE * em
+        const left = labelBefore ? cx - 10 - width : cx + 10
+        bandObstacles.push({ id: `band:${id}:label`, left, right: left + width, top: midY + 4 - LABEL_FONT_SIZE * 0.8, bottom: midY + 7, length: 0, protectedLabel: true, obstacle: true })
+      }
+      if (divergence) {
+        const cx = xScale(divergence)
+        landmark('divergence', cx, `Diverges ${formatHistoricalTimestamp(divergence)}`, cx > innerWidth * 0.6, 0.62)
+      }
+      for (const mark of branchMarks ?? []) {
+        const cx = xScale(mark.date)
+        landmark(mark.id, cx, mark.label, cx > innerWidth * 0.7)
+      }
+    }
     // The full name if a plate fits; else the shorter forms the layout uses.
     const found = planSelectionPlate({
       x,
@@ -680,11 +701,11 @@ const Timeline = memo(function Timeline({
       innerWidth,
       aboveRows: TIMELINE_LABEL_CONFIG.rowOffsets,
       // Only a row whose whole plate lies in the plot, under the arc band and the divergence band's labels.
-      plateOnlyRows: PLATE_ONLY_ROWS.filter((row) => eventY + row - PLATE_ASCENT >= layout.plateTopLimit),
+      plateOnlyRows: PLATE_ONLY_ROWS.filter((row) => eventY + row - PLATE_ONLY_ASCENT >= layout.plateTopLimit),
       belowRows: layout.linkBand ? TIMELINE_BELOW_ROW_OFFSETS : [24],
       linkBandHeight: layout.linkBand ? layout.linkBand.height : null,
       stemLength: EVENT_STEM_LENGTH,
-      labels,
+      labels: [...labels, ...bandObstacles],
       softObstacles,
       marks: visibleEvents.map((other) => ({ id: other.id, x: xScale(toInstant(other.timestamp)) })),
       links,
@@ -696,7 +717,7 @@ const Timeline = memo(function Timeline({
     })
     return found ? { id: selected.id, x, text: found.text, plan: found.plan } : null
     // fontEpoch: widths are measured again once the fonts have loaded.
-  }, [eventLabels, visibleEvents, selectedEventId, highlightedEventIds, ripple, xScale, innerWidth, eventY, markBaseRadius, layout.linkBand, layout.plateTopLimit, visibleArcs, yScale, drawableLinks, eventsById, ghost?.divergenceEventId, fontEpoch])
+  }, [eventLabels, visibleEvents, selectedEventId, highlightedEventIds, ripple, xScale, innerWidth, eventY, markBaseRadius, layout.linkBand, layout.plateTopLimit, visibleArcs, yScale, drawableLinks, eventsById, ghost?.divergenceEventId, divergence, branchMarks, fontEpoch])
 
   // The labels drawn: the layout's, less any the selection's plate hides whole.
   const shownLabels = useMemo(() => {
@@ -1464,7 +1485,8 @@ const Timeline = memo(function Timeline({
         {/* Clip path to constrain content to inner area */}
         <defs>
           <clipPath id={clipId}>
-            <rect x={0} y={0} width={innerWidth} height={axisY} />
+            {/* With no arcs and no band the plate may rise into the top margin (layout.plateTopLimit < 0). */}
+            <rect x={0} y={Math.min(0, layout.plateTopLimit - 2)} width={innerWidth} height={axisY - Math.min(0, layout.plateTopLimit - 2)} />
           </clipPath>
         </defs>
         <g transform={`translate(${margin.left},${margin.top})`}>
@@ -1739,8 +1761,8 @@ const Timeline = memo(function Timeline({
                   data-pinned-leader-for={pinned.id}
                   x1={pinned.x}
                   x2={pinned.x}
-                  y1={pinned.plan.offset < 0 ? eventY + pinned.plan.offset + PLATE_DESCENT : eventY + markBaseRadius(pinned.id) + 4}
-                  y2={pinned.plan.offset < 0 ? eventY - markBaseRadius(pinned.id) - 4 : Math.max(eventY + markBaseRadius(pinned.id) + 4, eventY + pinned.plan.offset - PLATE_ASCENT)}
+                  y1={pinned.plan.offset < 0 ? eventY + pinned.plan.offset + pinned.plan.descent : eventY + markBaseRadius(pinned.id) + 4}
+                  y2={pinned.plan.offset < 0 ? eventY - markBaseRadius(pinned.id) - 4 : Math.max(eventY + markBaseRadius(pinned.id) + 4, eventY + pinned.plan.offset - pinned.plan.ascent)}
                   stroke="var(--accent-selected)"
                   strokeWidth={1.75}
                 />
@@ -1853,9 +1875,9 @@ const Timeline = memo(function Timeline({
                   <rect
                     className="event-label-plate"
                     x={pinned.plan.left - PLATE_PAD}
-                    y={eventY + pinned.plan.offset - PLATE_ASCENT}
+                    y={eventY + pinned.plan.offset - pinned.plan.ascent}
                     width={pinned.plan.right - pinned.plan.left + 2 * PLATE_PAD}
-                    height={PLATE_ASCENT + PLATE_DESCENT}
+                    height={pinned.plan.ascent + pinned.plan.descent}
                     rx={3}
                     style={{ fill: 'var(--surface-card)', stroke: 'var(--accent-selected)' }}
                     strokeWidth={1}

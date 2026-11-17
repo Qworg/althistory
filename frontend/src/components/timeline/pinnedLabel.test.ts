@@ -209,4 +209,11 @@ describe('planPinnedText', () => {
       expect(planPinnedLabel({ x: 300, markY: 100, width: 60, innerWidth: 700, rows: [48], labels: [traced] })?.tracedHits).toBe(1)
     })
   })
+
+  it('hides nothing when the last resort is not allowed', () => {
+    const wide = label('wide', 100, 500, -20, { length: 40 })
+    // The only row would cover the wide label by less than half: refused by the ordinary rules, hidden by the last resort.
+    expect(planPinnedText({ x: 300, markY: 100, innerWidth: 700, rows: [-20], labels: [wide] }, [{ text: 'Selected', width: 60 }], false)).toBeNull()
+    expect(planPinnedText({ x: 300, markY: 100, innerWidth: 700, rows: [-20], labels: [wide] }, [{ text: 'Selected', width: 60 }])?.plan.hidden).toEqual(['wide'])
+  })
 })

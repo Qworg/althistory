@@ -48,6 +48,9 @@ export interface PinnedPlan {
   anchor: 'start' | 'middle' | 'end'
   left: number
   right: number
+  /** How far the plate reaches above and below its baseline. */
+  ascent: number
+  descent: number
   /** Labels the plate hides entirely. */
   hidden: string[]
   /** How many kept labels the plate's leader passes behind (each is a halo that breaks it). */
@@ -59,6 +62,9 @@ export interface PinnedPlan {
 /** The plate reaches this far above its baseline and below it (14px in all, the pitch of the label rows, so it never touches the rows beside it), and past the text on each side. */
 export const PLATE_ASCENT = 10.5
 export const PLATE_DESCENT = 3.5
+/** The plate-only row's plate is 12px tall (9 above its baseline, 3 below): it fits between the lowest arc bar's foot and the top label row's text. */
+export const PLATE_ONLY_ASCENT = 9
+export const PLATE_ONLY_DESCENT = 3
 export const PLATE_PAD = 3
 /** The share of a label a plate covers before the label is hidden rather than refused. */
 const HIDE_SHARE = 0.5
@@ -78,6 +84,8 @@ export interface PinnedInput {
   /** Baseline offsets to try, nearest the mark first. */
   rows: readonly number[]
   labels: readonly PlacedLabelBox[]
+  /** The plate's reach above and below its baseline in a row (default: PLATE_ASCENT and PLATE_DESCENT). */
+  plateBox?: (offset: number) => { ascent: number; descent: number }
   /**
    * The last resort: a label the plate touches, or whose leader runs through
    * it, is hidden whole (with its leader) however little the plate covers it,
@@ -87,15 +95,16 @@ export interface PinnedInput {
 }
 
 export function planPinnedLabel(input: PinnedInput): PinnedPlan | null {
-  const { x, markY, width, innerWidth, rows, labels, relaxed = false } = input
+  const { x, markY, width, innerWidth, rows, labels, relaxed = false, plateBox } = input
   let best: { plan: PinnedPlan; hidden: number; text: number } | null = null
   for (const offset of rows) {
+    const { ascent, descent } = plateBox?.(offset) ?? { ascent: PLATE_ASCENT, descent: PLATE_DESCENT }
     for (const extent of extentsFor(x, width, innerWidth)) {
       const plate = {
         left: extent.left - PLATE_PAD,
         right: extent.right + PLATE_PAD,
-        top: markY + offset - PLATE_ASCENT,
-        bottom: markY + offset + PLATE_DESCENT,
+        top: markY + offset - ascent,
+        bottom: markY + offset + descent,
       }
       const hidden: PlacedLabelBox[] = []
       /** Hide a label whole (relaxed only, never a protected one): false when it cannot be. */
@@ -148,7 +157,7 @@ export function planPinnedLabel(input: PinnedInput): PinnedPlan | null {
         best = {
           hidden: hidden.length,
           text,
-          plan: { offset, anchor: extent.anchor, left: extent.left, right: extent.right, hidden: hidden.map((label) => label.id), crossings, tracedHits },
+          plan: { offset, anchor: extent.anchor, left: extent.left, right: extent.right, ascent, descent, hidden: hidden.map((label) => label.id), crossings, tracedHits },
         }
       }
     }
@@ -168,7 +177,9 @@ export function planPinnedLabel(input: PinnedInput): PinnedPlan | null {
  */
 export function planPinnedText(
   input: Omit<PinnedInput, 'width' | 'relaxed'>,
-  texts: ReadonlyArray<{ text: string; width: number }>
+  texts: ReadonlyArray<{ text: string; width: number }>,
+  /** Whether the last resort may run (default: it may). Without it, only the ordinary rules are tried. */
+  allowHide = true
 ): { text: string; plan: PinnedPlan } | null {
   const lengthOf = (ids: string[]) => ids.reduce((sum, id) => sum + (input.labels.find((label) => label.id === id)?.length ?? 0), 0)
   const rank = (relaxed: boolean) => {
@@ -189,5 +200,5 @@ export function planPinnedText(
     }
     return best ? { text: best.text, plan: best.plan } : null
   }
-  return rank(false) ?? rank(true)
+  return rank(false) ?? (allowHide ? rank(true) : null)
 }

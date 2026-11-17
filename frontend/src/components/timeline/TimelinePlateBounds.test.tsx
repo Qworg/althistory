@@ -57,32 +57,58 @@ function plates(events: Event[], arcs: Arc[], ghost?: { label: string; events: E
 }
 
 describe('a plate stays inside the plot and clear of the bands above the labels', () => {
-  it('with no arcs and no band: inside the clip rect, whatever the crowd', () => {
+  it('with no arcs and no band: inside the clip rect and the SVG (the plate may rise into the 16px top margin), whatever the crowd', () => {
+    let risen = 0
     for (const count of [20, 30, 40, 60]) {
       const found = plates(crowd(count), [])
       for (const plate of found) {
         expect(plate.top, `${count} events: the plate of ${plate.id} is cut off at ${plate.top}`).toBeGreaterThanOrEqual(plate.clipTop)
+        expect(plate.top).toBeGreaterThanOrEqual(-16)
         expect(plate.bottom).toBeLessThanOrEqual(plate.clipBottom)
+        if (plate.top < 0) risen++
       }
     }
+    expect(risen, 'some plate rises into the margin').toBeGreaterThan(0)
   }, 120_000)
 
-  it('with no arcs and a divergence band: under the band, not over "Diverges …"', () => {
+  it('with no arcs and a divergence band: clear of its diamond and label', () => {
     const events = crowd(40)
-    const ghost = { label: 'Baseline', events: events.slice(0, 5), divergence: new Date(events[12]!.timestamp) }
-    const found = plates(events, [], ghost)
-    for (const plate of found) expect(plate.top, `the plate of ${plate.id} covers the band`).toBeGreaterThanOrEqual(DIVERGENCE_BAND_HEIGHT)
-  }, 120_000)
+    for (const at of [3, 12, 30]) {
+      const ghost = { label: 'Baseline', events: events.slice(0, 5), divergence: new Date(events[at]!.timestamp) }
+      for (const ev of events) {
+        const { container } = render(<Timeline events={events} arcs={[]} ghost={ghost} width={1000} height={500} selectedEventId={ev.id} />)
+        const rect = container.querySelector('[data-pinned-label-for] rect.event-label-plate')
+        if (rect) {
+          const plate = { left: Number(rect.getAttribute('x')), right: Number(rect.getAttribute('x')) + Number(rect.getAttribute('width')), top: Number(rect.getAttribute('y')), bottom: Number(rect.getAttribute('y')) + Number(rect.getAttribute('height')) }
+          const text = container.querySelector('.timeline-divergence text')!
+          const diamond = container.querySelector('.timeline-divergence path')!
+          const cx = Number(/M ([-\d.e]+)/.exec(diamond.getAttribute('d')!)![1])
+          const width = text.textContent!.length * 12 * 0.62
+          const x = Number(text.getAttribute('x'))
+          const labelLeft = text.getAttribute('text-anchor') === 'end' ? x - width : x
+          const boxes = [
+            { left: cx - 6, right: cx + 6, top: 6, bottom: 18 },
+            { left: labelLeft, right: labelLeft + width, top: 6.4, bottom: 19 },
+          ]
+          for (const box of boxes) {
+            const apart = plate.right <= box.left || plate.left >= box.right || plate.bottom <= box.top || plate.top >= box.bottom
+            expect(apart, `the plate of ${ev.id} covers the divergence band at event ${at}`).toBe(true)
+          }
+        }
+        cleanup()
+      }
+    }
+  }, 180_000)
 
   it('with an arc: under its bar, within the tolerance the band under it allows', () => {
     const found = plates(crowd(40), [arc])
     expect(found.length).toBeGreaterThan(0)
     for (const plate of found) {
-      // The bar's foot is 84px above the track (74px of label rows and the 10px gap).
-      expect(plate.top, `the plate of ${plate.id} reaches over the bar`).toBeGreaterThanOrEqual(plate.markY - 84 - 2)
+      // The bar's foot is 84px above the track (74px of label rows and the 10px gap): the plate's top is no higher.
+      expect(plate.top, `the plate of ${plate.id} reaches over the bar`).toBeGreaterThanOrEqual(plate.markY - 84)
       expect(plate.top).toBeGreaterThanOrEqual(plate.clipTop)
     }
-    // With the room above the labels, some plate takes it (the row at -75.2).
+    // With the room above the labels, some plate takes it (the row at -75, its top the bar's foot).
     expect(found.some((plate) => plate.top < plate.markY - 80)).toBe(true)
   }, 120_000)
 
@@ -90,7 +116,7 @@ describe('a plate stays inside the plot and clear of the bands above the labels'
     const events = crowd(40)
     const ghost = { label: 'Baseline', events: events.slice(0, 5), divergence: new Date(events[12]!.timestamp) }
     for (const plate of plates(events, [arc], ghost)) {
-      expect(plate.top).toBeGreaterThanOrEqual(plate.markY - 84 - 2)
+      expect(plate.top).toBeGreaterThanOrEqual(plate.markY - 84)
       expect(plate.top).toBeGreaterThanOrEqual(DIVERGENCE_BAND_HEIGHT)
     }
   }, 120_000)
