@@ -307,6 +307,31 @@ per-window, so the minute and the hour can be in different states.
 
 Limits are per key, not per endpoint, and reads and writes count the same.
 
+**The app's own key is exempt.** The key configured as `ADMIN_API_KEY` (the one
+`start-local.sh` puts in the browser bundle) is not rate limited on any route,
+and may hold any number of live streams, so a person with several tabs open is
+never refused live sync. The exemption belongs to that one key, found by
+comparing the stored keys with the environment at start-up, not to the `admin`
+permission: an admin key minted through `/api/keys`, and every scoped key given
+to an agent, keeps the limits above. Unsetting or changing `ADMIN_API_KEY`
+withdraws it. Costs that are not request rates still apply to it, such as the
+generation-job caps below. For an exempt key `GET /api/keys/:id/usage` answers
+`"rateLimitExempt": true` and empty `currentUsage` windows (its requests are not
+counted); `rateLimit` still shows the stored numbers, which are not applied.
+The same holds for the import routes' own limiter (10 a minute per key, per IP
+when there is no key; polling
+`GET /api/import/jobs/:id` has a separate 600 a minute), which skips the app key,
+and which sends `Retry-After` like every other `429`. The stream token and
+`auth_result` report `concurrentStreams: null` for the app key.
+
+**A minted key built into the bundled UI is not exempt.** The read-only key that
+[production-deployment.md](production-deployment.md) tells operators to bake
+into the browser bundle keeps the limits above, so size its `rateLimit` for the
+tabs and reloads you expect.
+
+Anything else that gets a `429` should show it to the person and honour
+`Retry-After`; the bundled UI does.
+
 ## Async jobs
 
 Long operations answer `202` with a job instead of doing the work inline. An

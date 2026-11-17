@@ -62,10 +62,14 @@ export interface ImportRouterConfig {
   idempotencyTtlMs?: number;
 }
 
-// Rate limiting: track requests per IP
+// Rate limiting: track requests per API key (per IP when there is no key)
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
-const DEFAULT_RATE_LIMIT_MAX_REQUESTS = 10; // 10 requests per minute per IP
+const DEFAULT_RATE_LIMIT_MAX_REQUESTS = 10; // 10 requests per minute per key
+// Polling a running import's job status is its own, much higher allowance: the
+// import wizard asks every 500 ms (120 a minute), and a start/validate budget
+// of 10 would refuse it a few seconds into a background import.
+const DEFAULT_POLL_RATE_LIMIT_MAX_REQUESTS = 600;
 
 // FIX B#53: Idempotency key storage
 interface IdempotencyEntry {
@@ -310,9 +314,22 @@ setInterval(cleanupStaleLocks, 10 * 60 * 1000);
 /**
  * Rate limiting middleware factory
  */
-function createRateLimiter(maxRequests: number) {
+function createRateLimiter(maxRequests: number, pollMaxRequests: number = DEFAULT_POLL_RATE_LIMIT_MAX_REQUESTS) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    // The app's own key (the configured ADMIN_API_KEY) is not limited on any
+    // route. This runs after authentication, so the key is known here.
+    if ((req as AuthenticatedRequest).apiKey?.rateLimitExempt) {
+      next();
+      return;
+    }
+
+    // Status polling (GET /jobs/:id) counts against its own bucket.
+    const polling = req.method === 'GET' && /^\/jobs\/[^/]+\/?$/.test(req.path);
+    const limit = polling ? pollMaxRequests : maxRequests;
+    // Per key once authenticated (so users behind one NAT or proxy do not share
+    // one budget), per IP when there is no key.
+    const keyId = (req as AuthenticatedRequest).apiKey?.id;
+    const ip = `${polling ? 'poll:' : ''}${keyId ? `key:${keyId}` : req.ip || req.socket.remoteAddress || 'unknown'}`;
     const now = Date.now();
 
     const entry = rateLimitMap.get(ip);
@@ -320,10 +337,11 @@ function createRateLimiter(maxRequests: number) {
       if (now > entry.resetTime) {
         // Reset window
         rateLimitMap.set(ip, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
-      } else if (entry.count >= maxRequests) {
+      } else if (entry.count >= limit) {
+        res.setHeader('Retry-After', String(Math.max(1, Math.ceil((entry.resetTime - now) / 1000))));
         res.status(429).json({
           error: 'Too many requests',
-          message: `Rate limit exceeded. Maximum ${maxRequests} requests per minute.`,
+          message: `Rate limit exceeded. Maximum ${limit} requests per minute.`,
           retryAfter: Math.ceil((entry.resetTime - now) / 1000),
         });
         return;
@@ -686,12 +704,6 @@ export function createImportRouter(config: ImportRouterConfig): Router {
   // FIX B#21: Add correlation ID to all requests
   router.use(addCorrelationId);
 
-  // Apply rate limiting to all routes (unless disabled)
-  const rateLimitMiddleware = config.disableRateLimit 
-    ? noRateLimit 
-    : createRateLimiter(config.rateLimitMaxRequests || DEFAULT_RATE_LIMIT_MAX_REQUESTS);
-  router.use(rateLimitMiddleware);
-
   // FIX #14: Use shared constant for content length validation (header check)
   router.use(validateContentLength(MAX_IMPORT_SIZE_BYTES));
 
@@ -701,6 +713,13 @@ export function createImportRouter(config: ImportRouterConfig): Router {
   // FIX #5: Apply authentication to all routes
   const authMiddleware = createAuthMiddleware(config);
   router.use(authMiddleware);
+
+  // Apply rate limiting to all routes (unless disabled). After authentication,
+  // so the app's own key can be told from every other caller and skipped.
+  const rateLimitMiddleware = config.disableRateLimit 
+    ? noRateLimit 
+    : createRateLimiter(config.rateLimitMaxRequests || DEFAULT_RATE_LIMIT_MAX_REQUESTS);
+  router.use(rateLimitMiddleware);
 
   const targetGraphAccess = createGraphAccessMiddleware(config, 'targetGraphId');
   const graphAccess = createGraphAccessMiddleware(config, 'graphId');

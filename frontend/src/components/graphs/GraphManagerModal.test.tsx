@@ -229,6 +229,9 @@ const createMockGraphManagement = (
   isMerging: false,
   isRollingBack: false,
   isSwitching: false,
+  switchError: null,
+  switchTargetId: null,
+  clearSwitchError: vi.fn(),
   ...overrides
 })
 

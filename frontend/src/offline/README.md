@@ -75,8 +75,9 @@ Nothing drains the queue while the device is offline.
   by replay order).
 - **No idempotency keys.** If the server applied a write but the response was
   lost, replay can apply it twice.
-- **No `Retry-After` honouring.** A 429 is retried on the schedule above, not on
-  the delay the server asked for.
+- **`Retry-After` is a floor, not a schedule.** A 429 is retried on the
+  schedule above, but never sooner than the delay the server asked for, and the
+  person is told (the same notice the API client shows).
 - **No Background Sync API.** Replay runs on the `online` event, at app start if
   already online, and on the retry timer. If the app is closed, nothing replays
   until it is opened again.

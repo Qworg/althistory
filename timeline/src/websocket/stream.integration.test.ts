@@ -173,6 +173,8 @@ interface RawUpgradeResult {
   raw: string;
 }
 
+const APP_KEY = `ak_stream_app_${'q'.repeat(32)}`;
+
 describe('WebSocket streaming (requirement 16)', () => {
   let container: Container;
   let app: express.Application;
@@ -361,6 +363,7 @@ describe('WebSocket streaming (requirement 16)', () => {
     process.env.LOCAL_BACKUP_ENABLED = 'false';
     process.env.LOCAL_MAX_MEMORY_MB = '64';
 
+    process.env.ADMIN_API_KEY = APP_KEY;
     const config = loadConfig();
     const dbManager = initializeDatabaseManager(config.database);
     container = initializeContainer(dbManager, config);
@@ -422,6 +425,7 @@ describe('WebSocket streaming (requirement 16)', () => {
   });
 
   afterAll(async () => {
+    delete process.env.ADMIN_API_KEY;
     await handler.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await cleanupContainer();
@@ -1213,6 +1217,52 @@ describe('WebSocket streaming (requirement 16)', () => {
       const third = await connectAccepted(thirdToken);
       await third.close();
       await waitForSessionCount(limitedKeyId, 0);
+    });
+  });
+
+  describe('the app\'s own key (ADMIN_API_KEY)', () => {
+    it('holds more streams than its stored limit and writes past its request budget; a minted admin key does not', async () => {
+      // Lower the app key's stored limits well below what the test does: the
+      // exemption, not a generous default, is what lets it through.
+      const keys = await container.authService.listApiKeys();
+      const appKey = keys.find((k) => k.rateLimitExempt);
+      expect(appKey).toBeDefined();
+      await container.authService.updateApiKey(appKey!.id, {
+        rateLimit: { concurrentStreams: 1, requestsPerMinute: 2 },
+      });
+
+      const open: SocketHarness[] = [];
+      try {
+        for (let i = 0; i < 3; i += 1) {
+          const harness = await openHarness(streamUrl(`?token=${encodeURIComponent(await requestToken(APP_KEY))}`));
+          const auth = await harness.next();
+          expect(auth).toMatchObject({ type: 'auth_result', success: true, concurrentStreams: null });
+          open.push(harness);
+        }
+        expect(sessionManager.countFor(appKey!.id)).toBe(3);
+
+        for (let i = 0; i < 6; i += 1) {
+          sendJson(open[0]!, { type: 'event', requestId: `app-${i}`, data: eventData(`App key write ${i}`) });
+          const ack = await open[0]!.next();
+          expect(ack).toMatchObject({ requestId: `app-${i}`, success: true });
+        }
+      } finally {
+        await Promise.all(open.map((h) => h.close()));
+      }
+
+      // The same limits on a minted admin key are enforced.
+      const minted = await container.authService.createApiKey({
+        name: 'Minted admin, one stream',
+        permissions: ['admin', 'write:events'],
+        rateLimit: { concurrentStreams: 1 },
+      });
+      const first = await connectAccepted(await requestToken(minted.key));
+      try {
+        const rejection = await expectUpgradeRejected(`?token=${encodeURIComponent(await requestToken(minted.key))}`);
+        expect(rejection.code).toBe('CONCURRENT_LIMIT');
+      } finally {
+        await first.close();
+      }
     });
   });
 

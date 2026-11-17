@@ -14,6 +14,7 @@ import {
 } from '@/hooks/useGraphs'
 import { useGlobalStore } from '@/stores/globalStore'
 import { GraphStatus } from '@/types'
+import { RetryCountdown } from '@/components/notifications/NotificationCenter'
 import { formatHistoricalRange, historicalYear } from '@/utils/historicalTime'
 import { storedCalendarSet } from '@althistory/calendar'
 import { buildGraphTree, branchLabel } from './graphTree'
@@ -109,9 +110,35 @@ export const GraphSelector = memo(function GraphSelector({
     isLoading,
     isCreating: isCreatingGraph,
     isSwitching,
-  } = useGraphManagement()
+    switchError,
+    switchTargetId,
+    clearSwitchError,
+  } = useGraphManagement({ quiet: true })
   const headVersion = useGraphHeadVersion(activeGraphId, activeGraph?.version)
   const accessProblem = useApiAccess()
+
+  // A refusal belongs to the moment it happened. Once the open graph changes
+  // by any route (the Graph Manager, another tab, going back), "still on X"
+  // is no longer true, and must not return if the graph changes again.
+  useEffect(() => {
+    if (switchError) clearSwitchError()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeGraphId])
+
+  // The moment the server will take the switch again, counted down in the alert.
+  const retryAt = useMemo(() => {
+    const wait = (switchError as { retryAfter?: number | null } | null)?.retryAfter
+    return switchError && typeof wait === 'number' ? Date.now() + wait * 1000 : undefined
+  }, [switchError])
+
+  // ... and it goes once the wait it named has passed, as the notices do.
+  useEffect(() => {
+    if (!switchError) return
+    const wait = (switchError as { retryAfter?: number | null }).retryAfter
+    const timer = setTimeout(clearSwitchError, ((wait ?? 5) + 3) * 1000)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [switchError])
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -447,6 +474,45 @@ export const GraphSelector = memo(function GraphSelector({
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
+
+      {/* A refused switch (a 429, say) changed nothing: the button above still
+          names the graph that is open. Say so, so the click is not silent. */}
+      {/* Hidden once the graph it could not open is the open one (a switch made
+          from the Graph Manager or another tab). On a phone the selector sits
+          at the right of a narrow header, so the alert is pinned to the screen
+          with a 16px gutter instead of hanging off the selector's edge. */}
+      {switchError && !isOpen && activeGraphId !== switchTargetId && (
+        <div
+          role="alert"
+          data-testid="graph-switch-error"
+          className={`z-40 flex items-start gap-2 rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink shadow-lg ${
+            sheet
+              ? 'fixed inset-x-4 top-[calc(var(--app-header-h,7rem)+0.5rem)]'
+              : 'absolute top-full right-0 mt-1 w-80 max-w-[calc(100vw-2rem)]'
+          }`}
+        >
+          <div className="min-w-0 flex-1 break-words">
+            <p>
+              Couldn’t switch to {graphs.find((g) => g.id === switchTargetId)?.name ?? 'that graph'}; still on{' '}
+              {activeGraph?.name ?? 'the current graph'}.{' '}
+              {(switchError as { refusal?: string }).refusal ?? switchError.message}
+            </p>
+            {(switchError as { refusal?: string }).refusal !== undefined && (
+              <RetryCountdown retryAt={retryAt} />
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={clearSwitchError}
+            aria-label="Dismiss switch error"
+            className="shrink-0 rounded p-1 text-ink-muted hover:bg-subtle hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-selected"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       {/* Dropdown Menu: a panel under the button on desktop; on a phone a
           bottom sheet, because a 20rem panel anchored to the button's right

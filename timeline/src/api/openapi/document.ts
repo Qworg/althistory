@@ -589,6 +589,11 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: {
       keyId: { type: 'string' },
       rateLimit: { $ref: '#/components/schemas/ApiKeyRateLimit' },
+      rateLimitExempt: {
+        type: 'boolean',
+        description:
+          'True for the app\'s own key, the one configured as ADMIN_API_KEY: it is not rate limited on any route and holds any number of streams, so its currentUsage windows are always empty and rateLimit is not applied. Every other key, admin permission or not, is limited.',
+      },
       currentUsage: {
         type: 'object',
         required: ['minute', 'hour', 'day'],
@@ -979,7 +984,7 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
         enum: ['write', 'feed'],
         description: '`write`: a session that may write entities. `feed`: a read-only session for the live change feed.',
       },
-      concurrentStreams: { type: 'number' },
+      concurrentStreams: { type: 'number', nullable: true, description: 'The key\'s cap on concurrent streams; null for the app\'s own key (ADMIN_API_KEY), which has none.' },
     },
     required: ['token', 'expiresIn', 'graphId', 'permissions', 'mode'],
   },

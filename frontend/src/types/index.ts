@@ -280,6 +280,17 @@ export interface ErrorState {
   /** `info` is a notice, not a failure: the app changed something the user should know about. */
   type: 'network' | 'validation' | 'visualization' | 'general' | 'info'
   timestamp: Date
+  /**
+   * Set on a rate-limit notice: what was refused (its identity: a repeat
+   * refusal of the same kind updates this notice, it does not add one).
+   */
+  refusal?: string
+  /**
+   * Set on a rate-limit notice: when the server will take the request again
+   * (epoch ms). The notice shows the remaining wait counting down, and goes
+   * away a little after it.
+   */
+  retryAt?: number
 }
 
 // User preferences that should be persisted

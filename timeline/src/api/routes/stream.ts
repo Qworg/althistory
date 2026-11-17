@@ -150,7 +150,8 @@ streamRoutes.post(
       graphId,
       permissions: record.permissions,
       mode: record.mode,
-      concurrentStreams: req.apiKey.rateLimit.concurrentStreams,
+      // null: the app's own key holds any number of streams.
+      concurrentStreams: req.apiKey.rateLimitExempt ? null : req.apiKey.rateLimit.concurrentStreams,
     });
   })
 );

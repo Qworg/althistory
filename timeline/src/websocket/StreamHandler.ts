@@ -568,7 +568,7 @@ export class StreamHandler {
     const opened = this.sessionManager.tryOpen(
       result.apiKey.id,
       result.graphId,
-      result.apiKey.rateLimit.concurrentStreams
+      result.apiKey.maxConcurrentStreams()
     );
     if (!opened.ok) {
       this.logger.warn('Stream connection refused', {
@@ -773,7 +773,7 @@ export class StreamHandler {
       sessionId: session.id,
       apiKeyId: apiKey.id,
       graphId,
-      concurrentStreams: apiKey.rateLimit.concurrentStreams,
+      concurrentStreams: apiKey.rateLimitExempt ? null : apiKey.rateLimit.concurrentStreams,
       mode: context.mode,
     });
 
@@ -1089,7 +1089,7 @@ export class StreamHandler {
 
     // Charge the same per-key request budget the HTTP routes use. Skipping it
     // here would make the socket a way around the limit.
-    const limiter = this.deps.rateLimitService;
+    const limiter = apiKey.rateLimitExempt ? undefined : this.deps.rateLimitService;
     if (limiter) {
       const result = limiter.recordRequest(apiKey.id, apiKey.rateLimit);
       if (!result.allowed) {
@@ -1212,7 +1212,7 @@ export class StreamHandler {
       return;
     }
 
-    const limiter = this.deps.rateLimitService;
+    const limiter = apiKey.rateLimitExempt ? undefined : this.deps.rateLimitService;
     if (limiter) {
       const charged = limiter.recordRequest(apiKey.id, apiKey.rateLimit);
       if (!charged.allowed) {

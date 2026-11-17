@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { CausalPath } from '@/types'
+import { reportApiError } from '@/services/rateLimitNotice'
 import { useGlobalStore } from '@/stores/globalStore'
 import { apiClient } from '@/services/api'
 
@@ -124,10 +125,7 @@ export const useCausalPathExploration = (initialOptions?: Partial<PathExploratio
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to explore causal paths'
       setError(errorMessage)
-      addError({
-        message: errorMessage,
-        type: 'network'
-      })
+      reportApiError(null, err, 'network', addError)
     } finally {
       setIsLoading(false)
     }
