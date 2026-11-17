@@ -10,6 +10,7 @@ import { Timeline } from './Timeline'
 import { ActorTimeline, type ActorEventData } from './ActorTimeline'
 import { fontsLoaded } from './labelWidth'
 import * as pinned from './pinnedLabel'
+import { computeRipple } from './timelineLinks'
 import type { Event } from '@/types'
 
 const widthPerChar = { value: 6.72 }
@@ -18,13 +19,13 @@ vi.mock('./labelWidth', async (original) => ({
   measureLabelWidth: (text: string) => text.length * widthPerChar.value,
 }))
 const planned: Array<ReadonlyArray<{ text: string; width: number }>> = []
-const selectionInputs: Array<{ links: ReadonlyArray<{ id: string; x1: number; x2: number }>; belowRows: readonly number[]; plateOnlyRows: readonly number[]; aboveRows: readonly number[]; preferAbove?: boolean }> = []
+const selectionInputs: Array<{ links: ReadonlyArray<{ id: string; x1: number; x2: number; traced?: boolean }>; belowRows: readonly number[]; plateOnlyRows: readonly number[]; aboveRows: readonly number[]; preferAbove?: boolean; labels: ReadonlyArray<{ id: string; protectedLabel?: boolean; obstacle?: boolean }>; softObstacles?: ReadonlyArray<{ id: string; protectedLabel?: boolean; obstacle?: boolean }> }> = []
 vi.mock('./selectionPlate', async (original) => {
   const actual = await original<typeof import('./selectionPlate')>()
   return {
     ...actual,
     planSelectionPlate: (input: Parameters<typeof actual.planSelectionPlate>[0]) => {
-      selectionInputs.push({ links: input.links, belowRows: input.belowRows, plateOnlyRows: input.plateOnlyRows, aboveRows: input.aboveRows, preferAbove: input.preferAbove })
+      selectionInputs.push({ links: input.links, belowRows: input.belowRows, plateOnlyRows: input.plateOnlyRows, aboveRows: input.aboveRows, preferAbove: input.preferAbove, labels: input.labels, softObstacles: input.softObstacles })
       return actual.planSelectionPlate(input)
     },
   }
@@ -166,11 +167,12 @@ describe('the plate is planned again when the links change', () => {
 })
 
 describe('the rows the plate is offered', () => {
-  const firstPlanned = (links: Array<{ id: string; causeId: string; effectId: string; type: 'direct'; weight: number }>) => {
+  const arc = { id: 'a', name: 'An arc', description: '', start_time: '2024-01-01T00:00:00Z', end_time: '2024-01-02T00:00:00Z', level: 0, parent_arc_id: null, created_at: 'x', updated_at: 'x' }
+  const firstPlanned = (links: Array<{ id: string; causeId: string; effectId: string; type: 'direct'; weight: number }>, arcs = [arc], ghost?: { label: string; events: Event[]; divergence: Date }) => {
     const events = crowd(40)
     for (const ev of events) {
       selectionInputs.length = 0
-      const view = render(<Timeline events={events} arcs={[]} links={links} width={1000} height={500} selectedEventId={ev.id} />)
+      const view = render(<Timeline events={events} arcs={arcs} links={links} ghost={ghost} width={1000} height={500} selectedEventId={ev.id} />)
       view.unmount()
       if (selectionInputs.length > 0) return selectionInputs[0]!
     }
@@ -180,8 +182,18 @@ describe('the rows the plate is offered', () => {
   it('the four label rows, a plate-only row above them, and two rows under the track where links hang there', () => {
     const input = firstPlanned([{ id: 'l1', causeId: 'e00', effectId: 'e39', type: 'direct', weight: 0.5 }])
     expect(input.aboveRows).toEqual([-20, -34, -48, -62])
-    expect(input.plateOnlyRows).toEqual([-76])
+    expect(input.plateOnlyRows).toEqual([-75.2])
     expect(input.belowRows).toEqual([34, 48])
+  })
+
+  it('a plate-only row only where its whole plate lies in the plot and under the arc band and the divergence band', () => {
+    // With an arc, the row lies under its bar. With no arcs the plot has 74px above the track, and the row (top at -11.7) would be cut off.
+    expect(firstPlanned([], [arc]).plateOnlyRows).toEqual([-75.2])
+    expect(firstPlanned([], []).plateOnlyRows).toEqual([])
+    // With the divergence band (its labels fill the top 24px) and no arcs, the plate would cover them.
+    const ghost = { label: 'Baseline', events: [], divergence: new Date('2024-01-01T10:00:00Z') }
+    expect(firstPlanned([], [], ghost).plateOnlyRows).toEqual([])
+    expect(firstPlanned([], [arc], ghost).plateOnlyRows).toEqual([-75.2])
   })
 
   it('and only the one row a track without links keeps under it', () => {
@@ -198,5 +210,87 @@ describe('the rows the plate is offered', () => {
     } finally {
       Object.defineProperty(window, 'innerWidth', { configurable: true, value: original })
     }
+  })
+})
+
+describe('the point of divergence event', () => {
+  it('is the one event protected, though others share its instant; and an event the branch no longer has protects none', () => {
+    // Two events at the divergence instant, apart from a dense cluster whose selections find no room in the rows.
+    const at = (day: number, minute = 0) => new Date(Date.UTC(2024, 0, 1 + day, 0, minute)).toISOString()
+    const events = [
+      event('e10', at(0), 'The event the branch diverges at'),
+      event('e11', at(0), 'Another event at the same instant'),
+      ...Array.from({ length: 40 }, (_, i) => event(`c${String(i).padStart(2, '0')}`, at(30, i), `A rather long title for clustered event number ${i}`)),
+    ]
+    const divergence = new Date(at(0))
+    const protectedAmong = (divergenceEventId: string | null) => {
+      const seen: Record<string, boolean | undefined> = {}
+      for (const ev of events) {
+        selectionInputs.length = 0
+        const view = render(<Timeline events={events} arcs={[]} ghost={{ label: 'Baseline', events: [], divergence, divergenceEventId }} width={1000} height={500} selectedEventId={ev.id} />)
+        view.unmount()
+        for (const label of selectionInputs[0]?.labels ?? []) if (label.id === 'e10' || label.id === 'e11') seen[label.id] = label.protectedLabel
+      }
+      return seen
+    }
+    const withEvent = protectedAmong('e10')
+    expect(Object.keys(withEvent)).toEqual(expect.arrayContaining(['e10', 'e11']))
+    expect(withEvent.e10, 'the divergence event is protected').toBe(true)
+    expect(withEvent.e11, 'another event at its instant is not').toBeFalsy()
+    const without = protectedAmong('gone')
+    expect(Object.keys(without).length).toBeGreaterThan(0)
+    expect(without.e10).toBeFalsy()
+    expect(without.e11).toBeFalsy()
+  })
+})
+
+describe('the links the plate is planned over', () => {
+  it("are marked traced when they are in the selection's ripple, and only then", () => {
+    const events = crowd(40)
+    // The effect ends of the chains carry no weight, so their labels go first: selecting one finds no room.
+    const links = [
+      { id: 'l1', causeId: 'e00', effectId: 'e39', type: 'direct' as const, weight: 0.5 },
+      { id: 'l2', causeId: 'e10', effectId: 'e20', type: 'direct' as const, weight: 0.5 },
+      { id: 'l3', causeId: 'e20', effectId: 'e30', type: 'direct' as const, weight: 0.5 },
+    ]
+    let traced = 0
+    let untraced = 0
+    for (const ev of events) {
+      selectionInputs.length = 0
+      const view = render(<Timeline events={events} arcs={[]} links={links} width={1000} height={500} selectedEventId={ev.id} />)
+      view.unmount()
+      const input = selectionInputs[0]
+      if (!input) continue
+      const ripple = computeRipple(ev.id, links)
+      for (const link of input.links) {
+        expect(link.traced, `${link.id} for ${ev.id}`).toBe(ripple.links.has(link.id))
+        if (link.traced) traced++
+        else untraced++
+      }
+    }
+    expect(traced).toBeGreaterThan(0)
+    expect(untraced).toBeGreaterThan(0)
+  })
+})
+
+describe('arc bars as obstacles', () => {
+  const arcOf = (id: string, start: string, end: string) => ({ id, name: id, description: '', start_time: start, end_time: end, level: 0, parent_arc_id: null, created_at: 'x', updated_at: 'x' })
+  const planned = (arcs: ReturnType<typeof arcOf>[]) => {
+    const events = crowd(40)
+    for (const ev of events) {
+      selectionInputs.length = 0
+      const view = render(<Timeline events={events} arcs={arcs} width={1000} height={500} selectedEventId={ev.id} />)
+      view.unmount()
+      if (selectionInputs.length > 0) return selectionInputs[0]!.softObstacles ?? []
+    }
+    throw new Error('no selection was planned')
+  }
+
+  it('a bar narrower than a plate is an obstacle (a plate over a sliver arc would read as its label); a wide one is not', () => {
+    // Four hours of a forty-hour axis (about 90px) against the whole of it.
+    const narrow = planned([arcOf('sliver', '2024-01-01T18:00:00Z', '2024-01-01T22:00:00Z')])
+    expect(narrow.find((box) => box.id === 'arc:sliver')).toMatchObject({ obstacle: true, protectedLabel: true })
+    const wide = planned([arcOf('wide', '2024-01-01T00:00:00Z', '2024-01-02T15:00:00Z')])
+    expect(wide.find((box) => box.id === 'arc:wide')).toBeUndefined()
   })
 })

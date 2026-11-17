@@ -159,7 +159,9 @@ export function planPinnedLabel(input: PinnedInput): PinnedPlan | null {
 /**
  * The best plate over several texts (the full name, then shorter forms). Of the
  * placements the ordinary rules allow, the one that hides the fewest labels
- * wins, then the one that hides the least text, then the longest name. Only
+ * wins; then the one whose leader runs through the fewest pieces of the
+ * selection's own trace; then the one whose leader passes behind the fewest
+ * labels; then the one that hides the least text; then the longest name. Only
  * where the ordinary rules allow none does the last resort run (a plate may
  * hide a neighbour it touches, whole), ranked the same way, so that every
  * selection that can be named is.

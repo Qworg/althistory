@@ -78,11 +78,49 @@ describe('planSelectionPlate', () => {
     const docked = planSelectionPlate(input({ labels, preferAbove: true }))
     expect(docked?.plan.offset).toBe(-20)
     expect(docked?.plan.hidden).toEqual(['small'])
+    // A docked sheet takes the plate-only row above the labels before any row under the track, though that row's leader passes behind four labels.
+    const labelRowsWalled = ABOVE.map((offset) => box(`w${offset}`, 0, 700, offset, { protectedLabel: true }))
+    expect(planSelectionPlate(input({ labels: labelRowsWalled, preferAbove: true }))?.plan.offset).toBe(-76)
     // With nothing above, a docked sheet still gets a plate under the track.
     expect(planSelectionPlate(input({ labels: wall, preferAbove: true }))?.plan.offset).toBe(34)
   })
 
+  it('puts the plate-only row before the rows under the track when they tie (nothing hidden, no crossings)', () => {
+    // Obstacles block the label rows without being labels the leader passes behind, so the plate-only row and the first row under the track cost the same.
+    const blocked = ABOVE.map((offset) => box(`o${offset}`, 0, 700, offset, { protectedLabel: true, obstacle: true }))
+    expect(planSelectionPlate(input({ labels: blocked }))?.plan.offset).toBe(-76)
+  })
+
+  it('respects a soft obstacle (a sliver arc) in the first pass, and sets it aside rather than leave the selection unnamed', () => {
+    const sliver = box('sliver', 0, 700, -76, { protectedLabel: true, obstacle: true })
+    const labelRowsWalled = ABOVE.map((offset) => box(`w${offset}`, 0, 700, offset, { protectedLabel: true }))
+    // With a row under the track free, the plate takes it rather than cover the sliver's edge.
+    expect(planSelectionPlate(input({ labels: labelRowsWalled, softObstacles: [sliver] }))?.plan.offset).toBe(34)
+    // With nowhere else, the plate-only row is used over the sliver.
+    expect(planSelectionPlate(input({ labels: labelRowsWalled, softObstacles: [sliver], belowRows: [] }))?.plan.offset).toBe(-76)
+  })
+
   describe('links under the track', () => {
+    it('reads where a link reaches: one that stays in the first row under the track leaves the second', () => {
+      // A link three pixels wide hangs 16px: it blocks the first row (y 23 to 37) and only grazes the second.
+      const found = planSelectionPlate(input({ labels: wall, links: [link('short', X, X + 3)] }))
+      expect(found?.plan.offset).toBe(48)
+      // It is not the selection's: the plate's leader runs past it without counting it as the trace.
+      expect(found?.plan.tracedHits).toBe(0)
+    })
+
+    it("counts the selection's own loop, which the plate's leader passes, as its trace", () => {
+      // A loop at the mark blocks the first row under the track and only grazes the second; the leader to a plate in the second runs through it.
+      const found = planSelectionPlate(input({ labels: wall, links: [link('loop', X, X)] }))
+      expect(found?.plan.offset).toBe(48)
+      expect(found?.plan.tracedHits).toBe(1)
+    })
+
+    it('puts each link\'s obstacle in its own row: a link far to one side leaves the plate on the side away from it', () => {
+      expect(planSelectionPlate(input({ labels: wall, links: [link('far', 312, 12)] }))?.plan.anchor).toBe('end')
+      expect(planSelectionPlate(input({ labels: wall, links: [link('far', 284, 584)] }))?.plan.anchor).toBe('start')
+    })
+
     it('in the first pass a plate covers no link at all', () => {
       // A link far from the plate leaves a place; a link on either side of the mark leaves only plates that cover one.
       const clear = planSelectionPlate(input({ labels: wall, links: [link('far', 560, 640)] }))
@@ -96,7 +134,8 @@ describe('planSelectionPlate', () => {
 
     it("failing that, covers untraced links locally, but never the selection's trace or a loop", () => {
       // A loop at the mark blocks the first row under the track; an untraced link on each side blocks every plate in the second.
-      const links = [link('loop', X, X), link('left', 262, 100), link('right', 320, 380)]
+      // 'mid' is not a loop (30px wide): the second pass ignores it too.
+      const links = [link('loop', X, X), link('left', 262, 100), link('right', 320, 380), link('mid', 280, 310)]
       const found = planSelectionPlate(input({ labels: wall, links }))
       expect(found).not.toBeNull()
       // The second row, since the loop (blocking the first) is part of the trace; covering the untraced links on either side.

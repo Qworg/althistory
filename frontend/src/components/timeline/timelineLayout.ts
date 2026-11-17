@@ -96,6 +96,13 @@ export interface TimelineLayout {
   ghostY: number | null
   /** Top and depth of the causal-link band, or null when there is none. */
   linkBand: { top: number; height: number } | null
+  /**
+   * The highest a plate may reach (its top, in plot y): the clip rect's top at
+   * 0, below the divergence band's labels, and where arcs are drawn, the foot of
+   * the lowest arc bar (less 2px of tolerance, so a plate may touch a bar's
+   * edge). A plate whose top is above it would be cut off or cover a landmark.
+   */
+  plateTopLimit: number
   /** y of the time axis. */
   axisY: number
   /** The plot height the content needs (axisY; the tick labels sit in the bottom margin). */
@@ -134,6 +141,7 @@ export function computeTimelineLayout({
     eventY,
     ghostY,
     linkBand,
+    plateTopLimit: Math.max(0, maxArcLevel >= 0 ? arcsBottom - ARC_TO_LABELS_GAP - PLATE_BAR_TOLERANCE : arcsBottom),
     axisY,
     innerHeight: axisY,
     height: margin.top + axisY + margin.bottom,
@@ -165,7 +173,16 @@ export function timelineContentHeight(
   }).height
 }
 
-/** The row of a plate alone, above the top label row and under the arcs (within the band the layout keeps there). */
-export const PLATE_ONLY_ROWS = [-76] as const
+/**
+ * The row of a plate alone, above the top label row and under the arcs: its
+ * bottom just clears the top label row's text (-62 - 9.6), its top is 1.7px
+ * over the lowest bar's edge. Offered only where the whole plate lies inside
+ * the plot and below the arc band and the divergence band (`plateTopLimit`).
+ */
+/** An arc bar narrower than this is an obstacle for a plate (a plate over a sliver arc would read as its label). */
+export const NARROW_ARC_PX = 120
+export const PLATE_ONLY_ROWS = [-75.2] as const
+/** How far a plate in the plate-only row may overlap the lowest arc bar's edge (the band under the bars holds 12.4px, a plate 14). */
+export const PLATE_BAR_TOLERANCE = 2
 /** Below this viewport width the inspector's sheet is docked over the bottom of the page. */
 export const DOCKED_SHEET_BELOW_PX = 1024

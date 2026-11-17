@@ -35,6 +35,7 @@ import {
   arcRowY,
   computeTimelineLayout,
   DOCKED_SHEET_BELOW_PX,
+  NARROW_ARC_PX,
   PLATE_ONLY_ROWS,
 } from './timelineLayout'
 import {
@@ -77,6 +78,8 @@ export interface TimelineGhost {
   label: string
   events: Event[]
   divergence?: Date | null
+  /** The id of the event the point of divergence names, when this graph has it: its label is protected. */
+  divergenceEventId?: string | null
 }
 
 export interface TimelineProps {
@@ -635,9 +638,9 @@ const Timeline = memo(function Timeline({
         top: eventY + placement.offset - LABEL_FONT_SIZE * 0.8,
         bottom: eventY + placement.offset + 3,
         length: placement.text.length,
-        // The traced and highlighted labels, and the point of divergence's: the one a branch view turns on.
+        // The traced and highlighted labels, and the point of divergence event's (named by the ghost): the one a branch view turns on.
         protectedLabel:
-          emphasised || ripple.causes.has(ev.id) || ripple.effects.has(ev.id) || (divergenceTime !== null && toAxisTime(toInstant(ev.timestamp)) === divergenceTime),
+          emphasised || ripple.causes.has(ev.id) || ripple.effects.has(ev.id) || ev.id === ghost?.divergenceEventId,
         // The hairline a label above the first row hangs from (drawn with the leaders below).
         leader:
           placement.offset < (TIMELINE_LABEL_CONFIG.rowOffsets[0] ?? -20)
@@ -660,6 +663,15 @@ const Timeline = memo(function Timeline({
       if (Math.max(x1, x2) < -40 || Math.min(x1, x2) > innerWidth + 40) continue
       links.push({ id: link.id, x1, x2, traced: ripple.links.has(link.id) })
     }
+    // A narrow arc bar is not to be mistaken for the plate's label: a bar narrower than a plate is an obstacle (to the first pass).
+    const softObstacles: PlacedLabelBox[] = []
+    for (const arc of visibleArcs) {
+      const left = xScale(toInstant(arc.start_time))
+      const right = xScale(toInstant(arc.end_time))
+      if (right - left >= NARROW_ARC_PX) continue
+      const top = yScale(arc.renderLevel)
+      softObstacles.push({ id: `arc:${arc.id}`, left, right, top, bottom: top + ARC_BAR_HEIGHT, length: 0, protectedLabel: true, obstacle: true })
+    }
     // The full name if a plate fits; else the shorter forms the layout uses.
     const found = planSelectionPlate({
       x,
@@ -667,11 +679,13 @@ const Timeline = memo(function Timeline({
       markY: eventY,
       innerWidth,
       aboveRows: TIMELINE_LABEL_CONFIG.rowOffsets,
-      plateOnlyRows: PLATE_ONLY_ROWS,
+      // Only a row whose whole plate lies in the plot, under the arc band and the divergence band's labels.
+      plateOnlyRows: PLATE_ONLY_ROWS.filter((row) => eventY + row - PLATE_ASCENT >= layout.plateTopLimit),
       belowRows: layout.linkBand ? TIMELINE_BELOW_ROW_OFFSETS : [24],
       linkBandHeight: layout.linkBand ? layout.linkBand.height : null,
       stemLength: EVENT_STEM_LENGTH,
       labels,
+      softObstacles,
       marks: visibleEvents.map((other) => ({ id: other.id, x: xScale(toInstant(other.timestamp)) })),
       links,
       texts: [PRIORITY_LABEL_MAX_CHARS, 24, 18, 14].map((chars) => {
@@ -682,7 +696,7 @@ const Timeline = memo(function Timeline({
     })
     return found ? { id: selected.id, x, text: found.text, plan: found.plan } : null
     // fontEpoch: widths are measured again once the fonts have loaded.
-  }, [eventLabels, visibleEvents, selectedEventId, highlightedEventIds, ripple, xScale, innerWidth, eventY, markBaseRadius, layout.linkBand, drawableLinks, eventsById, divergenceTime, fontEpoch])
+  }, [eventLabels, visibleEvents, selectedEventId, highlightedEventIds, ripple, xScale, innerWidth, eventY, markBaseRadius, layout.linkBand, layout.plateTopLimit, visibleArcs, yScale, drawableLinks, eventsById, ghost?.divergenceEventId, fontEpoch])
 
   // The labels drawn: the layout's, less any the selection's plate hides whole.
   const shownLabels = useMemo(() => {

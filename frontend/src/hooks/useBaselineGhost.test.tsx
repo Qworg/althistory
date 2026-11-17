@@ -77,6 +77,8 @@ describe('useBaselineGhost', () => {
       label: 'The Engine Age',
       events: shared,
       divergence: new Date('1860-07-12T00:00:00Z'),
+      // The event the point of divergence names: the timeline protects its label.
+      divergenceEventId: 'ban',
     })
   })
 
@@ -86,6 +88,7 @@ describe('useBaselineGhost', () => {
     await waitFor(() => expect(result.current.ghost).toBeDefined())
     expect(result.current.pointOfDivergence).toBeNull()
     expect(result.current.ghost?.divergence).toBeNull()
+    expect(result.current.ghost?.divergenceEventId).toBeNull()
   })
 
   it('does nothing on a graph that is not a branch', async () => {

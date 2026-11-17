@@ -37,6 +37,12 @@ export interface SelectionPlateInput {
   /** How far a mark's stem reaches under it. */
   stemLength: number
   labels: readonly PlacedLabelBox[]
+  /**
+   * Obstacles the first pass respects and the fallback does not (a narrow arc
+   * bar a plate would be mistaken for the label of): better a plate over a
+   * sliver's edge than an unnamed selection.
+   */
+  softObstacles?: readonly PlacedLabelBox[]
   /** Every mark in view: its stem is an obstacle under the track. */
   marks: ReadonlyArray<{ id: string; x: number }>
   links: readonly PlateLink[]
@@ -46,9 +52,9 @@ export interface SelectionPlateInput {
 }
 
 export function planSelectionPlate(input: SelectionPlateInput): { text: string; plan: PinnedPlan } | null {
-  const { x, selectedId, markY, innerWidth, aboveRows, plateOnlyRows, belowRows, linkBandHeight, stemLength, labels, marks, links, texts, preferAbove = false } = input
+  const { x, selectedId, markY, innerWidth, aboveRows, plateOnlyRows, belowRows, linkBandHeight, stemLength, labels, softObstacles = [], marks, links, texts, preferAbove = false } = input
   const above = [...aboveRows, ...plateOnlyRows]
-  const obstacles = (rows: readonly number[], subset: readonly PlateLink[]): PlacedLabelBox[] => {
+  const obstacles = (subset: readonly PlateLink[]): PlacedLabelBox[] => {
     const boxes: PlacedLabelBox[] = []
     for (const mark of marks) {
       if (mark.id === selectedId) continue
@@ -76,13 +82,12 @@ export function planSelectionPlate(input: SelectionPlateInput): { text: string; 
         })
       }
     }
-    void rows
     return boxes
   }
   const attempt = (rows: readonly number[]) =>
-    planPinnedText({ x, markY, innerWidth, rows, labels: [...labels, ...obstacles(rows, links)] }, texts) ??
+    planPinnedText({ x, markY, innerWidth, rows, labels: [...labels, ...softObstacles, ...obstacles(links)] }, texts) ??
     planPinnedText(
-      { x, markY, innerWidth, rows, labels: [...labels, ...obstacles(rows, links.filter((link) => link.traced || Math.abs(link.x2 - link.x1) < 2))] },
+      { x, markY, innerWidth, rows, labels: [...labels, ...obstacles(links.filter((link) => link.traced || Math.abs(link.x2 - link.x1) < 2))] },
       texts
     )
   if (preferAbove) {
