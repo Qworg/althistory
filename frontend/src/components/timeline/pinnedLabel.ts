@@ -29,6 +29,8 @@ export interface PlacedLabelBox {
   protectedLabel?: boolean
   /** How much text it would take with it if hidden. */
   length: number
+  /** The vertical hairline that joins it to its mark (it goes when the label does). */
+  leader?: { x: number; top: number; bottom: number }
 }
 
 export interface PinnedPlan {
@@ -54,7 +56,7 @@ function overlapArea(a: { left: number; right: number; top: number; bottom: numb
   return w > 0 && h > 0 ? w * h : 0
 }
 
-export function planPinnedLabel(input: {
+export interface PinnedInput {
   x: number
   markY: number
   /** The text's measured width. */
@@ -65,7 +67,9 @@ export function planPinnedLabel(input: {
   labels: readonly PlacedLabelBox[]
   /** The mark's radius, so the leader stops at its edge. */
   markRadius?: number
-}): PinnedPlan | null {
+}
+
+export function planPinnedLabel(input: PinnedInput): PinnedPlan | null {
   const { x, markY, width, innerWidth, rows, labels, markRadius = 8 } = input
   let best: { plan: PinnedPlan; cost: number } | null = null
   for (const offset of rows) {
@@ -89,6 +93,18 @@ export function planPinnedLabel(input: {
         hidden.push(label)
       }
       if (!allowed) continue
+      // A kept label's leader through the plate would look like the plate's own
+      // (the plate would seem joined to another mark): refused like a covered label.
+      const leaderThrough = labels.some(
+        (label) =>
+          label.leader !== undefined &&
+          !hidden.includes(label) &&
+          label.leader.x >= plate.left &&
+          label.leader.x <= plate.right &&
+          label.leader.bottom > plate.top &&
+          label.leader.top < plate.bottom
+      )
+      if (leaderThrough) continue
       // The leader: straight along the mark's x between the plate and the mark.
       const [from, to] = offset < 0 ? [plate.bottom, markY - markRadius] : [markY + markRadius, plate.top]
       const crossed = labels.some(
@@ -103,4 +119,20 @@ export function planPinnedLabel(input: {
     }
   }
   return best?.plan ?? null
+}
+
+/**
+ * The first of several texts (the full name, then shorter forms) for which a
+ * plate fits, with its plan: where the whole name has no room, a shorter one
+ * may.
+ */
+export function planPinnedText(
+  input: Omit<PinnedInput, 'width'>,
+  texts: ReadonlyArray<{ text: string; width: number }>
+): { text: string; plan: PinnedPlan } | null {
+  for (const { text, width } of texts) {
+    const plan = planPinnedLabel({ ...input, width })
+    if (plan) return { text, plan }
+  }
+  return null
 }

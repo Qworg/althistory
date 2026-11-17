@@ -70,6 +70,14 @@ export function expectPlateClean(container: HTMLElement, id: string, before: Map
       expect(protectedIds, `${key} is protected`).not.toContain(key)
     }
   }
+  // No kept label's leader runs through the plate: it would look joined to another mark.
+  for (const leader of Array.from(container.querySelectorAll('line.event-label-leader'))) {
+    const [ly1, ly2] = [Number(leader.getAttribute('y1')), Number(leader.getAttribute('y2'))]
+    if (ly1 === ly2) continue
+    const lx = Number(leader.getAttribute('x1'))
+    const through = lx >= plate.left && lx <= plate.right && Math.max(ly1, ly2) > plate.top && Math.min(ly1, ly2) < plate.bottom
+    expect(through, `the leader of ${leader.getAttribute('data-leader-for')} runs through the plate of ${id}`).toBe(false)
+  }
   const line = pinned.querySelector('line')!
   const [y1, y2] = [Number(line.getAttribute('y1')), Number(line.getAttribute('y2'))].sort((p, q) => p - q) as [number, number]
   const lx = Number(line.getAttribute('x1'))

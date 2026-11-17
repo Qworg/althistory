@@ -165,18 +165,24 @@ describe.each(Object.keys(HISTORIES))('%s at 1300 px', (name) => {
   })
 })
 
-describe.each(Object.keys(HISTORIES))('selecting each event of %s at 1300 px', (name) => {
+describe.each(Object.keys(HISTORIES))('selecting each event of %s', (name) => {
   const { events, links } = HISTORIES[name]!
 
   it('keeps every other label where it was, names the selection in its own place or on a clean plate, and never covers a traced label', () => {
-    const base = render(<Timeline events={events} arcs={[]} links={links} width={1300} height={600} />)
-    const before = labelBoxes(base.container)
-    cleanup()
-    for (const event of events) {
-      const { container } = render(<Timeline events={events} arcs={[]} links={links} width={1300} height={600} selectedEventId={event.id} />)
-      const ripple = computeRipple(event.id, links)
-      expectPlateClean(container, event.id, before, [...ripple.causes, ...ripple.effects.keys()], 1300)
+    // Narrower widths crowd the rows, so plates are drawn; at 1300 px most events are named in place.
+    let plates = 0
+    for (const width of [600, 800, 1300]) {
+      const base = render(<Timeline events={events} arcs={[]} links={links} width={width} height={600} />)
+      const before = labelBoxes(base.container)
       cleanup()
+      for (const event of events) {
+        const { container } = render(<Timeline events={events} arcs={[]} links={links} width={width} height={600} selectedEventId={event.id} />)
+        const ripple = computeRipple(event.id, links)
+        expectPlateClean(container, event.id, before, [...ripple.causes, ...ripple.effects.keys()], width)
+        if (container.querySelector('[data-pinned-label-for]')) plates++
+        cleanup()
+      }
     }
+    expect(plates, 'a plate is drawn for some selection').toBeGreaterThan(0)
   })
 })

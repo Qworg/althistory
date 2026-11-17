@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PLATE_ASCENT, PLATE_DESCENT, PLATE_PAD, planPinnedLabel, type PlacedLabelBox } from './pinnedLabel'
+import { PLATE_ASCENT, PLATE_DESCENT, PLATE_PAD, planPinnedLabel, planPinnedText, type PlacedLabelBox } from './pinnedLabel'
 
 const ROWS = [-20, -34, -48, -62]
 const label = (id: string, left: number, right: number, offset: number, extra: Partial<PlacedLabelBox> = {}): PlacedLabelBox => ({
@@ -57,5 +57,28 @@ describe('planPinnedLabel', () => {
     expect(left!.left).toBeGreaterThanOrEqual(0)
     const right = plan([], 698, 200, 700)
     expect(right!.right).toBeLessThanOrEqual(700)
+  })
+
+  it('refuses a placement whose plate a kept label\'s leader runs through, and hides the leader with a hidden label', () => {
+    // A leader hanging from a label in row 3 down to a mark at x=300 runs through every nearer row's plate there.
+    const leader = { x: 300, top: 100 - 62 + 4, bottom: 100 - 10 }
+    const hanging = label('far', 150, 450, -62, { leader, protectedLabel: true })
+    expect(plan([hanging])).toBeNull()
+    // The same label unprotected is covered wholly by the row-3 plate (hidden, leader and all): the plate goes there.
+    const hideable = label('far', 270, 330, -62, { leader })
+    expect(plan([hideable])).toMatchObject({ offset: -62, hidden: ['far'] })
+  })
+})
+
+describe('planPinnedText', () => {
+  it('takes the first text whose plate fits: a shorter name where the whole one has no room', () => {
+    // Walls of protected labels in every row leave a gap of 100px around the mark at x=300.
+    const walls = ROWS.flatMap((offset, i) => [label(`l${i}`, 0, 250, offset, { protectedLabel: true }), label(`r${i}`, 350, 700, offset, { protectedLabel: true })])
+    const found = planPinnedText({ x: 300, markY: 100, innerWidth: 700, rows: ROWS, labels: walls }, [
+      { text: 'A name that is long', width: 160 },
+      { text: 'A name that…', width: 110 },
+      { text: 'A name…', width: 70 },
+    ])
+    expect(found?.text).toBe('A name…')
   })
 })

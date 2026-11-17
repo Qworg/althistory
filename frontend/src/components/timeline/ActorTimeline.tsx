@@ -7,7 +7,8 @@ import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import { formatEventDate } from '@/utils/historicalTime'
 import { truncateToWidth } from '@/utils'
 import { measureLabelWidth } from './labelWidth'
-import { PLATE_ASCENT, PLATE_DESCENT, PLATE_PAD, planPinnedLabel, type PlacedLabelBox } from './pinnedLabel'
+import { useFontEpoch } from './useFontEpoch'
+import { PLATE_ASCENT, PLATE_DESCENT, PLATE_PAD, planPinnedText, type PlacedLabelBox } from './pinnedLabel'
 import { layoutEventLabels, truncateLabel, TIMELINE_LABEL_CONFIG, type EventLabelPlacement, type LabelLayoutConfig } from './eventLabelLayout'
 import { DEFAULT_ACTOR_MARGIN, actorAxisMaxTicks } from './timelineLayout'
 import { compareInstants, msApart, toAxisTime, toInstant } from '@althistory/calendar'
@@ -370,12 +371,13 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
   // markLabels): on a plate over the marks, where it hides least (pinnedLabel.ts).
   // A label the plate covers by half or more is hidden whole; none is left as a
   // fragment, and none moves.
+  const fontEpoch = useFontEpoch()
   const pinnedSelection = useMemo(() => {
+    void fontEpoch
     const selected = events.find((event) => event.id === state.selectedEventId)
     if (!selected || markLabels.has(selected.id)) return null
     const x = timeScale(toInstant(selected.timestamp))
     if (!(x >= 0 && x <= innerWidth)) return null
-    const text = truncateLabel(selected.description, 32)
     const labels: PlacedLabelBox[] = []
     for (const event of events) {
       const placement = markLabels.get(event.id)
@@ -387,17 +389,17 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
       labels.push({ id: event.id, left, right: left + width, top: baseline - 9.6, bottom: baseline + 3, length: placement.text.length })
     }
     const y = yFor(selected)
-    const plan = planPinnedLabel({
-      x,
-      markY: y,
-      width: measureLabelWidth(text, 12, 600),
-      innerWidth,
-      rows: [-16, -30, 24, 38],
-      labels,
-      markRadius: 10,
-    })
-    return plan ? { id: selected.id, x, y, text, plan } : null
-  }, [events, state.selectedEventId, markLabels, timeScale, innerWidth, yFor])
+    // The full name if a plate fits; else the shorter forms the layout uses.
+    const found = planPinnedText(
+      { x, markY: y, innerWidth, rows: [-16, -30, 24, 38], labels, markRadius: 10 },
+      [32, 24, 18, 14].map((chars) => {
+        const text = truncateLabel(selected.description, chars)
+        return { text, width: measureLabelWidth(text, 12, 600) }
+      })
+    )
+    return found ? { id: selected.id, x, y, text: found.text, plan: found.plan } : null
+    // fontEpoch: widths are measured again once the fonts have loaded.
+  }, [events, state.selectedEventId, markLabels, timeScale, innerWidth, yFor, fontEpoch])
 
   // The labels drawn: the layout's, less any the selection's plate hides whole.
   const shownLabels = useMemo(() => {

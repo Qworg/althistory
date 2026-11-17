@@ -7,6 +7,22 @@
  */
 
 const cache = new Map<string, number>()
+let epoch = 0
+const listeners = new Set<() => void>()
+
+/** The page's fonts have loaded: every cached width is stale, and whatever measured them measures again. */
+export function fontsLoaded(): void {
+  cache.clear()
+  epoch++
+  listeners.forEach((listener) => listener())
+}
+
+/** Changes when the fonts finish loading (every cached width is dropped). */
+export const fontEpoch = (): number => epoch
+export function subscribeFontEpoch(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
 let context: CanvasRenderingContext2D | null | undefined
 let family = ''
 
@@ -18,7 +34,7 @@ function canvas(): CanvasRenderingContext2D | null {
     context = document.createElement('canvas').getContext('2d')
     family = getComputedStyle(document.body).fontFamily || 'sans-serif'
     // Fonts that arrive after the first measure change every width.
-    void document.fonts?.ready.then(() => cache.clear())
+    void document.fonts?.ready.then(fontsLoaded)
   } catch {
     context = null
   }

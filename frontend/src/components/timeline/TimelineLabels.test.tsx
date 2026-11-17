@@ -6,8 +6,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { cleanup, render } from '@testing-library/react'
+import { act, cleanup, render, renderHook } from '@testing-library/react'
 import { Timeline } from './Timeline'
+import { fontsLoaded, measureLabelWidth } from './labelWidth'
+import { useFontEpoch } from './useFontEpoch'
 import { TIMELINE_BELOW_ROW_OFFSETS } from './eventLabelLayout'
 import type { Event } from '@/types'
 import type { TimelineLink } from './timelineLinks'
@@ -76,7 +78,6 @@ describe('labels stay put when an event is selected or highlighted', () => {
 
   it('draws a clean plate for some unnamed selection in each of several crowds', () => {
     let plates = 0
-    let hiddenWhole = 0
     for (const count of [10, 14, 18, 22, 26, 30]) {
       const events = crowd(count)
       const base = render(<Timeline events={events} arcs={[]} width={1000} height={500} />)
@@ -88,13 +89,11 @@ describe('labels stay put when an event is selected or highlighted', () => {
         expectPlateClean(container, ev.id, before)
         if (container.querySelector('[data-pinned-label-for]')) {
           plates++
-          hiddenWhole += before.size - labelBoxes(container).size
         }
         cleanup()
       }
     }
     expect(plates).toBeGreaterThan(0)
-    expect(hiddenWhole).toBeGreaterThanOrEqual(0)
   })
 
   it('keeps every label where it was when events are highlighted, and gives those with no room no plate', () => {
@@ -226,5 +225,42 @@ describe('the dimmed state while a ripple is traced', () => {
       expect(label!.closest('.event-mark')).toBeNull()
       expect(mark(id).getAttribute('opacity')).toBeNull()
     }
+  })
+})
+
+describe('traced and dimmed labels', () => {
+  const sparse = () => crowd(8).map((ev, i) => ({ ...ev, timestamp: new Date(Date.UTC(2024, 0, 1 + i * 30)).toISOString() }))
+  const chain: TimelineLink[] = [
+    { id: 'l1', causeId: 'e00', effectId: 'e01', type: 'direct', weight: 0.8 },
+    { id: 'l2', causeId: 'e01', effectId: 'e02', type: 'direct', weight: 0.8 },
+  ]
+
+  it('gives the labels on the traced ripple the primary ink, apart from the dimmed ones', () => {
+    const { container } = render(<Timeline events={sparse()} arcs={[]} links={chain} width={1000} height={500} selectedEventId="e01" />)
+    const fill = (id: string) => container.querySelector(`[data-event-id="${id}"] text.event-label`)?.getAttribute('fill')
+    expect(fill('e00')).toBe('var(--text-primary)')
+    expect(fill('e02')).toBe('var(--text-primary)')
+    expect(fill('e01')).toBe('var(--accent-selected)')
+    expect(fill('e05')).toBe('var(--text-muted)')
+  })
+
+  it("keeps the leaders and beside dashes of dimmed labels at about the marks' own strength, not near invisible", () => {
+    const events = crowd(40)
+    const links: TimelineLink[] = [{ id: 'l1', causeId: 'e00', effectId: 'e39', type: 'direct', weight: 0.8 }]
+    const { container } = render(<Timeline events={events} arcs={[]} links={links} width={1000} height={500} selectedEventId="e00" />)
+    const dimmed = new Set(Array.from(container.querySelectorAll('[data-dimmed="true"]')).map((mark) => mark.getAttribute('data-event-id')))
+    const leaders = Array.from(container.querySelectorAll('line.event-label-leader')).filter((leader) => dimmed.has(leader.getAttribute('data-leader-for')))
+    expect(leaders.length).toBeGreaterThan(0)
+    for (const leader of leaders) expect(Number(leader.getAttribute('stroke-opacity'))).toBeGreaterThanOrEqual(0.3)
+  })
+})
+
+describe('label widths follow the fonts', () => {
+  it('tells what measured a label that the fonts have loaded, so it measures again', () => {
+    const { result } = renderHook(() => useFontEpoch())
+    const before = result.current
+    act(() => fontsLoaded())
+    expect(result.current).toBe(before + 1)
+    expect(measureLabelWidth('Event', 12)).toBeGreaterThan(0)
   })
 })

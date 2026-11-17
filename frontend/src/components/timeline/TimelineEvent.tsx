@@ -46,6 +46,8 @@ export interface TimelineEventProps {
   isFresh?: boolean
   /** Whether a selection's ripple is being traced and this event is not on it. */
   isDimmed?: boolean
+  /** Whether the event is on the traced ripple (a cause or effect of the selection): its label takes the primary ink. */
+  isTraced?: boolean
   /**
    * Whether the event exists only in this branch: it falls after the point of
    * divergence and has no counterpart in the ghosted baseline. Drawn in the
@@ -110,6 +112,7 @@ export const TimelineEvent = memo(function TimelineEvent({
   isSelected = false,
   isFresh = false,
   isDimmed = false,
+  isTraced = false,
   isBranchOwn = false,
   isTabStop = true,
   reach = 0,
@@ -293,7 +296,7 @@ export const TimelineEvent = memo(function TimelineEvent({
           fill={
             isSelected
               ? 'var(--accent-selected)'
-              : isHighlighted
+              : isHighlighted || isTraced
                 ? 'var(--text-primary)'
                 : isDimmed
                   ? 'var(--text-muted)'

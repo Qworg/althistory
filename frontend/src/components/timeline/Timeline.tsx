@@ -20,7 +20,8 @@ import {
 } from './timelineVirtualization'
 import { formatHistoricalTimestamp, formatEventDate, formatHistoricalEnd } from '@/utils/historicalTime'
 import { measureLabelWidth } from './labelWidth'
-import { PLATE_ASCENT, PLATE_DESCENT, PLATE_PAD, planPinnedLabel, type PlacedLabelBox } from './pinnedLabel'
+import { useFontEpoch } from './useFontEpoch'
+import { PLATE_ASCENT, PLATE_DESCENT, PLATE_PAD, planPinnedText, type PlacedLabelBox } from './pinnedLabel'
 import { layoutEventLabels, truncateLabel, PRIORITY_LABEL_MAX_CHARS, BESIDE_PX, LABEL_FONT_SIZE, TIMELINE_BELOW_ROW_OFFSETS, TIMELINE_LABEL_CONFIG } from './eventLabelLayout'
 import { tooltipPlacement } from './tooltipPlacement'
 import { useLiveChangesStore } from '@/stores/liveChangesStore'
@@ -608,13 +609,13 @@ const Timeline = memo(function Timeline({
   // label it would cover by half or more is hidden whole rather than left as a
   // fragment. Highlighted and traced events with no room stay unnamed on the
   // canvas (the inspector lists them, and each mark has a tooltip).
+  const fontEpoch = useFontEpoch()
   const pinned = useMemo(() => {
+    void fontEpoch
     const selected = selectedEventId ? visibleEvents.find((ev) => ev.id === selectedEventId) : undefined
     if (!selected || eventLabels.has(selected.id)) return null
     const x = xScale(toInstant(selected.timestamp))
     if (!(x >= 0 && x <= innerWidth)) return null
-    const text = truncateLabel(selected.description, PRIORITY_LABEL_MAX_CHARS)
-    const width = measureLabelWidth(text, LABEL_FONT_SIZE, 600)
     const labels: PlacedLabelBox[] = []
     for (const ev of visibleEvents) {
       const placement = eventLabels.get(ev.id)
@@ -632,11 +633,24 @@ const Timeline = memo(function Timeline({
         bottom: eventY + placement.offset + 3,
         length: placement.text.length,
         protectedLabel: emphasised || ripple.causes.has(ev.id) || ripple.effects.has(ev.id),
+        // The hairline a label above the first row hangs from (drawn with the leaders below).
+        leader:
+          placement.offset < (TIMELINE_LABEL_CONFIG.rowOffsets[0] ?? -20)
+            ? { x: markX, top: eventY + placement.offset + 4, bottom: eventY - markBaseRadius(ev.id) - 2 }
+            : undefined,
       })
     }
-    const plan = planPinnedLabel({ x, markY: eventY, width, innerWidth, rows: TIMELINE_LABEL_CONFIG.rowOffsets, labels, markRadius: markBaseRadius(selected.id) + 4 })
-    return plan ? { id: selected.id, x, text, plan } : null
-  }, [eventLabels, visibleEvents, selectedEventId, highlightedEventIds, ripple, xScale, innerWidth, eventY, markBaseRadius])
+    // The full name if a plate fits; else the shorter forms the layout uses.
+    const found = planPinnedText(
+      { x, markY: eventY, innerWidth, rows: TIMELINE_LABEL_CONFIG.rowOffsets, labels, markRadius: markBaseRadius(selected.id) + 4 },
+      [PRIORITY_LABEL_MAX_CHARS, 24, 18, 14].map((chars) => {
+        const text = truncateLabel(selected.description, chars)
+        return { text, width: measureLabelWidth(text, LABEL_FONT_SIZE, 600) }
+      })
+    )
+    return found ? { id: selected.id, x, text: found.text, plan: found.plan } : null
+    // fontEpoch: widths are measured again once the fonts have loaded.
+  }, [eventLabels, visibleEvents, selectedEventId, highlightedEventIds, ripple, xScale, innerWidth, eventY, markBaseRadius, fontEpoch])
 
   // The labels drawn: the layout's, less any the selection's plate hides whole.
   const shownLabels = useMemo(() => {
@@ -1691,7 +1705,7 @@ const Timeline = memo(function Timeline({
                       y1={eventY + placement.offset - 4}
                       y2={eventY + placement.offset - 4}
                       stroke="var(--text-muted)"
-                      strokeOpacity={dimmed ? 0.12 : 1}
+                      strokeOpacity={dimmed ? 0.3 : 1}
                       strokeWidth={1}
                     />
                   )
@@ -1709,7 +1723,7 @@ const Timeline = memo(function Timeline({
                       y1={eventY + EVENT_STEM_LENGTH}
                       y2={eventY + placement.offset - LABEL_FONT_SIZE + 1}
                       stroke="var(--text-muted)"
-                      strokeOpacity={dimmed ? 0.12 : 0.45}
+                      strokeOpacity={dimmed ? 0.3 : 0.45}
                       strokeWidth={1}
                     />
                   )
@@ -1728,7 +1742,7 @@ const Timeline = memo(function Timeline({
                     y1={eventY + placement.offset + 4}
                     y2={eventY - radius - 2}
                     stroke="var(--text-muted)"
-                    strokeOpacity={dimmed ? 0.12 : 0.45}
+                    strokeOpacity={dimmed ? 0.3 : 0.45}
                     strokeWidth={1}
                   />
                 )
@@ -1747,6 +1761,7 @@ const Timeline = memo(function Timeline({
                   isHighlighted={highlightedEventIds?.has(ev.id) ?? false}
                   isSelected={selectedEventId === ev.id}
                   isFresh={fresh.event[ev.id] !== undefined}
+                  isTraced={isTracing && (ripple.causes.has(ev.id) || ripple.effects.has(ev.id))}
                   isDimmed={
                     isTracing &&
                     ev.id !== selectedEventId &&

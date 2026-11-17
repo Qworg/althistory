@@ -514,8 +514,14 @@ describe('ActorTimeline', () => {
     })
 
     it('puts the selection\'s plate where it covers no label by less than half, hides what it covers whole, and crosses none with its leader', () => {
-      const crowd = ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8'].map((id, i) => ({ ...actorEvent(id, 'actor', 'Britain'), timestamp: `1800-01-0${(i % 4) + 1}T00:00:00Z` }))
-      const { container } = render(<ActorTimeline actor="U.S." layoutMode="chronological" events={crowd} arcs={[]} width={700} />)
+      // Marks piled at both ends of a narrow chart: the selected ones at the edges find no room in the layout.
+      const crowd = [
+        ...['a1', 'a2', 'a3', 'a4', 'a5'].map((id) => ({ ...actorEvent(id, 'actor', 'Britain'), timestamp: '1700-01-01T00:00:00Z' })),
+        { ...actorEvent('first', 'actor', 'Britain'), description: 'A selected title long enough to need room', timestamp: '1700-01-01T00:00:00Z' },
+        ...['z1', 'z2', 'z3', 'z4', 'z5'].map((id) => ({ ...actorEvent(id, 'actor', 'Britain'), timestamp: '1900-01-01T00:00:00Z' })),
+        { ...actorEvent('last', 'actor', 'Britain'), description: 'A selected title long enough to need room', timestamp: '1900-01-01T00:00:00Z' },
+      ]
+      const { container } = render(<ActorTimeline actor="U.S." layoutMode="chronological" events={crowd} arcs={[]} width={500} />)
       const boxes = () =>
         new Map(
           Array.from(container.querySelectorAll<SVGTextElement>('.actor-event .actor-event-label')).map((text) => {
@@ -555,7 +561,7 @@ describe('ActorTimeline', () => {
         }
         fireEvent.click(container.querySelector(`.actor-event[data-event-id="${event.id}"]`)!)
       }
-      expect(plates).toBeGreaterThanOrEqual(0)
+      expect(plates, 'a plate is drawn for some selection').toBeGreaterThan(0)
     })
 
     it('keeps every other label where it was when a mark is selected', () => {

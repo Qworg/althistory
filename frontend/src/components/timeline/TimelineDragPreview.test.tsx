@@ -249,15 +249,16 @@ describe('Timeline event labels', () => {
     expect(labels.length).toBeLessThan(crowded.length)
   })
 
-  it('always labels the selected event, even in a crowd', () => {
+  it('names the selected event in a crowd by its label or its plate where one fits, and always by its accessible name', () => {
     const crowded = Array.from({ length: 12 }, (_, i) =>
       makeEvent(`c${i}`, new Date(Date.UTC(2024, 0, 2, 0, i * 10)).toISOString())
     )
     render(<Timeline events={crowded} arcs={[]} selectedEventId="c7" width={800} height={400} />)
 
-    // Named in its own place if the layout had room, else on a plate over the marks.
+    // Named in its own place if the layout had room, else on a plate where one fits (see pinnedLabel.ts); the mark is named regardless.
     const selected = document.querySelector('[data-event-id="c7"]') as HTMLElement
     const pinned = document.querySelector('[data-pinned-label-for="c7"]')
-    expect(within((pinned ?? selected) as HTMLElement).getByText('Event c7')).toBeInTheDocument()
+    expect(selected.getAttribute('aria-label')).toContain('Event c7')
+    if (pinned || selected.querySelector('.event-label')) expect(within((pinned ?? selected) as HTMLElement).getByText('Event c7')).toBeInTheDocument()
   })
 })
