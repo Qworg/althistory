@@ -41,7 +41,40 @@ const area = (a: Box, b: Box) => Math.max(0, Math.min(a.right, b.right) - Math.m
  * plate is on a card, after every mark, inside the plot, and hangs from its
  * mark by a leader drawn beneath the marks and labels.
  */
-export function expectPlateClean(container: HTMLElement, id: string, before: Map<string, Box>, protectedIds: readonly string[] = [], svgWidth = 1000) {
+/** The ids of the drawn links whose curve passes through a box (sampled). */
+export function linksUnder(container: HTMLElement, box: Box): string[] {
+  const ids: string[] = []
+  for (const path of Array.from(container.querySelectorAll<SVGPathElement>('.timeline-link'))) {
+    const m = /^M ([-\d.e]+) ([-\d.e]+) C ([-\d.e]+) ([-\d.e]+), ([-\d.e]+) ([-\d.e]+), ([-\d.e]+) ([-\d.e]+)$/.exec(path.getAttribute('d') ?? '')
+    if (!m) continue
+    const [x0, y0, x1, y1, x2, y2, x3, y3] = m.slice(1).map(Number) as [number, number, number, number, number, number, number, number]
+    for (let i = 0; i <= 400; i++) {
+      const t = i / 400
+      const u = 1 - t
+      const x = u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3
+      const y = u * u * u * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3
+      if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) {
+        ids.push(path.getAttribute('data-link-id')!)
+        break
+      }
+    }
+  }
+  return ids
+}
+
+/**
+ * Also: the plate never covers a link of the selection's trace (`tracedLinks`),
+ * and its leader runs from the plate's edge to the mark. Returns the ids of the
+ * links the plate covers, so a caller can count them.
+ */
+export function expectPlateClean(
+  container: HTMLElement,
+  id: string,
+  before: Map<string, Box>,
+  protectedIds: readonly string[] = [],
+  svgWidth = 1000,
+  tracedLinks: readonly string[] = []
+): string[] {
   const after = labelBoxes(container)
   const pinned = container.querySelector(`[data-pinned-label-for="${id}"]`)
   for (const key of before.keys()) {
@@ -51,7 +84,7 @@ export function expectPlateClean(container: HTMLElement, id: string, before: Map
   if (!pinned) {
     // No plate: nothing is hidden for it.
     for (const key of before.keys()) expect(after.has(key), `${key} vanished with no plate`).toBe(true)
-    return
+    return []
   }
   const rect = pinned.querySelector('rect.event-label-plate')!
   const plate: Box = {
@@ -71,6 +104,22 @@ export function expectPlateClean(container: HTMLElement, id: string, before: Map
   expect(hang, `${id}'s plate has a leader`).not.toBeNull()
   expect(hang!.getAttribute('stroke')).toBe('var(--accent-selected)')
   expect(hang!.compareDocumentPosition(marks[0]!) & Node.DOCUMENT_POSITION_FOLLOWING, 'its leader is drawn beneath the marks and labels').toBeTruthy()
+  // The leader runs from the plate's near edge to the mark: it touches the plate and reaches the mark's side.
+  const markY = Number(/translate\(\s*[-\d.e]+\s*,\s*([-\d.e]+)\)/.exec(container.querySelector(`[data-event-id="${id}"]`)!.getAttribute('transform')!)![1])
+  const [hy1, hy2] = [Number(hang!.getAttribute('y1')), Number(hang!.getAttribute('y2'))]
+  if (plate.bottom <= markY) {
+    // Above the mark: from the plate's bottom edge down to just above the mark.
+    expect(hy1, 'the leader starts at the plate').toBeCloseTo(plate.bottom, 0)
+    expect(hy2, 'the leader ends at the mark').toBeGreaterThan(hy1 + 1)
+    expect(hy2).toBeLessThanOrEqual(markY)
+    expect(hy2).toBeGreaterThan(markY - 30)
+  } else {
+    // Under the mark: from just below it to the plate's top edge (nothing to draw where the plate meets the mark).
+    expect(hy1, 'the leader starts at the mark').toBeGreaterThanOrEqual(markY)
+    expect(hy1).toBeLessThan(markY + 30)
+    expect(hy2, 'the leader ends at the plate').toBeGreaterThanOrEqual(hy1)
+    expect(hy2).toBeCloseTo(Math.max(hy1, plate.top), 0)
+  }
   expect(Number(hang!.getAttribute('x1'))).toBeGreaterThanOrEqual(plate.left)
   expect(Number(hang!.getAttribute('x1'))).toBeLessThanOrEqual(plate.right)
   const innerWidth = svgWidth - 56 - 16
@@ -96,4 +145,15 @@ export function expectPlateClean(container: HTMLElement, id: string, before: Map
     const through = lx >= plate.left && lx <= plate.right && Math.max(ly1, ly2) > plate.top && Math.min(ly1, ly2) < plate.bottom
     expect(through, `the leader of ${leader.getAttribute('data-leader-for')} runs through the plate of ${id}`).toBe(false)
   }
+  // Under the track a plate never covers another mark's stem (the 20px below each mark).
+  if (plate.bottom > markY && plate.top < markY + 20) {
+    for (const mark of Array.from(container.querySelectorAll('[data-event-id]'))) {
+      if (mark.getAttribute('data-event-id') === id) continue
+      const mx = Number(/translate\(\s*([-\d.e]+)/.exec(mark.getAttribute('transform')!)![1])
+      expect(mx >= plate.left && mx <= plate.right, `the plate of ${id} covers the stem of ${mark.getAttribute('data-event-id')}`).toBe(false)
+    }
+  }
+  const covered = linksUnder(container, plate)
+  for (const link of tracedLinks) expect(covered, `the plate of ${id} covers its traced link ${link}`).not.toContain(link)
+  return covered
 }

@@ -30,6 +30,12 @@ export interface PlacedLabelBox {
   protectedLabel?: boolean
   /** How much text it would take with it if hidden. */
   length: number
+  /**
+   * Not a label but something else drawn there (a link's curve, another mark's
+   * stem): never covered, and not counted among the labels the plate's leader
+   * passes behind.
+   */
+  obstacle?: boolean
   /** The vertical hairline that joins it to its mark (it goes when the label does). */
   leader?: { x: number; top: number; bottom: number }
 }
@@ -42,6 +48,8 @@ export interface PinnedPlan {
   right: number
   /** Labels the plate hides entirely. */
   hidden: string[]
+  /** How many kept labels the plate's leader passes behind (each is a halo that breaks it). */
+  crossings: number
 }
 
 /** The plate reaches this far above its baseline and below it (14px in all, the pitch of the label rows, so it never touches the rows beside it), and past the text on each side. */
@@ -115,10 +123,20 @@ export function planPinnedLabel(input: PinnedInput): PinnedPlan | null {
         }
       }
       if (!allowed) continue
-      // Fewest labels hidden, then the least text; the nearest row and centred extent on a tie.
+      // The leader runs from the plate to its mark's edge: count the kept labels it passes behind.
+      const [from, to] = offset < 0 ? [plate.bottom, markY - 8] : [markY + 8, plate.top]
+      const crossings = labels.filter(
+        (label) =>
+          !label.obstacle && !hidden.includes(label) && x >= label.left - 2 && x <= label.right + 2 && label.bottom > Math.min(from, to) && label.top < Math.max(from, to)
+      ).length
+      // Fewest labels hidden, then the fewest the leader passes behind, then the least text; the nearest row and centred extent on a tie.
       const text = hidden.reduce((sum, label) => sum + label.length, 0)
-      if (!best || hidden.length < best.hidden || (hidden.length === best.hidden && text < best.text)) {
-        best = { hidden: hidden.length, text, plan: { offset, anchor: extent.anchor, left: extent.left, right: extent.right, hidden: hidden.map((label) => label.id) } }
+      const better =
+        !best ||
+        hidden.length < best.hidden ||
+        (hidden.length === best.hidden && (crossings < best.plan.crossings || (crossings === best.plan.crossings && text < best.text)))
+      if (better) {
+        best = { hidden: hidden.length, text, plan: { offset, anchor: extent.anchor, left: extent.left, right: extent.right, hidden: hidden.map((label) => label.id), crossings } }
       }
     }
   }
@@ -147,7 +165,9 @@ export function planPinnedText(
         !best ||
         plan.hidden.length < best.plan.hidden.length ||
         (plan.hidden.length === best.plan.hidden.length &&
-          (lengthOf(plan.hidden) < lengthOf(best.plan.hidden) || (lengthOf(plan.hidden) === lengthOf(best.plan.hidden) && width > best.width)))
+          (plan.crossings < best.plan.crossings ||
+            (plan.crossings === best.plan.crossings &&
+              (lengthOf(plan.hidden) < lengthOf(best.plan.hidden) || (lengthOf(plan.hidden) === lengthOf(best.plan.hidden) && width > best.width)))))
       if (better) best = { text, plan, width }
     }
     return best ? { text: best.text, plan: best.plan } : null

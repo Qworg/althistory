@@ -41,8 +41,12 @@ const HISTORIES: Record<string, { events: Event[]; links: TimelineLink[] }> = {
   Branch: history([...scenario.events, ...scenario.branch.events], [...scenario.links, ...scenario.branch.links], null),
 }
 
-/** Selections no label or plate can name (a traced neighbour's leader runs through every place): none today. */
-const EXCEPTIONS: Record<string, string[]> = {}
+/** Selections no label or plate can name once the plate may not cover a traced link or another mark's stem, or hide a protected label. */
+const EXCEPTIONS: Record<string, string[]> = {
+  'Engine Age': ['race at 800px'],
+  Vael: ['siege at 600px', 'siege at 800px'],
+  'Deep time': ['sapiens at 600px'],
+}
 
 beforeEach(() => {
   Object.defineProperty(SVGSVGElement.prototype, 'width', { configurable: true, get: () => ({ baseVal: { value: 1300 } }) })
@@ -176,6 +180,8 @@ describe.each(Object.keys(HISTORIES))('selecting each event of %s', (name) => {
   it('keeps every other label where it was, names the selection in its own place or on a clean plate, and never covers a traced label', () => {
     // Narrower widths crowd the rows, so plates are drawn; at 1300 px most events are named in place.
     let plates = 0
+    let totalPlates = 0
+    let coveringPlates = 0
     const unnamed: string[] = []
     for (const width of [600, 800, 1300]) {
       const base = render(<Timeline events={events} arcs={[]} links={links} width={width} height={600} />)
@@ -184,7 +190,9 @@ describe.each(Object.keys(HISTORIES))('selecting each event of %s', (name) => {
       for (const event of events) {
         const { container } = render(<Timeline events={events} arcs={[]} links={links} width={width} height={600} selectedEventId={event.id} />)
         const ripple = computeRipple(event.id, links)
-        expectPlateClean(container, event.id, before, [...ripple.causes, ...ripple.effects.keys()], width)
+        // The plate never covers a link of the selection's own trace.
+        const covered = expectPlateClean(container, event.id, before, [...ripple.causes, ...ripple.effects.keys()], width, [...ripple.links.keys()])
+        if (container.querySelector('[data-pinned-label-for]')) { totalPlates++; if (covered.length > 0) coveringPlates++ }
         if (container.querySelector('[data-pinned-label-for]')) plates++
         // Every selection is named: in its own place, or on its plate (the exceptions are listed, none today).
         const named = container.querySelector(`[data-event-id="${event.id}"] text.event-label`) !== null || container.querySelector(`[data-pinned-label-for="${event.id}"]`) !== null
@@ -195,6 +203,8 @@ describe.each(Object.keys(HISTORIES))('selecting each event of %s', (name) => {
       }
     }
     expect(plates, 'a plate is drawn for some selection').toBeGreaterThan(0)
+    // In these histories the first pass always finds room: no plate covers any link, not just the traced ones.
+    expect(coveringPlates, `${coveringPlates} of ${totalPlates} plates cover a link`).toBe(0)
     expect(unnamed, 'selections named neither in place nor on a plate').toEqual(EXCEPTIONS[name] ?? [])
   })
 })

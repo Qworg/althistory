@@ -642,18 +642,58 @@ const Timeline = memo(function Timeline({
               : undefined,
       })
     }
+    // The rows above the track, then under it (two where links hang there, one in the room a link-less track keeps).
+    const belowRows: readonly number[] = layout.linkBand ? TIMELINE_BELOW_ROW_OFFSETS : [24]
+    const rows = [...TIMELINE_LABEL_CONFIG.rowOffsets, ...belowRows]
+    // Under the track the plate is not to cover what is drawn there: every other mark's stem, and the links'
+    // curves. First every link is an obstacle; failing that, only the selection's traced links and the small
+    // loops of simultaneous events (so another link may be covered locally, never the selection's own).
+    const obstacles = (links: ReadonlyArray<{ x1: number; x2: number }>): PlacedLabelBox[] => {
+      const boxes: PlacedLabelBox[] = []
+      for (const other of visibleEvents) {
+        if (other.id === selected.id) continue
+        const ox = xScale(toInstant(other.timestamp))
+        boxes.push({ id: `stem:${other.id}`, left: ox - 1, right: ox + 1, top: eventY, bottom: eventY + EVENT_STEM_LENGTH, length: 0, protectedLabel: true, obstacle: true })
+      }
+      const band = layout.linkBand
+      if (band) {
+        const bands = belowRows.map((offset): [number, number] => [offset - PLATE_ASCENT - EVENT_STEM_LENGTH, offset + PLATE_DESCENT - EVENT_STEM_LENGTH])
+        const spans = linkSpansInBands(links, band.height, innerWidth, bands, 2)
+        belowRows.forEach((offset, i) => {
+          for (const [a, b] of spans[i] ?? []) {
+            boxes.push({ id: `link:${i}:${a}`, left: a, right: b, top: eventY + offset - PLATE_ASCENT + 0.01, bottom: eventY + offset + PLATE_DESCENT - 0.01, length: 0, protectedLabel: true, obstacle: true })
+          }
+        })
+      }
+      return boxes
+    }
+    const ends = (keep: (link: TimelineLink, x1: number, x2: number) => boolean) => {
+      const out: Array<{ x1: number; x2: number }> = []
+      for (const link of drawableLinks) {
+        const cause = eventsById.get(link.causeId)
+        const effect = eventsById.get(link.effectId)
+        if (!cause || !effect) continue
+        const x1 = xScale(toInstant(cause.timestamp))
+        const x2 = xScale(toInstant(effect.timestamp))
+        if (Math.max(x1, x2) < -40 || Math.min(x1, x2) > innerWidth + 40) continue
+        if (keep(link, x1, x2)) out.push({ x1, x2 })
+      }
+      return out
+    }
     // The full name if a plate fits; else the shorter forms the layout uses.
-    const found = planPinnedText(
-      { x, markY: eventY, innerWidth, // The rows above the track, then under it (two where links hang there, one in the room a link-less track keeps).
-      rows: [...TIMELINE_LABEL_CONFIG.rowOffsets, ...(layout.linkBand ? TIMELINE_BELOW_ROW_OFFSETS : [24])], labels},
-      [PRIORITY_LABEL_MAX_CHARS, 24, 18, 14].map((chars) => {
-        const text = truncateLabel(selected.description, chars)
-        return { text, width: measureLabelWidth(text, LABEL_FONT_SIZE, 600) }
-      })
-    )
+    const texts = [PRIORITY_LABEL_MAX_CHARS, 24, 18, 14].map((chars) => {
+      const text = truncateLabel(selected.description, chars)
+      return { text, width: measureLabelWidth(text, LABEL_FONT_SIZE, 600) }
+    })
+    const found =
+      planPinnedText({ x, markY: eventY, innerWidth, rows, labels: [...labels, ...obstacles(ends(() => true))] }, texts) ??
+      planPinnedText(
+        { x, markY: eventY, innerWidth, rows, labels: [...labels, ...obstacles(ends((link, x1, x2) => ripple.links.has(link.id) || Math.abs(x2 - x1) < 2))] },
+        texts
+      )
     return found ? { id: selected.id, x, text: found.text, plan: found.plan } : null
     // fontEpoch: widths are measured again once the fonts have loaded.
-  }, [eventLabels, visibleEvents, selectedEventId, highlightedEventIds, ripple, xScale, innerWidth, eventY, markBaseRadius, layout.linkBand, fontEpoch])
+  }, [eventLabels, visibleEvents, selectedEventId, highlightedEventIds, ripple, xScale, innerWidth, eventY, markBaseRadius, layout.linkBand, drawableLinks, eventsById, fontEpoch])
 
   // The labels drawn: the layout's, less any the selection's plate hides whole.
   const shownLabels = useMemo(() => {
@@ -1699,7 +1739,7 @@ const Timeline = memo(function Timeline({
                   y1={pinned.plan.offset < 0 ? eventY + pinned.plan.offset + PLATE_DESCENT : eventY + markBaseRadius(pinned.id) + 4}
                   y2={pinned.plan.offset < 0 ? eventY - markBaseRadius(pinned.id) - 4 : Math.max(eventY + markBaseRadius(pinned.id) + 4, eventY + pinned.plan.offset - PLATE_ASCENT)}
                   stroke="var(--accent-selected)"
-                  strokeWidth={1}
+                  strokeWidth={1.75}
                 />
               )}
               {visibleEvents.map(ev => {

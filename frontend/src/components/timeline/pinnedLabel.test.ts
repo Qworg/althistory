@@ -130,4 +130,26 @@ describe('planPinnedText', () => {
     ])
     expect(both?.text).toBe('A long name that covers')
   })
+
+  it('hides the least text when two placements hide the same number of labels', () => {
+    // A plate of 94px at x=300: starting at the mark it covers the 30-character label on the right; ending at it, the 5-character one on the left; centred, both.
+    const labels = [label('long', 310, 345, -20, { length: 30 }), label('short', 255, 290, -20, { length: 5 })]
+    expect(planPinnedLabel({ x: 300, markY: 100, width: 94, innerWidth: 700, rows: [-20], labels })).toMatchObject({ anchor: 'end', hidden: ['short'] })
+  })
+
+  it('prefers the placement whose leader passes behind fewer labels, after the fewest hidden', () => {
+    // A label above the mark in row 1 holds x; a plate above it hangs its leader behind it, one under the track does not.
+    const over = label('over', 250, 350, -20, { protectedLabel: true })
+    const found = planPinnedLabel({ x: 300, markY: 100, width: 60, innerWidth: 700, rows: [-34, 24], labels: [over] })
+    expect(found).toMatchObject({ offset: 24, hidden: [], crossings: 0 })
+    // With only the row above available, it is taken, its one crossing counted.
+    expect(planPinnedLabel({ x: 300, markY: 100, width: 60, innerWidth: 700, rows: [-34], labels: [over] })).toMatchObject({ offset: -34, crossings: 1 })
+  })
+
+  it('runs the ordinary rules before the last resort, though the last resort could hide fewer', () => {
+    // Row 1: two adjacent labels, both of which only the centred plate covers wholly (an extent covering one touches the other: refused by the ordinary rules). Row 2: one wide label a plate would cover by less than half (refused by them too; hidden whole by the last resort, which then hides fewer).
+    const labels = [label('s1', 260, 300, -20, { length: 5 }), label('s2', 300, 340, -20, { length: 5 }), label('wide', 100, 500, -34, { length: 40 })]
+    const found = planPinnedText({ x: 300, markY: 100, innerWidth: 700, rows: [-20, -34], labels }, [{ text: 'Selected', width: 60 }])
+    expect(found?.plan.hidden).toEqual(['s1', 's2'])
+  })
 })

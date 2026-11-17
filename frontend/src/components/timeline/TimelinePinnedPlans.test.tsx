@@ -111,4 +111,19 @@ describe('the plate follows the fonts', () => {
     act(() => fontsLoaded())
     expect(rerendered!()).toBeGreaterThan(before)
   })
+
+  it('is measured again in the actor view too', () => {
+    const edge: ActorEventData[] = [
+      ...['a1', 'a2', 'a3', 'a4', 'a5'].map((id) => ({ ...event(id, '1700-01-01T00:00:00Z', 'Piled at the edge'), role: 'actor' as const, isHighlighted: false })),
+      { ...event('first', '1700-01-01T00:00:00Z', 'A selected title long enough to need room'), role: 'actor' as const, isHighlighted: false },
+    ]
+    const { container } = render(<ActorTimeline actor="Actor" layoutMode="chronological" events={edge} arcs={[]} width={700} height={400} />)
+    fireEvent.click(container.querySelector('.actor-event[data-event-id="first"]')!)
+    const plate = () => Number(container.querySelector('[data-pinned-label-for] rect.event-label-plate')?.getAttribute('width'))
+    const before = plate()
+    expect(before).toBeGreaterThan(0)
+    widthPerChar.value = 9
+    act(() => fontsLoaded())
+    expect(plate()).toBeGreaterThan(before)
+  })
 })

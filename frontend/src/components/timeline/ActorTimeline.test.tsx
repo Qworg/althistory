@@ -557,6 +557,18 @@ describe('ActorTimeline', () => {
           // Every plate hangs from its mark by a leader, in a layer before the marks and labels.
           const line = container.querySelector(`line[data-pinned-leader-for="${event.id}"]`)
           expect(line, `${event.id}'s plate has a leader`).not.toBeNull()
+          // The leader runs from the plate's edge to the mark.
+          const markTransform = /translate\(\s*([-\d.e]+)[ ,]+([-\d.e]+)/.exec(container.querySelector(`.actor-event[data-event-id="${event.id}"]`)!.getAttribute('transform')!)!
+          const markY = Number(markTransform[2])
+          const [ly1, ly2] = [Number(line!.getAttribute('y1')), Number(line!.getAttribute('y2'))]
+          if (plate.bottom <= markY) {
+            expect(ly1).toBeCloseTo(plate.bottom, 0)
+            expect(ly2).toBeGreaterThan(ly1 + 1)
+            expect(ly2).toBeLessThanOrEqual(markY)
+          } else {
+            expect(ly1).toBeGreaterThanOrEqual(markY)
+            expect(ly2).toBeCloseTo(plate.top, 0)
+          }
           const firstMark = container.querySelector('.actor-event')!
           expect(line!.compareDocumentPosition(firstMark) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
         }

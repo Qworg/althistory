@@ -264,3 +264,37 @@ describe('label widths follow the fonts', () => {
     expect(measureLabelWidth('Event', 12)).toBeGreaterThan(0)
   })
 })
+
+describe('plates under the track', () => {
+  const fixtures: Array<[string, number, TimelineLink[]]> = [
+    ['one long link', 40, [{ id: 'l1', causeId: 'e00', effectId: 'e39', type: 'direct', weight: 0.5 }]],
+    ['two short links', 30, [{ id: 'l1', causeId: 'e00', effectId: 'e05', type: 'direct', weight: 0.5 }, { id: 'l2', causeId: 'e10', effectId: 'e12', type: 'direct', weight: 0.5 }]],
+    ['no links', 40, []],
+  ]
+
+  it('use the rows under the track where links hang, clear of every link, stem and kept leader, and keep a leader from the mark to the plate', () => {
+    let under = 0
+    for (const [name, count, links] of fixtures) {
+      const events = crowd(count)
+      const base = render(<Timeline events={events} arcs={[]} links={links} width={1000} height={500} />)
+      const before = labelBoxes(base.container)
+      cleanup()
+      for (const ev of events) {
+        if (before.has(ev.id)) continue
+        const { container } = render(<Timeline events={events} arcs={[]} links={links} width={1000} height={500} selectedEventId={ev.id} />)
+        const covered = expectPlateClean(container, ev.id, before, [], 1000, links.map((l) => l.id))
+        const text = container.querySelector('[data-pinned-label-for] text')
+        if (text) {
+          const markY = Number(/translate\(\s*[-\d.e]+\s*,\s*([-\d.e]+)\)/.exec(container.querySelector(`[data-event-id="${ev.id}"]`)!.getAttribute('transform')!)![1])
+          if (Number(text.getAttribute('y')) > markY) {
+            under++
+            // Under the track, in the first pass, a plate covers no link at all.
+            expect(covered, `${name}: the plate of ${ev.id} covers ${covered.join(',')}`).toEqual([])
+          }
+        }
+        cleanup()
+      }
+    }
+    expect(under, 'some selection gets a plate under the track').toBeGreaterThan(0)
+  })
+})
