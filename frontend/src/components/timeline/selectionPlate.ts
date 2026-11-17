@@ -92,6 +92,12 @@ export function planSelectionPlate(input: SelectionPlateInput): { text: string; 
       [...labels, ...obstacles(links)],
       [...labels, ...obstacles(links.filter((link) => link.traced || Math.abs(link.x2 - link.x1) < 2))],
     ]
+    // First, every pass that hides nothing at all (the ordinary rules still let a plate hide a label it covers by half or more, so a
+    // pass can find a plate that does: a later pass may find one that hides nothing). Then the same passes with the last resort.
+    for (const pass of passes) {
+      const found = planPinnedText({ x, markY, innerWidth, rows, labels: pass, plateBox }, texts, false)
+      if (found && found.plan.hidden.length === 0) return found
+    }
     for (const allowHide of [false, true]) {
       for (const pass of passes) {
         const found = planPinnedText({ x, markY, innerWidth, rows, labels: pass, plateBox }, texts, allowHide)

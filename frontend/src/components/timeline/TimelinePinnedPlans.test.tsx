@@ -19,7 +19,7 @@ vi.mock('./labelWidth', async (original) => ({
   measureLabelWidth: (text: string) => text.length * widthPerChar.value,
 }))
 const planned: Array<ReadonlyArray<{ text: string; width: number }>> = []
-const selectionInputs: Array<{ links: ReadonlyArray<{ id: string; x1: number; x2: number; traced?: boolean }>; belowRows: readonly number[]; plateOnlyRows: readonly number[]; aboveRows: readonly number[]; preferAbove?: boolean; labels: ReadonlyArray<{ id: string; protectedLabel?: boolean; obstacle?: boolean }>; softObstacles?: ReadonlyArray<{ id: string; left: number; right: number; top: number; bottom: number; protectedLabel?: boolean; obstacle?: boolean }> }> = []
+const selectionInputs: Array<{ links: ReadonlyArray<{ id: string; x1: number; x2: number; traced?: boolean }>; belowRows: readonly number[]; plateOnlyRows: readonly number[]; aboveRows: readonly number[]; preferAbove?: boolean; labels: ReadonlyArray<{ id: string; left: number; right: number; top: number; bottom: number; protectedLabel?: boolean; obstacle?: boolean }>; softObstacles?: ReadonlyArray<{ id: string; left: number; right: number; top: number; bottom: number; protectedLabel?: boolean; obstacle?: boolean }> }> = []
 vi.mock('./selectionPlate', async (original) => {
   const actual = await original<typeof import('./selectionPlate')>()
   return {
@@ -316,7 +316,8 @@ describe('arc bars as obstacles', () => {
     expect(box.left).toBeCloseTo(bar.left, 0)
     expect(box.right - box.left).toBeCloseTo(bar.width, 0)
     expect(box.top).toBeCloseTo(bar.top, 0)
-    expect(box.bottom - box.top).toBeCloseTo(bar.height, 0)
+    // One px past the bar's foot, so a plate that only touches the foot is an overlap.
+    expect(box.bottom - box.top).toBeCloseTo(bar.height + 1, 0)
     expect(soft.find((b) => b.id === 'arc:mid'), 'an arc of 150px is wider than a plate').toBeUndefined()
     expect(soft.find((b) => b.id === 'arc:wide')).toBeUndefined()
   })
@@ -385,5 +386,102 @@ describe('the plate is planned again when what it depends on changes', () => {
     const flag = (input: typeof before, id: string) => input.labels.find((l) => l.id === id)?.protectedLabel
     expect(flag(before, 'e10')).toBe(true)
     expect(flag(after, 'e10')).toBeFalsy()
+  })
+})
+
+describe('the divergence band\'s landmarks, as obstacles', () => {
+  type Obstacle = { id: string; left: number; right: number; top: number; bottom: number; protectedLabel?: boolean; obstacle?: boolean }
+  const planned = (props: Partial<React.ComponentProps<typeof Timeline>>) => {
+    const events = crowd(40)
+    for (const ev of events) {
+      selectionInputs.length = 0
+      const view = render(<Timeline events={events} arcs={[]} width={1000} height={500} selectedEventId={ev.id} {...props} />)
+      if (selectionInputs.length > 0) {
+        const captured = selectionInputs[0]!
+        const centre = (selector: string) => Number(/M ([-\d.e]+)/.exec(view.container.querySelector(selector)!.getAttribute('d')!)![1])
+        const out = { labels: captured.labels as readonly Obstacle[], soft: (captured.softObstacles ?? []) as readonly Obstacle[], divergenceX: view.container.querySelector('.timeline-divergence path') ? centre('.timeline-divergence path') : null, markX: view.container.querySelector('.timeline-branch-mark path') ? centre('.timeline-branch-mark path') : null, divergenceText: view.container.querySelector('.timeline-divergence text')?.textContent ?? '' }
+        view.unmount()
+        return out
+      }
+      view.unmount()
+    }
+    throw new Error('no selection was planned')
+  }
+  const events = crowd(40)
+  const divergenceAt = (index: number) => ({ label: 'Baseline', events: [], divergence: new Date(events[index]!.timestamp), divergenceEventId: null })
+
+  it('the divergence diamond and its label, sized from the measured text, on the side the drawn label takes', () => {
+    widthPerChar.value = 9
+    for (const [index, labelBefore] of [[3, false], [36, true]] as const) {
+      const { labels, soft, divergenceX, divergenceText } = planned({ ghost: divergenceAt(index) })
+      const diamond = labels.find((l) => l.id === 'band:divergence:diamond')!
+      const label = labels.find((l) => l.id === 'band:divergence:label')!
+      for (const box of [diamond, label]) {
+        expect(box, `event ${index}`).toMatchObject({ obstacle: true, protectedLabel: true })
+        expect(soft.find((o) => o.id === box.id), 'hard, not soft').toBeUndefined()
+      }
+      // A diamond of 12px in a band 24px deep, boxed with a pixel to spare.
+      expect(diamond).toMatchObject({ left: divergenceX! - 7, right: divergenceX! + 7, top: 5, bottom: 19 })
+      // The label: its measured width (9px a character here, not the 0.56em estimate), after the diamond or before it.
+      const width = divergenceText.length * 9
+      expect(label.right - label.left).toBeCloseTo(width, 3)
+      if (labelBefore) expect(label.right).toBeCloseTo(divergenceX! - 10, 3)
+      else expect(label.left).toBeCloseTo(divergenceX! + 10, 3)
+      expect(label.top).toBeCloseTo(12 + 4 - 12 * 0.8, 3)
+      expect(label.bottom).toBe(19)
+    }
+  })
+
+  it('a branch mark\'s diamond and label, the label before it past 70% of the width', () => {
+    widthPerChar.value = 9
+    for (const [index, labelBefore] of [[3, false], [36, true]] as const) {
+      const mark = { id: 'bm', label: 'WWII MEMORIAL', date: new Date(events[index]!.timestamp) }
+      const { labels, markX } = planned({ branchMarks: [mark] })
+      const diamond = labels.find((l) => l.id === 'band:bm:diamond')!
+      const label = labels.find((l) => l.id === 'band:bm:label')!
+      expect(diamond).toMatchObject({ left: markX! - 7, right: markX! + 7, top: 5, bottom: 19, obstacle: true, protectedLabel: true })
+      expect(label).toMatchObject({ obstacle: true, protectedLabel: true })
+      expect(label.right - label.left).toBeCloseTo(mark.label.length * 9, 3)
+      if (labelBefore) expect(label.right).toBeCloseTo(markX! - 10, 3)
+      else expect(label.left).toBeCloseTo(markX! + 10, 3)
+    }
+  })
+})
+
+describe('the plate is planned again when the band changes', () => {
+  const afterChange = (first: Partial<React.ComponentProps<typeof Timeline>>, second: Partial<React.ComponentProps<typeof Timeline>>) => {
+    const events = crowd(40)
+    for (const ev of events) {
+      selectionInputs.length = 0
+      const props = { events, arcs: [], width: 1000, height: 500, selectedEventId: ev.id }
+      const view = render(<Timeline {...props} {...first} />)
+      const calls = selectionInputs.length
+      if (calls > 0) {
+        view.rerender(<Timeline {...props} {...second} />)
+        if (selectionInputs.length > calls) {
+          const out = { before: selectionInputs[calls - 1]!, after: selectionInputs[selectionInputs.length - 1]! }
+          view.unmount()
+          return out
+        }
+      }
+      view.unmount()
+    }
+    throw new Error('no selection was planned again')
+  }
+  const events = crowd(40)
+  const ghostEvents: Event[] = []
+  const ghostAt = (index: number) => ({ label: 'Baseline', events: ghostEvents, divergence: new Date(events[index]!.timestamp), divergenceEventId: null })
+
+  it('when the divergence moves', () => {
+    const { before, after } = afterChange({ ghost: ghostAt(5) }, { ghost: ghostAt(30) })
+    const at = (input: typeof before) => input.labels.find((l) => l.id === 'band:divergence:diamond')!.left
+    expect(at(after)).not.toBe(at(before))
+  })
+
+  it('when a branch mark moves', () => {
+    const mark = (index: number) => ({ id: 'bm', label: 'A branch', date: new Date(events[index]!.timestamp) })
+    const { before, after } = afterChange({ branchMarks: [mark(5)] }, { branchMarks: [mark(30)] })
+    const at = (input: typeof before) => input.labels.find((l) => l.id === 'band:bm:diamond')!.left
+    expect(at(after)).not.toBe(at(before))
   })
 })

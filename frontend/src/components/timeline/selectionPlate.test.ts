@@ -5,7 +5,7 @@ import { PLATE_ASCENT, PLATE_DESCENT, PLATE_PAD, type PlacedLabelBox } from './p
 const X = 300
 const Y = 100
 const ABOVE = [-20, -34, -48, -62] as const
-const TOP = [-76] as const
+const TOP = [-75] as const
 const BELOW = [34, 48] as const
 const texts = [{ text: 'The selected name', width: 100 }]
 
@@ -53,7 +53,7 @@ describe('planSelectionPlate', () => {
 
   it('goes in the plate-only row above the label rows when the label rows are full', () => {
     const rowsFull = [...ABOVE].map((offset) => box(`r${offset}`, 0, 700, offset, { protectedLabel: true }))
-    expect(planSelectionPlate(input({ labels: rowsFull, belowRows: [] }))?.plan.offset).toBe(-76)
+    expect(planSelectionPlate(input({ labels: rowsFull, belowRows: [] }))?.plan.offset).toBe(-75)
   })
 
   it('goes under the track when every row above is blocked, in the first row under it that is free', () => {
@@ -80,7 +80,7 @@ describe('planSelectionPlate', () => {
     expect(docked?.plan.hidden).toEqual(['small'])
     // A docked sheet takes the plate-only row above the labels before any row under the track, though that row's leader passes behind four labels.
     const labelRowsWalled = ABOVE.map((offset) => box(`w${offset}`, 0, 700, offset, { protectedLabel: true }))
-    expect(planSelectionPlate(input({ labels: labelRowsWalled, preferAbove: true }))?.plan.offset).toBe(-76)
+    expect(planSelectionPlate(input({ labels: labelRowsWalled, preferAbove: true }))?.plan.offset).toBe(-75)
     // With nothing above, a docked sheet still gets a plate under the track.
     expect(planSelectionPlate(input({ labels: wall, preferAbove: true }))?.plan.offset).toBe(34)
   })
@@ -88,26 +88,28 @@ describe('planSelectionPlate', () => {
   it('puts the plate-only row before the rows under the track when they tie (nothing hidden, no crossings)', () => {
     // Obstacles block the label rows without being labels the leader passes behind, so the plate-only row and the first row under the track cost the same.
     const blocked = ABOVE.map((offset) => box(`o${offset}`, 0, 700, offset, { protectedLabel: true, obstacle: true }))
-    expect(planSelectionPlate(input({ labels: blocked }))?.plan.offset).toBe(-76)
+    expect(planSelectionPlate(input({ labels: blocked }))?.plan.offset).toBe(-75)
   })
 
   it('respects a soft obstacle (a sliver arc) in the first pass, and sets it aside rather than leave the selection unnamed', () => {
-    const sliver = box('sliver', 0, 700, -76, { protectedLabel: true, obstacle: true })
+    // As Timeline draws a narrow bar: its top 16px above its foot, which is the plate-only row's plate top (Y - 75 - 9), and a pixel past it.
+    const sliver: PlacedLabelBox = { id: 'sliver', left: 0, right: 700, top: Y - 100, bottom: Y - 83, length: 0, protectedLabel: true, obstacle: true }
     // The label rows are blocked by things that are not labels (so the plate-only row and the first row under the track cost the same and the earlier row wins a tie).
     const rowsBlocked = ABOVE.map((offset) => box(`o${offset}`, 0, 700, offset, { protectedLabel: true, obstacle: true }))
-    expect(planSelectionPlate(input({ labels: rowsBlocked }))?.plan.offset).toBe(-76)
+    expect(planSelectionPlate(input({ labels: rowsBlocked }))?.plan.offset).toBe(-75)
     // With the sliver there, the plate takes the row under the track rather than cover the sliver's edge.
     expect(planSelectionPlate(input({ labels: rowsBlocked, softObstacles: [sliver] }))?.plan.offset).toBe(34)
     // With nowhere else, the plate-only row is used over the sliver.
-    expect(planSelectionPlate(input({ labels: rowsBlocked, softObstacles: [sliver], belowRows: [] }))?.plan.offset).toBe(-76)
+    expect(planSelectionPlate(input({ labels: rowsBlocked, softObstacles: [sliver], belowRows: [] }))?.plan.offset).toBe(-75)
   })
 
   it('sets a soft obstacle aside before it hides a neighbour: covering a sliver is better than hiding a label', () => {
     // Row -20 holds a wide label a plate would cover by less than a third (hidden only by the last resort); the plate-only row is under a sliver.
     const wide = box('wide', 100, 500, -20, { length: 40 })
-    const sliver = box('sliver', 0, 700, -76, { protectedLabel: true, obstacle: true })
+    // As Timeline draws a narrow bar: its top 16px above its foot, which is the plate-only row's plate top (Y - 75 - 9), and a pixel past it.
+    const sliver: PlacedLabelBox = { id: 'sliver', left: 0, right: 700, top: Y - 100, bottom: Y - 83, length: 0, protectedLabel: true, obstacle: true }
     const found = planSelectionPlate(input({ aboveRows: [-20], belowRows: [], labels: [wide], softObstacles: [sliver] }))
-    expect(found?.plan.offset).toBe(-76)
+    expect(found?.plan.offset).toBe(-75)
     expect(found?.plan.hidden).toEqual([])
     // Without the sliver, the same: nothing is hidden.
     expect(planSelectionPlate(input({ aboveRows: [-20], belowRows: [], labels: [wide] }))?.plan.hidden).toEqual([])
@@ -168,6 +170,30 @@ describe('planSelectionPlate', () => {
       // The plate starting at the mark has its left edge (with its padding) at 295; a link leaving at 294 passes within the pad.
       const near = planSelectionPlate(input({ labels: wall, links: [link('near', 294, 100), link('nearer', 297, 100)] }))
       expect(near?.plan.anchor).not.toBe('start')
+    })
+  })
+
+  describe('the order of the passes', () => {
+    it('runs every pass that hides nothing before any that hides a label, whichever pass finds it', () => {
+      // Every row above is walled except -20, which holds a small unprotected label a plate there covers whole (hidden by the ordinary rules).
+      const labels = [
+        ...ABOVE.filter((offset) => offset !== -20).map((offset) => box(`w${offset}`, 0, 700, offset, { protectedLabel: true })),
+        box('w-75', 0, 700, -75, { protectedLabel: true }),
+        box('small', 280, 330, -20, { length: 8 }),
+      ]
+      // An untraced link under the mark blocks both rows under the track in the first two passes only.
+      const found = planSelectionPlate(input({ labels, links: [link('u', 250, 350)] }))
+      expect(found?.plan.hidden).toEqual([])
+      expect(found!.plan.offset).toBeGreaterThan(0)
+    })
+
+    it('runs the last resort when every pass that hides nothing is walled', () => {
+      // Every row above holds a wide unprotected label a plate covers by less than half (the ordinary rules refuse it, the last resort hides it);
+      // under the track the selection's own traced links, straight down, block both rows in every pass.
+      const labels = [...ABOVE, -75].map((offset) => box(`wide${offset}`, 0, 700, offset, { length: 60 }))
+      const found = planSelectionPlate(input({ labels, links: [link('t1', 300, 310, true), link('t2', 200, 400, true)] }))
+      expect(found).not.toBeNull()
+      expect(found!.plan.hidden.length).toBeGreaterThan(0)
     })
   })
 })

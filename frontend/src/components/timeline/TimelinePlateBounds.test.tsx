@@ -83,7 +83,8 @@ describe('a plate stays inside the plot and clear of the bands above the labels'
           const text = container.querySelector('.timeline-divergence text')!
           const diamond = container.querySelector('.timeline-divergence path')!
           const cx = Number(/M ([-\d.e]+)/.exec(diamond.getAttribute('d')!)![1])
-          const width = text.textContent!.length * 12 * 0.62
+          // As the timeline measures it in jsdom (0.56em a character; a browser measures the real glyphs).
+          const width = text.textContent!.length * 12 * 0.56
           const x = Number(text.getAttribute('x'))
           const labelLeft = text.getAttribute('text-anchor') === 'end' ? x - width : x
           const boxes = [
@@ -119,5 +120,79 @@ describe('a plate stays inside the plot and clear of the bands above the labels'
       expect(plate.top).toBeGreaterThanOrEqual(plate.markY - 84)
       expect(plate.top).toBeGreaterThanOrEqual(DIVERGENCE_BAND_HEIGHT)
     }
+  }, 120_000)
+})
+
+describe('the plate\'s own box', () => {
+  /** Each plate's rect against its text's baseline, over every selection of a crowd. */
+  function boxes(events: Event[], arcs: Arc[], margin?: { top: number; right: number; bottom: number; left: number }) {
+    const out: Array<{ id: string; offset: number; ascent: number; height: number }> = []
+    for (const ev of events) {
+      const { container } = render(<Timeline events={events} arcs={arcs} margin={margin} width={1000} height={500} selectedEventId={ev.id} />)
+      const rect = container.querySelector('[data-pinned-label-for] rect.event-label-plate')
+      const text = container.querySelector('[data-pinned-label-for] text')
+      const mark = container.querySelector(`[data-event-id="${ev.id}"]`)!
+      if (rect && text) {
+        const markY = Number(/translate\(\s*[-\d.e]+\s*,\s*([-\d.e]+)\)/.exec(mark.getAttribute('transform')!)![1])
+        out.push({ id: ev.id, offset: Number(text.getAttribute('y')) - markY, ascent: Number(text.getAttribute('y')) - Number(rect.getAttribute('y')), height: Number(rect.getAttribute('height')) })
+      }
+      cleanup()
+    }
+    return out
+  }
+
+  it('the plate-only row\'s plate is 12px (9 above its baseline, 3 below); every other row\'s is 14px (10.5 and 3.5)', () => {
+    // (A margin too small to rise into takes the plate-only row away from a graph with no arcs: the plates go in the label rows.)
+    const found = [...boxes(crowd(40), [arc]), ...boxes(crowd(40), [], { top: 4, right: 16, bottom: 40, left: 56 })]
+    expect(found.some((box) => box.offset === -75), 'a plate in the plate-only row').toBe(true)
+    expect(found.some((box) => box.offset !== -75), 'a plate in another row').toBe(true)
+    for (const box of found) {
+      if (box.offset === -75) expect(box).toMatchObject({ ascent: 9, height: 12 })
+      else expect(box, `${box.id} at ${box.offset}`).toMatchObject({ ascent: 10.5, height: 14 })
+    }
+  }, 120_000)
+
+  it('the clip keeps its bottom where the axis is, whether or not it reaches into the margin', () => {
+    for (const arcs of [[], [arc]]) {
+      const events = crowd(30)
+      const { container } = render(<Timeline events={events} arcs={arcs} width={1000} height={500} selectedEventId="e03" />)
+      const clip = container.querySelector('clipPath rect')!
+      const axis = Array.from(container.querySelectorAll('text.axis-tick'))
+        .map((t) => Number(/translate\(0,\s*([-\d.e]+)\)/.exec(t.parentElement!.parentElement!.getAttribute('transform') ?? '')?.[1] ?? 0))
+        .reduce((a, b) => Math.max(a, b), 0)
+      expect(Number(clip.getAttribute('y')) + Number(clip.getAttribute('height')), `${arcs.length} arcs`).toBe(axis)
+      cleanup()
+    }
+  })
+
+  it('with a band and no arcs the clip is the plot (the plate does not rise into the margin), and without either it reaches into it', () => {
+    const events = crowd(30)
+    const withBand = render(<Timeline events={events} arcs={[]} ghost={{ label: 'B', events: [], divergence: new Date(events[5]!.timestamp) }} width={1000} height={500} selectedEventId="e03" />)
+    expect(Number(withBand.container.querySelector('clipPath rect')!.getAttribute('y'))).toBe(0)
+    cleanup()
+    const bare = render(<Timeline events={events} arcs={[]} width={1000} height={500} selectedEventId="e03" />)
+    expect(Number(bare.container.querySelector('clipPath rect')!.getAttribute('y'))).toBeLessThan(0)
+  })
+
+  it("a plate does not sit flush under a narrow arc it could avoid (it would read as the arc's label)", () => {
+    // A sliver arc (4 hours of 40: about 95px). A mark just beside it has room to take its plate to the side away from the bar.
+    const sliver: Arc = { ...arc, id: 'sliver', start_time: '2024-01-01T16:00:00Z', end_time: '2024-01-01T20:00:00Z' }
+    const events = crowd(40)
+    let beside = 0
+    for (const ev of events) {
+      const { container } = render(<Timeline events={events} arcs={[sliver]} width={1000} height={500} selectedEventId={ev.id} />)
+      const rect = container.querySelector('[data-pinned-label-for] rect.event-label-plate')
+      const ring = container.querySelector('[data-arc-id="sliver"] rect.arc-focus-ring')!
+      const mark = container.querySelector(`[data-event-id="${ev.id}"]`)!
+      const [markX, markY] = /translate\(\s*([-\d.e]+)\s*,\s*([-\d.e]+)\)/.exec(mark.getAttribute('transform')!)!.slice(1).map(Number) as [number, number]
+      const [barLeft, barRight] = [Number(ring.getAttribute('x')) + 3, Number(ring.getAttribute('x')) + Number(ring.getAttribute('width')) - 3]
+      if (rect && Number(rect.getAttribute('y')) === markY - 84 && ((markX < barLeft && markX > barLeft - 60) || (markX > barRight && markX < barRight + 60))) {
+        beside++
+        const [left, right] = [Number(rect.getAttribute('x')), Number(rect.getAttribute('x')) + Number(rect.getAttribute('width'))]
+        expect(right <= barLeft || left >= barRight, `the plate of ${ev.id} sits under the sliver`).toBe(true)
+      }
+      cleanup()
+    }
+    expect(beside, 'a selection beside the sliver with a plate in the plate-only row').toBeGreaterThan(0)
   }, 120_000)
 })

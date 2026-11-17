@@ -371,6 +371,8 @@ const Timeline = memo(function Timeline({
     1 // Always fit to view for original extent
   )
   const { eventY, axisY } = layout
+  // The clip's top: the plot's, or (no arcs, no band) the margin the plate rises into.
+  const clipTop = layout.plateTopLimit < 0 ? layout.plateTopLimit - 2 : 0
 
   // Narrow canvases open zoomed in (see the zoom effect); applied once per extent.
   const narrowZoomAppliedRef = useRef<string | null>(null)
@@ -670,27 +672,28 @@ const Timeline = memo(function Timeline({
       const right = xScale(toInstant(arc.end_time))
       if (right - left >= NARROW_ARC_PX) continue
       const top = yScale(arc.renderLevel)
-      softObstacles.push({ id: `arc:${arc.id}`, left, right, top, bottom: top + ARC_BAR_HEIGHT, length: 0, protectedLabel: true, obstacle: true })
+      softObstacles.push({ id: `arc:${arc.id}`, left, right, top, // One px past the bar's foot: a plate that only touches the foot (the plate-only row's top is exactly there) reads as the bar's label.
+        bottom: top + ARC_BAR_HEIGHT + 1, length: 0, protectedLabel: true, obstacle: true })
     }
     // The divergence band's diamond and label, and each branch mark's: landmarks a plate is not to cover (the
     // plate may reach into the band only where they are not).
     const bandObstacles: PlacedLabelBox[] = []
     {
       const midY = DIVERGENCE_BAND_HEIGHT / 2
-      const landmark = (id: string, cx: number, label: string | null, labelBefore: boolean, em = 0.56) => {
+      const landmark = (id: string, cx: number, label: string | null, labelBefore: boolean, weight: number) => {
         bandObstacles.push({ id: `band:${id}:diamond`, left: cx - 7, right: cx + 7, top: midY - 7, bottom: midY + 7, length: 0, protectedLabel: true, obstacle: true })
         if (!label) return
-        const width = label.length * LABEL_FONT_SIZE * em
+        const width = measureLabelWidth(label, LABEL_FONT_SIZE, weight)
         const left = labelBefore ? cx - 10 - width : cx + 10
         bandObstacles.push({ id: `band:${id}:label`, left, right: left + width, top: midY + 4 - LABEL_FONT_SIZE * 0.8, bottom: midY + 7, length: 0, protectedLabel: true, obstacle: true })
       }
       if (divergence) {
         const cx = xScale(divergence)
-        landmark('divergence', cx, `Diverges ${formatHistoricalTimestamp(divergence)}`, cx > innerWidth * 0.6, 0.62)
+        landmark('divergence', cx, `Diverges ${formatHistoricalTimestamp(divergence)}`, cx > innerWidth * 0.6, 600)
       }
       for (const mark of branchMarks ?? []) {
         const cx = xScale(mark.date)
-        landmark(mark.id, cx, mark.label, cx > innerWidth * 0.7)
+        landmark(mark.id, cx, mark.label, cx > innerWidth * 0.7, 400)
       }
     }
     // The full name if a plate fits; else the shorter forms the layout uses.
@@ -1485,8 +1488,8 @@ const Timeline = memo(function Timeline({
         {/* Clip path to constrain content to inner area */}
         <defs>
           <clipPath id={clipId}>
-            {/* With no arcs and no band the plate may rise into the top margin (layout.plateTopLimit < 0). */}
-            <rect x={0} y={Math.min(0, layout.plateTopLimit - 2)} width={innerWidth} height={axisY - Math.min(0, layout.plateTopLimit - 2)} />
+            {/* With no arcs and no band the plate may rise into the top margin (layout.plateTopLimit < 0); otherwise the clip is the plot. */}
+            <rect x={0} y={clipTop} width={innerWidth} height={axisY - clipTop} />
           </clipPath>
         </defs>
         <g transform={`translate(${margin.left},${margin.top})`}>
