@@ -503,10 +503,10 @@ export class GraphWriteVersioningService {
     graphId: string,
     state: BatchLiveState,
     steps: BatchStep[],
-    { announceIfNotVersioned = true }: { announceIfNotVersioned?: boolean } = {}
+    { announceIfNotVersioned = true, summary, userId }: { announceIfNotVersioned?: boolean; summary?: string; userId?: string } = {}
   ): Promise<void> {
     try {
-      await this.commitBatch(graphId, state);
+      await this.commitBatch(graphId, state, summary, userId);
     } catch (error) {
       this.logger.error(`Failed to version a batch in graph ${graphId}`, error);
       // The live store holds the batch, and it is what the app reads.
@@ -517,7 +517,7 @@ export class GraphWriteVersioningService {
   }
 
   /** The difference a batch made from the head, committed as one version (nothing when it made none). */
-  private async commitBatch(graphId: string, state: BatchLiveState): Promise<void> {
+  private async commitBatch(graphId: string, state: BatchLiveState, describeAs?: string, userId?: string): Promise<void> {
     // Strict only where leaving an unreadable object out would lose data:
     //   - an event or arc the batch edited (it would read as one the head never
     //     had, and be versioned as the bare projection);
@@ -593,7 +593,7 @@ export class GraphWriteVersioningService {
       if (goneEvents.has(String(link.cause_event_id)) || goneEvents.has(String(link.effect_event_id))) remove('relationship', id);
     }
 
-    const summary = `${describeChanges(changes)} in a batch`;
+    const summary = describeAs ?? `${describeChanges(changes)} in a batch`;
     const operation: EntityWriteOperation | 'delete' =
       changes.modified.length === 0 && changes.deleted.length === 0
         ? 'create'
@@ -602,7 +602,7 @@ export class GraphWriteVersioningService {
           : 'update';
 
     const empty = changes.added.length + changes.modified.length + changes.deleted.length === 0;
-    if (!empty) await this.graphRepository.commitChanges(graphId, changes, operation, summary);
+    if (!empty) await this.graphRepository.commitChanges(graphId, changes, operation, summary, userId);
   }
 
   /**

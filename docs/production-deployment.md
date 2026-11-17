@@ -229,7 +229,7 @@ logs `Causal link ids: ...` progress lines (per graph, every 5,000 links) while
 it works. It reads the version history of the graphs that have such links and
 writes it only where it differs. Allow for it in the start period of the
 liveness probe: measured against Neo4j on a 1 GB heap, naming 300,000 links
-takes about 64 seconds (most of it reading the version history) and 10,000 pairs of two links about
+takes between 1 and 2 minutes (64 s on one machine, 125 s on a loaded one; most of it is reading the version history, so it depends on the machine and on the size of the head) and 10,000 pairs of two links about
 9 seconds. Every later start finds nothing to name and costs one read.
 If the process is stopped part-way it resumes (the plan is deterministic and the
 version history is written before the links are named). Startup does not fail

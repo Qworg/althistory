@@ -64,7 +64,13 @@ export interface HeadLink {
   relationship_type?: unknown;
   weight?: unknown;
   confidence?: unknown;
+  /** A link that ends in another graph: its edge is not in this graph's store, so it is never "stale". */
+  causeGraphId?: unknown;
+  effectGraphId?: unknown;
 }
+
+/** Who the upgrade's version is by: the version history shows it as a system change, not a person's. */
+export const LINK_ID_UPGRADE_USER = 'system:link-id-upgrade';
 
 export interface CausalLinkIdMigrationOptions {
   /** A write session; one is opened per call and closed. */
@@ -72,7 +78,7 @@ export interface CausalLinkIdMigrationOptions {
   /** Reads the links of a graph's version head; null when the graph has no versions. Without it (and `versioning`) edges are only named. */
   headLinks?: (graphId: string) => Promise<Record<string, HeadLink> | null>;
   /** Records the reconciling version of a graph. */
-  versioning?: { recordBatch(graphId: string, state: BatchLiveState, steps: BatchStep[], options?: { announceIfNotVersioned?: boolean }): Promise<void> };
+  versioning?: { recordBatch(graphId: string, state: BatchLiveState, steps: BatchStep[], options?: { announceIfNotVersioned?: boolean; summary?: string; userId?: string }): Promise<void> };
   /** Edges per naming statement (a pair is never split). Default 5,000. */
   chunkSize?: number;
   log?: (message: string) => void;
@@ -113,9 +119,15 @@ function num(value: unknown, fallback: number): number {
   return fallback;
 }
 
-/** `link_` + a hash of the edge's element id: stable for the life of the edge, never random. */
-export function derivedLinkId(element: string): string {
-  return `link_${createHash('sha1').update(element).digest('hex').slice(0, 24)}`;
+/**
+ * `link_` + a hash of what names the edge: its graph, its two events, its creation
+ * time and its `elementId`. Never random, and the same on every re-plan. Neo4j can
+ * give an `elementId` again after a restore or a downgrade, so it is not trusted
+ * alone: an edge that took an old one's id would also have to be the same link.
+ */
+export function derivedLinkId(edge: Pick<Edge, 'graphId' | 'cause' | 'effect' | 'createdAt' | 'element'>): string {
+  const name = [edge.graphId ?? '', edge.cause, edge.effect, edge.createdAt ?? '', edge.element].join('\u0000');
+  return `link_${createHash('sha1').update(name).digest('hex').slice(0, 24)}`;
 }
 
 const pairKey = (cause: string, effect: string): string => `${cause}\u0000${effect}`;
@@ -129,6 +141,10 @@ function sameData(edge: Edge, head: HeadLink): boolean {
     num(head.weight, 0.5) === edge.weight &&
     num(head.confidence, 0.7) === edge.confidence
   );
+}
+
+function sameDataEdges(a: Edge, b: Edge): boolean {
+  return a.evidence === b.evidence && a.type === b.type && a.weight === b.weight && a.confidence === b.confidence;
 }
 
 /** Oldest first; an edge with no `created_at` after those with one; the element id breaks every tie. */
@@ -174,7 +190,7 @@ function planPair(
 
   // 0. An edge that already holds its own derived id in the head (a re-plan).
   for (const edge of sorted) {
-    const own = derivedLinkId(edge.element);
+    const own = derivedLinkId(edge);
     if (freeHeads.some(([headId]) => headId === own)) claim(edge, own, true);
   }
   // 1. One to one on the data.
@@ -184,6 +200,15 @@ function planPair(
     const [headId, head] = matches[0] as [string, HeadLink];
     if (freeEdges.filter((other) => sameData(other, head)).length === 1) claim(edge, headId, true);
   }
+  // 1b. Edges and head links with identical data cannot be told apart, so pair them
+  // in a fixed order: the oldest edge with the lowest head id, and so on. This is
+  // what keeps `cause->effect` for the oldest of identical twins.
+  for (const edge of [...freeEdges]) {
+    if (!freeEdges.includes(edge)) continue;
+    const twins = freeEdges.filter((other) => sameDataEdges(other, edge));
+    const matching = freeHeads.filter(([, head]) => sameData(edge, head)).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    for (let i = 0; i < Math.min(twins.length, matching.length); i += 1) claim(twins[i] as Edge, (matching[i] as [string, HeadLink])[0], true);
+  }
   // 2. A lone edge and a lone head link.
   if (freeEdges.length === 1 && freeHeads.length === 1) claim(freeEdges[0] as Edge, (freeHeads[0] as [string, HeadLink])[0], true);
   // 3. The rest: the oldest takes cause->effect if nothing uses it, the others a derived id.
@@ -192,7 +217,7 @@ function planPair(
   const planned = new Set<string>(ids.values());
   const isUsed = (id: string): boolean => taken.has(id) || headIdsOfPair.has(id) || planned.has(id);
   for (const edge of freeEdges) {
-    const id = isUsed(pairId) ? derivedLinkId(edge.element) : pairId;
+    const id = isUsed(pairId) ? derivedLinkId(edge) : pairId;
     planned.add(id);
     ids.set(edge.element, id);
   }
@@ -377,11 +402,33 @@ async function migrateGraph(
     if (!agrees) (changed as NonNullable<typeof changed>).push({ cause_event_id: first.cause, effect_event_id: first.effect, live: desired });
   }
 
+  // Head links on pairs this graph has no live edge for (what `main` left behind, e.g.
+  // after a delete it never versioned): dropped in the same version. A link to another
+  // graph is never dropped, and a pair with a live edge was reconciled above.
+  let stale = 0;
+  if (reconcile) {
+    const live = new Set<string>([...pairs.keys(), ...namedByPair.keys()]);
+    const reported = new Set<string>();
+    for (const link of Object.values(head)) {
+      const key = pairKey(link.cause_event_id, link.effect_event_id);
+      if (live.has(key) || reported.has(key) || link.causeGraphId || link.effectGraphId) continue;
+      reported.add(key);
+      (changed as NonNullable<typeof changed>).push({ cause_event_id: link.cause_event_id, effect_event_id: link.effect_event_id, live: [] });
+    }
+    for (const key of reported) stale += (headByPair.get(key) ?? []).length;
+  }
   log(`Causal link ids: graph ${label}: planned ${rows.length} id(s) (${since()})`);
   // 2. Reconcile the head first, where it differs.
   if (reconcile && (changed as NonNullable<typeof changed>).length > 0) {
     log(`Causal link ids: graph ${label}: writing the version history for ${(changed as NonNullable<typeof changed>).length} pair(s) of ${pairs.size}`);
-    await (options.versioning as NonNullable<typeof options.versioning>).recordBatch(graphId as string, { links: changed }, [], { announceIfNotVersioned: false });
+    const summary =
+      `Upgrade: named ${rows.length} causal ${rows.length === 1 ? 'link' : 'links'} (link ids)` +
+      (stale > 0 ? `, removed ${stale} ${stale === 1 ? 'link' : 'links'} the graph no longer holds` : '');
+    await (options.versioning as NonNullable<typeof options.versioning>).recordBatch(graphId as string, { links: changed }, [], {
+      announceIfNotVersioned: false,
+      summary,
+      userId: LINK_ID_UPGRADE_USER,
+    });
     result.reconciledGraphs += 1;
   }
 

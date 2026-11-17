@@ -266,10 +266,156 @@ describe('the cloud link id migration (#30)', () => {
     await migrate(); // the restart
 
     const named = (await edges(c)).map((l) => l.id!);
+    expect(named).toContain(`${c}->${e}`); // the head's id stays with identical twins
     expect(new Set(named)).toEqual(new Set(Object.keys(headAfterStop))); // the head's ids, none new, none left over
     expect(await versionOf(g)).toBe(versionAfterStop); // the head was already right
     await container.graphService.rollbackGraph(g, await versionOf(g));
     expect(await liveLinks(g)).toHaveLength(3);
+  });
+
+  it('adopts the id of a lone head link for a lone edge, whatever the data (rule 2), and writes the live data under it', async () => {
+    const g = await newGraph('Lone and lone');
+    const c = await addEvent(g, 'cause', 1360);
+    const e = await addEvent(g, 'effect', 1361);
+    await idlessEdge(g, c, e, 'LIVE DATA', '2020-01-01T00:00:00Z');
+    await headEntry(g, 'rel_x', c, e, 'STALE HEAD DATA');
+
+    await migrate();
+
+    expect(await edges(c)).toEqual([{ id: 'rel_x', evidence: 'LIVE DATA' }]);
+    expect(await headOf(g, c)).toEqual({ rel_x: 'LIVE DATA' }); // one entry, not two
+  });
+
+  it('keeps the oldest of identical twins on cause->effect, pairing them with the head in a fixed order', async () => {
+    const g = await newGraph('Identical twins');
+    const c = await addEvent(g, 'cause', 1362);
+    const e = await addEvent(g, 'effect', 1363);
+    await idlessEdge(g, c, e, 'SAME', '2020-01-02T00:00:00Z');
+    await idlessEdge(g, c, e, 'SAME', '2020-01-01T00:00:00Z');
+    await headEntry(g, `${c}->${e}`, c, e, 'SAME');
+
+    await migrate();
+
+    const byAge = await neo<{ id: string; at: string }>(
+      `MATCH (:Event {id: $c})-[r:CAUSES]->() RETURN r.id AS id, toString(r.created_at) AS at ORDER BY r.created_at`,
+      { c }
+    );
+    expect(byAge[0]!.id).toBe(`${c}->${e}`);
+    expect(byAge[1]!.id).toMatch(/^link_[0-9a-f]{24}$/);
+  });
+
+  it('writes the upgrade as a system version with its own description, not a user batch', async () => {
+    const g = await newGraph('Upgrade version');
+    const c = await addEvent(g, 'cause', 1364);
+    const e = await addEvent(g, 'effect', 1365);
+    await idlessEdge(g, c, e, 'A', '2020-01-01T00:00:00Z');
+    await idlessEdge(g, c, e, 'B', '2021-01-01T00:00:00Z');
+    await headEntry(g, `${c}->${e}`, c, e, 'B');
+
+    await migrate();
+
+    const latest = (await container.graphRepository.getLatestVersion(g))!;
+    expect(latest.description).toBe('Upgrade: named 2 causal links (link ids)');
+    expect(latest.userId).toBe('system:link-id-upgrade');
+    expect(latest.description).not.toMatch(/in a batch/);
+  });
+
+  it('drops head links on a pair the graph holds no edge for, in the same version, but keeps a link to another graph', async () => {
+    const g = await newGraph('Stale head');
+    const c = await addEvent(g, 'cause', 1366);
+    const e = await addEvent(g, 'effect', 1367);
+    const ghost = await addEvent(g, 'ghost', 1368);
+    await idlessEdge(g, c, e, 'LIVE', '2020-01-01T00:00:00Z');
+    await headEntry(g, `${c}->${e}`, c, e, 'LIVE');
+    // main left this one in the head: its edge was deleted without a version.
+    await headEntry(g, `${ghost}->${e}`, ghost, e, 'GONE');
+    // A link whose cause lives in another graph has no edge here, and is not stale.
+    await container.graphRepository.commitChanges(
+      g,
+      {
+        added: [
+          {
+            type: 'relationship',
+            id: 'rel_cross',
+            data: { id: 'rel_cross', cause_event_id: 'remote-event', effect_event_id: e, weight: 0.5, confidence: 0.5, evidence: 'ABROAD', relationship_type: 'direct', causeGraphId: 'another-graph' },
+          },
+        ],
+        modified: [],
+        deleted: [],
+      },
+      'create',
+      'cross-graph link'
+    );
+    const before = await versionOf(g);
+
+    await migrate();
+
+    const head = (await container.graphRepository.checkout(g)).relationships;
+    expect(Object.keys(head).sort()).toEqual([`${c}->${e}`, 'rel_cross'].sort());
+    expect(await versionOf(g)).toBe(before + 1);
+    expect((await container.graphRepository.getLatestVersion(g))!.description).toMatch(/removed 1 link the graph no longer holds/);
+  });
+
+  it('never overwrites an id that was set after the plan (the r.id IS NULL guard)', async () => {
+    const g = await newGraph('Guard');
+    const c = await addEvent(g, 'cause', 1369);
+    const e = await addEvent(g, 'effect', 1370);
+    await idlessEdge(g, c, e, 'RACED', '2020-01-01T00:00:00Z');
+    const racing: () => MigrationSession = () => {
+      const session = getDatabaseManager().getNeo4jSession();
+      return {
+        run: async (query, parameters) => {
+          if (query.includes('SET r.id = row.id')) {
+            // Somebody names the edge between the plan and the write.
+            await session.run('MATCH (:Event {id: $c})-[r:CAUSES]->() SET r.id = $preset', { c, preset: 'preset-by-another' });
+          }
+          return session.run(query, parameters);
+        },
+        close: () => session.close(),
+      };
+    };
+
+    await migrate({ openSession: racing });
+
+    expect((await edges(c)).map((l) => l.id)).toEqual(['preset-by-another']);
+  });
+
+  it('keeps every pair whole within a chunk', async () => {
+    const g = await newGraph('Chunks');
+    const causes: string[] = [];
+    for (let i = 0; i < 4; i += 1) {
+      const c = await addEvent(g, `cause ${i}`, 1400 + i * 2);
+      const e = await addEvent(g, `effect ${i}`, 1401 + i * 2);
+      await idlessEdge(g, c, e, `first ${i}`, '2020-01-01T00:00:00Z');
+      await idlessEdge(g, c, e, `second ${i}`, '2021-01-01T00:00:00Z');
+      causes.push(c);
+    }
+    const statements: string[][] = [];
+    const recording: () => MigrationSession = () => {
+      const session = getDatabaseManager().getNeo4jSession();
+      return {
+        run: (query, parameters) => {
+          if (query.includes('SET r.id = row.id')) statements.push((parameters!.rows as Array<{ element: string }>).map((row) => row.element));
+          return session.run(query, parameters);
+        },
+        close: () => session.close(),
+      };
+    };
+
+    // Chunks of 3 edges: pairs of 2 never fit three to a statement, so each statement holds one or two whole pairs.
+    await migrate({ openSession: recording, chunkSize: 3 });
+
+    expect(statements.length).toBeGreaterThan(1);
+    const pairOf = new Map<string, string>();
+    for (const row of await neo<{ element: string; cause: string }>(`MATCH (c:Event)-[r:CAUSES]->() WHERE c.id IN $causes RETURN elementId(r) AS element, c.id AS cause`, { causes })) {
+      pairOf.set(row.element, row.cause);
+    }
+    for (const statement of statements) {
+      const counts = new Map<string, number>();
+      for (const element of statement) counts.set(pairOf.get(element)!, (counts.get(pairOf.get(element)!) ?? 0) + 1);
+      for (const n of counts.values()) expect(n).toBe(2); // a pair is never split across statements
+    }
+    expect((await Promise.all(causes.map((c) => edges(c)))).flat().every((l) => l.id !== null)).toBe(true);
   });
 
   it('is a no-op once every edge is named', async () => {
