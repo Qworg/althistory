@@ -1008,7 +1008,8 @@ export const OPERATIONS: Record<string, OperationSpec> = {
       'Apply many changes at once. A step that does not apply (an id that is not there) is a failed step, ' +
       'like one that throws. With `atomic` (the default) a failed step ends the transaction with a `400`: it ' +
       'undoes the entities the transaction created and every arc write, but not an earlier `update_event`, ' +
-      '`delete_event` or link change, which stay. Without `atomic` the other steps carry on and any failed ' +
+      '`delete_event` or link change, which stay (an `update_event` that put an event in an arc the failure ' +
+      'undid loses that arc reference, with a `warning` on its step). Without `atomic` the other steps carry on and any failed ' +
       'step makes the response a `207` with `success: false`. A create of an arc whose id exists, or that ' +
       'an earlier step uses, is a `400`. What the transaction leaves is ' +
       'recorded as one version of the graph. Its arc steps are judged once, against the state they end in: ' +

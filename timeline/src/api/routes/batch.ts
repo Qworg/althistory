@@ -250,9 +250,19 @@ function absorbArcMoves(touched: Touched, session: ArcHierarchySession, steps: B
   return [...steps, ...extra];
 }
 
-/** The ids of the events the steps that succeeded wrote. */
-function eventsWrittenBy(steps: Array<{ type: string; id?: string; success: boolean }>): Set<string> {
-  return new Set(steps.filter((step) => step.success && step.id !== undefined && /_event$/.test(step.type)).map((step) => step.id!));
+/**
+ * The arc ids each event step that succeeded named (`metadata.arcId` or `arc_id` of its data), by
+ * event id: the references the batch itself wrote, which are the only ones undoing an arc clears.
+ */
+function arcRefsWrittenBy(operations: BatchOperation[], steps: Array<{ index: number; type: string; id?: string; success: boolean }>): Map<string, Set<string>> {
+  const refs = new Map<string, Set<string>>();
+  for (const step of steps) {
+    if (!step.success || step.id === undefined || !/_event$/.test(step.type)) continue;
+    const metadata = ((operations[step.index]?.data ?? {}) as { metadata?: Record<string, unknown> }).metadata;
+    const named = [metadata?.arcId, metadata?.arc_id].filter((ref): ref is string => typeof ref === 'string');
+    if (named.length > 0) refs.set(step.id, new Set([...(refs.get(step.id) ?? []), ...named]));
+  }
+  return refs;
 }
 
 /** Why an arc step that was fine on its own was not applied. */
@@ -1009,8 +1019,14 @@ batchRoutes.post(
             await arcSession.undo();
             arcsRestored = true;
             // An event a step of this transaction put in an arc that is now gone no longer names it.
-            await arcSession.clearReferences(made, eventsWrittenBy(result.results));
+            await arcSession.clearReferences(made, arcRefsWrittenBy(operations, result.results));
             arcSession.clearedEventIds().forEach((id) => touched.events.add(id));
+            // A step that stays (an update_event) and put an event in an arc that is gone says so.
+            for (const step of result.results) {
+              if (step.success && step.id !== undefined && /_event$/.test(step.type) && arcSession.clearedEventIds().includes(step.id)) {
+                step.warning = 'its arc was not applied (the transaction failed), so the event is in no arc';
+              }
+            }
           } catch (rollbackError) {
             logger.error('Rollback of the arc hierarchy failed', rollbackError);
           }
@@ -1085,7 +1101,7 @@ batchRoutes.post(
         const made = arcSession.createdArcIds();
         await arcSession.undo();
         // An event a step put in an arc that was not made no longer names it.
-        await arcSession.clearReferences(made, eventsWrittenBy(result.results));
+        await arcSession.clearReferences(made, arcRefsWrittenBy(operations, result.results));
         const cleared = new Set(arcSession.clearedEventIds());
         cleared.forEach((id) => touched.events.add(id));
         for (const step of result.results) {

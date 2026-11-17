@@ -242,6 +242,11 @@ export class ArcRepository {
 
       return arc;
     } catch (error) {
+      // The graph store holds one arc per id across every graph (a uniqueness constraint): an id
+      // another arc (here or in another graph) has is a refusal that names it, not a store failure.
+      if ((error as { code?: string } | null)?.code === 'Neo.ClientError.Schema.ConstraintValidationFailed') {
+        throw new ValidationError(`An arc with the id "${arc.id}" already exists (in this graph or another); a create cannot take its place`, 'id', arc.id);
+      }
       throw new Error(`Failed to create arc: ${error}`);
     } finally {
       await session.close();

@@ -201,6 +201,64 @@ describe('demo server', () => {
     expect(kept.metadata).toEqual({ note: 'kept' })
   })
 
+  describe('the seeded arcs and the server\'s rules', () => {
+    const refused = (promise: Promise<unknown>) => expect(promise).rejects.toMatchObject({ response: { status: 400 } })
+
+    it('lets a visitor edit every arc the recording seeded: a rename, a resize, a panel save, a drag', async () => {
+      const { respond } = await load()
+      const seeded = (await respond(request('get', '/arcs'))).data.data as Array<{ id: string; level: number; parent_arc_id?: string | null; start_time: string; end_time: string; name: string }>
+      // The recording was made before the hierarchy was enforced: parentless arcs at levels 1 and 2 are top level here.
+      expect(seeded.length).toBeGreaterThan(0)
+      for (const arc of seeded) expect(arc.parent_arc_id ?? null).toBeNull()
+      expect(seeded.every((arc) => arc.level === 0)).toBe(true)
+      for (const arc of seeded) {
+        expect((await respond(request('put', `/arcs/${arc.id}`, { name: `${arc.name} (edited)` }))).status).toBe(200)
+        expect((await respond(request('put', `/arcs/${arc.id}`, { start_time: arc.start_time, end_time: '1860-01-01T00:00:00.000Z', parent_arc_id: null }))).status).toBe(200)
+        // What the arc panel sends on save: the whole arc, level as it shows.
+        expect((await respond(request('put', `/arcs/${arc.id}`, { name: arc.name, description: 'd', level: arc.level, start_time: arc.start_time, end_time: arc.end_time, parent_arc_id: null }))).status).toBe(200)
+      }
+    })
+
+    it('judges a new arc and an edit as the server does', async () => {
+      const { respond } = await load()
+      const make = async (body: Record<string, unknown>) => (await respond(request('post', '/arcs', { start_time: '1800-01-01T00:00:00Z', end_time: '1900-01-01T00:00:00Z', ...body }))).data.data as { id: string; level: number; parent_arc_id: string | null; metadata?: Record<string, unknown> }
+      const get = async (id: string) => (await respond(request('get', `/arcs/${id}`))).data.data as { level: number; parent_arc_id: string | null; metadata?: Record<string, unknown> }
+
+      // A root above level 0, a child outside its parent's span, an unknown parent: refused when made.
+      await refused(respond(request('post', '/arcs', { name: 'Root3', start_time: '1800-01-01T00:00:00Z', end_time: '1900-01-01T00:00:00Z', level: 3 })))
+      const parent = await make({ name: 'Parent' })
+      await refused(respond(request('post', '/arcs', { name: 'Outside', start_time: '1700-01-01T00:00:00Z', end_time: '1950-01-01T00:00:00Z', parent_arc_id: parent.id })))
+      await refused(respond(request('post', '/arcs', { name: 'Orphan', start_time: '1800-01-01T00:00:00Z', end_time: '1900-01-01T00:00:00Z', parent_arc_id: 'nowhere' })))
+
+      // A parent named only in metadata is shown as the arc's parent, and judged the same way.
+      const child = await make({ name: 'Child', metadata: { parentArcId: parent.id } })
+      expect(await get(child.id)).toMatchObject({ level: 1, parent_arc_id: parent.id })
+      expect((await get(child.id)).metadata?.parentArcId).toBeUndefined()
+      await refused(respond(request('put', `/arcs/${child.id}`, { metadata: { parentArcId: 'nowhere' } })))
+      await refused(respond(request('put', `/arcs/${parent.id}`, { parent_arc_id: parent.id })))
+      // A root edited to a level above 0 is refused too.
+      await refused(respond(request('put', `/arcs/${parent.id}`, { level: 2 })))
+
+      // Level 0 promotes a child; naming a parent no longer clears it with the metadata kept behind.
+      await respond(request('put', `/arcs/${child.id}`, { level: 0 }))
+      expect(await get(child.id)).toMatchObject({ level: 0, parent_arc_id: null })
+      await respond(request('put', `/arcs/${child.id}`, { parent_arc_id: parent.id }))
+      expect(await get(child.id)).toMatchObject({ level: 1, parent_arc_id: parent.id })
+      await respond(request('put', `/arcs/${child.id}`, { parent_arc_id: null }))
+      const cleared = await get(child.id)
+      expect(cleared).toMatchObject({ level: 0, parent_arc_id: null })
+      expect(cleared.metadata?.parentArcId).toBeUndefined()
+    })
+
+    it('unassigns events whichever way they name the arc', async () => {
+      const { respond } = await load()
+      const arc = (await respond(request('post', '/arcs', { name: 'Gone', start_time: '1800-01-01T00:00:00Z', end_time: '1900-01-01T00:00:00Z' }))).data.data as { id: string }
+      const snake = (await respond(request('post', '/events', { description: 'Snake', actor: 'A', target: 'B', timestamp: '1850-01-01T00:00:00Z', metadata: { arc_id: arc.id, note: 'kept' } }))).data.data as { id: string }
+      await respond(request('delete', `/arcs/${arc.id}`))
+      expect(((await respond(request('get', `/events/${snake.id}`))).data.data as { metadata?: Record<string, unknown> }).metadata).toEqual({ note: 'kept' })
+    })
+  })
+
   it('keeps the calendar on a branch of the world', async () => {
     const { respond } = await load()
     const made = await respond(request('post', '/graphs/graph_vael/branch', { name: 'The Last King Lives' }))

@@ -278,7 +278,8 @@ its child. If the end state is not a valid hierarchy the whole batch is refused
 with a `400` (`VALIDATION_ERROR`) before any step runs, atomic or not, so nothing
 lands.
 
-A create that names the id of an arc that already exists in the graph, or that an
+A create that names the id of an arc that already exists in the graph (or, in a
+Neo4j deployment, in another graph: an arc id is unique across them), or that an
 earlier step of the batch uses (a delete and a create of one id included), is
 refused with a `400` that names the id, before any step runs: a create never takes
 the place of another arc. Use an update, or another id.
@@ -292,7 +293,9 @@ as a step that throws does.
   entities it created (events, links and arcs) and every arc write (updates,
   deletes, lifted children, unassigned events). What it **does not undo**: an
   `update_event`, `delete_event` or link change made before the failing step; those
-  stay in the graph (and are versioned). It is not a database transaction.
+  stay in the graph (and are versioned), except that an `update_event` that put an
+  event in an arc the failure undid loses that arc reference (with a `warning` on
+  its step). It is not a database transaction.
 - Without it, the other steps carry on, and a transaction with any failed step
   answers `207` with `success: false` (before, a step that did not apply left it a
   `200`).
@@ -301,11 +304,14 @@ as a step that throws does.
 is carried out (a create the store refuses, say), every arc write the batch made
 is put back, whether `atomic` is set or not, and every arc step that had
 succeeded is reported as failed with "not applied: another arc step in this batch
-failed" (`207`; `400` for an atomic transaction, which undoes the whole
-transaction). Event and link steps of a non-atomic transaction keep their own
-per-step results; when the arc steps are undone, an event that a step had put in
-an arc that was then not made no longer names it, and its step carries a
-`warning`. `POST /api/batch/arcs` is the same for every `onError` (`collect` or
+failed" (`207`; `400` for an atomic transaction, which undoes the arc writes and
+the entities it created, as above). Event and link steps of a non-atomic
+transaction keep their own per-step results. When the arc steps are undone, an
+event that a step had put in an arc that was then not made **loses that
+reference**: a kept `update_event` (in an atomic transaction too) that named the
+arc ends up in no arc, and its step carries a `warning` saying so. An event the
+batch only edited without naming the arc, or that named the id before the batch,
+is left as it was. `POST /api/batch/arcs` is the same for every `onError` (`collect` or
 `skip`): either every arc is made or none is, and an arc that was skipped or left
 out by lenient validation is named in `failed` under its own index with its own
 error.

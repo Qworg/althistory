@@ -134,6 +134,7 @@ function load(): DemoState {
 }
 
 const state = load()
+for (const graph of Object.values(state.graphs)) normalizeArcs(graph)
 
 function save(): void {
   try {
@@ -434,7 +435,47 @@ function misplaced(graph: GraphState, arc: Json, id: string | undefined): string
     if (up.id === id) return 'An arc cannot be placed under one of its own descendants'
     seen.add(up.id)
   }
-  return level === parent.level + 1 ? null : `A child of a level ${parent.level} arc is level ${parent.level + 1}`
+  if (level !== parent.level + 1) return `A child of a level ${parent.level} arc is level ${parent.level + 1}`
+  const [start, end] = [toInstant(arc.start_time as string), toInstant(arc.end_time as string)]
+  const [from, to] = [toInstant(parent.start_time), toInstant(parent.end_time)]
+  if (compareInstants(start, from) < 0 || compareInstants(end, to) > 0) return `An arc must lie within its parent's time span (${parent.start_time} to ${parent.end_time})`
+  return null
+}
+
+/** The arc as the server shows it: its parent in `parent_arc_id`, whichever way it was named. */
+function canonical(arc: DemoArc): DemoArc {
+  const parent = parentOf(arc) ?? null
+  const metadata = { ...((arc.metadata as Json | undefined) ?? {}) }
+  delete metadata.parentArcId
+  return { ...arc, parent_arc_id: parent, metadata }
+}
+
+/**
+ * Make a graph's arcs obey the hierarchy, whatever it was recorded or saved with: a parent that is
+ * not there, or that makes a cycle, is dropped; an arc with no parent is top level, and its subtree
+ * is levelled from it. (An older recording, or a tab's saved state, cannot trap the demo.)
+ */
+function normalizeArcs(graph: GraphState): void {
+  graph.arcs = graph.arcs.map(canonical)
+  for (const arc of graph.arcs) {
+    const parent = parentOf(arc)
+    if (parent && (parent === arc.id || !graph.arcs.some((candidate) => candidate.id === parent))) arc.parent_arc_id = null
+  }
+  for (const arc of graph.arcs) {
+    const seen = new Set<string>([arc.id])
+    for (let up = parentOf(arc); up; up = parentOf(graph.arcs.find((candidate) => candidate.id === up) ?? {})) {
+      if (seen.has(up)) {
+        arc.parent_arc_id = null
+        break
+      }
+      seen.add(up)
+    }
+  }
+  for (const arc of graph.arcs) {
+    if (parentOf(arc)) continue
+    arc.level = 0
+    relevel(graph, arc.id)
+  }
 }
 
 function arcs(method: string, path: string, params: URLSearchParams, body: Json, graph: GraphState): Reply | undefined {
@@ -447,7 +488,7 @@ function arcs(method: string, path: string, params: URLSearchParams, body: Json,
     }
     // As the server: an arc with no parent is top level, a child is one level below its parent.
     const parent = parentOf(body) ? graph.arcs.find((candidate) => candidate.id === parentOf(body)) : undefined
-    const arc = { ...body, level: typeof body.level === 'number' ? body.level : parent ? parent.level + 1 : 0, id: newId('arc') } as DemoArc
+    const arc = canonical({ ...body, level: typeof body.level === 'number' ? body.level : parent ? parent.level + 1 : 0, id: newId('arc') } as DemoArc)
     const problem = misplaced(graph, arc, undefined)
     if (problem) return badRequest(problem)
     graph.arcs.push(arc)
@@ -461,21 +502,27 @@ function arcs(method: string, path: string, params: URLSearchParams, body: Json,
   if (method === 'GET') return ok(graph.arcs[index])
   if (method === 'PUT' || method === 'PATCH') {
     const old = graph.arcs[index]!
-    const updated = { ...old, ...body, id } as DemoArc
-    // The parent the edit names ("parent_arc_id": null clears it); an edit that moves an arc without a level
-    // puts it one below its new parent (the top, with none), as the server does.
-    if ('parent_arc_id' in body) {
-      updated.parent_arc_id = parentOf({ parent_arc_id: body.parent_arc_id }) ?? null
-      updated.metadata = { ...((updated.metadata as Json | undefined) ?? {}), parentArcId: undefined }
-    }
-    const newParent = parentOf(updated)
-    if (typeof body.level !== 'number' && newParent !== parentOf(old)) {
+    const merged = { ...old, ...body, id } as DemoArc
+    // The parent the edit names, by the field or the metadata (null or empty clears it); one it does not name stays.
+    const bodyMeta = body.metadata as Json | undefined
+    const names = 'parent_arc_id' in body || (bodyMeta !== undefined && 'parentArcId' in bodyMeta)
+    const named = 'parent_arc_id' in body ? parentOf({ parent_arc_id: body.parent_arc_id }) : parentOf({ metadata: { parentArcId: bodyMeta?.parentArcId } })
+    const requested = typeof body.level === 'number' ? body.level : undefined
+    const oldParent = parentOf(old)
+    // Level 0 promotes (the same edit naming a new parent is a contradiction the check below refuses).
+    let newParent = names ? named : oldParent
+    if (requested === 0 && !(named && named !== oldParent)) newParent = undefined
+    const updated = canonical({ ...merged, parent_arc_id: newParent ?? null, metadata: { ...((merged.metadata as Json | undefined) ?? {}), parentArcId: newParent } } as DemoArc)
+    // An edit that moves an arc without a level puts it one below its new parent (the top, with none).
+    if (requested === undefined && newParent !== oldParent) {
       const target = newParent ? graph.arcs.find((candidate) => candidate.id === newParent) : undefined
       updated.level = target ? target.level + 1 : 0
     }
-    const problem = misplaced(graph, updated, id)
+    // Only what the edit changes is judged: an arc stored out of place can still be renamed.
+    const changed = newParent !== oldParent || updated.level !== old.level || updated.start_time !== old.start_time || updated.end_time !== old.end_time
+    const problem = changed ? misplaced(graph, updated, id) : null
     if (problem) return badRequest(problem)
-    const moved = updated.level !== old.level || newParent !== parentOf(old)
+    const moved = updated.level !== old.level || newParent !== oldParent
     graph.arcs[index] = updated
     // Its subtree moves with it.
     if (moved) relevel(graph, id)
@@ -489,7 +536,6 @@ function arcs(method: string, path: string, params: URLSearchParams, body: Json,
     for (const arc of graph.arcs) {
       if (parentOf(arc) !== id) continue
       arc.parent_arc_id = above ? above.id : null
-      arc.metadata = { ...((arc.metadata as Json | undefined) ?? {}), parentArcId: above ? above.id : undefined }
       arc.level = above ? above.level + 1 : 0
       relevel(graph, arc.id)
     }

@@ -248,6 +248,22 @@ describe('graph-scoped cloud repositories (#59)', () => {
       }
     });
 
+    it('turns the store\'s uniqueness violation on create into a 400 that names the id', async () => {
+      // One arc per id across every graph: another graph's arc with the id makes the store refuse the create.
+      const refusing = {
+        getNeo4jSession: () => ({
+          run: async () => {
+            throw Object.assign(new Error('Node(65) already exists with label `Arc` and property `id` = \'dup\''), { code: 'Neo.ClientError.Schema.ConstraintValidationFailed' });
+          },
+          close: async () => undefined,
+        }),
+      } as unknown as DatabaseManager;
+      const repository = new ArcRepository(refusing, undefined, undefined, undefined, { graphId: GRAPH_ID });
+      const created = repository.create({ id: 'dup', name: 'again', start_time: new Date('2020-01-01T00:00:00.000Z'), end_time: new Date('2020-01-02T00:00:00.000Z'), level: 0 });
+      await expect(created).rejects.toMatchObject({ statusCode: 400, field: 'id', message: expect.stringContaining('"dup"') });
+      await expect(created).rejects.not.toThrow(/Node\(65\)|Neo4j/);
+    });
+
     it('stamps the graph on a created arc', async () => {
       const recorded: RecordedQuery[] = [];
       const repository = new ArcRepository(

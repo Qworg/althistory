@@ -733,17 +733,21 @@ export class ArcHierarchySession {
   }
 
   /**
-   * Arcs this session made are gone: the events that a step of the batch (`stepEvents`) put
-   * in them no longer name them. An event the batch did not write, which names an arc id
-   * that simply does not exist yet, is left as it is.
+   * Arcs this session made are gone: the events that a step of the batch put in them (the
+   * arc ids each event's step named, `stepRefs`) no longer name them. An event the batch did
+   * not write, or only edited without naming the arc, is left as it is.
    */
-  async clearReferences(arcIds: string[], stepEvents: ReadonlySet<string>): Promise<void> {
+  async clearReferences(arcIds: string[], stepRefs: ReadonlyMap<string, ReadonlySet<string>>): Promise<void> {
     const { eventRepository } = this.repositories;
-    if (!eventRepository || arcIds.length === 0 || stepEvents.size === 0) return;
+    if (!eventRepository || arcIds.length === 0 || stepRefs.size === 0) return;
     const gone = new Set(arcIds);
     for (const event of await eventRepository.findAll()) {
       const metadata = event.metadata;
-      if (!stepEvents.has(event.id) || !metadata || !(gone.has(String(metadata.arcId)) || gone.has(String(metadata.arc_id)))) continue;
+      const named = stepRefs.get(event.id);
+      // Only a reference a step of the batch wrote: an event the batch only edited otherwise keeps what it had.
+      if (!named || !metadata) continue;
+      const ours = [metadata.arcId, metadata.arc_id].some((ref) => typeof ref === 'string' && gone.has(ref) && named.has(ref));
+      if (!ours) continue;
       const { arcId: _a, arc_id: _b, ...rest } = metadata;
       try {
         await eventRepository.update(event.id, { metadata: rest });
