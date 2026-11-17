@@ -43,6 +43,13 @@ if (typeof window !== 'undefined') {
   import.meta.hot?.dispose(() => window.removeEventListener('graph-switched', onGraphSwitched))
 }
 
+/**
+ * The restored copies that still have a "weren't restored" notice, by event id,
+ * each with the function that takes it down. Deleting such an event by any other
+ * route makes the notice false ("is back").
+ */
+const liveCopies = new Map<string, () => void>()
+
 /** At most this many links are named in a notice; the rest are counted. */
 const MAX_NAMED_LINKS = 3
 
@@ -71,6 +78,9 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
       )
       const outcome = await deleteEvent(event.id)
       if (outcome.delivery === 'queued') return
+      // This event may be a copy an earlier undo restored: it is gone again.
+      liveCopies.get(event.id)?.()
+      liveCopies.delete(event.id)
 
       // The id of the live copy: the original until an undo re-creates it, then
       // the restored one. Redo deletes whichever is live.
@@ -147,10 +157,11 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
               tell(graph, 'You are offline, so the deletion cannot be undone yet.', 'failure', 'network')
               return false
             }
-            // The event is back: what an earlier step said about it is superseded.
-            clearState()
             const restoredId = created.value.id
             currentId = restoredId
+            // A step that re-creates the event follows a delete, which already took
+            // down what was said before, so there is nothing to clear here.
+            liveCopies.set(restoredId, clearState)
             let lostLinks = 0
             // After the first refusal (429) no more are sent: the rest would be
             // refused too. They are named in the notice, not retried.
@@ -221,9 +232,12 @@ export function useUndoableEventDelete(record: (entry: EditHistoryEntry) => void
           clearFailure()
           try {
             const again = await deleteEvent(currentId)
-            if (again.delivery !== 'sent') return false
-            // Deleted again: "is back, but…" no longer holds.
+            // Deleted again (or queued to be, offline): "is back, but…" no longer holds.
             clearState()
+            liveCopies.delete(currentId)
+            if (again.delivery !== 'sent') {
+              tell(graph, 'You are offline; it will be deleted again when you reconnect.', 'failure', 'network')
+            }
             return true
           } catch (error) {
             tell(

@@ -199,6 +199,34 @@ describe('GraphSelector when a switch is refused with 429', () => {
     expect(screen.getByTestId('retry-countdown')).toHaveTextContent('Try again in 12 seconds.')
   })
 
+  it('announces a picker refusal once even when another door already raised a switch notice', async () => {
+    const { useGlobalStore } = await import('@/stores/globalStore')
+    const { NotificationCenter } = await import('@/components/notifications/NotificationCenter')
+    const { noticeRateLimited } = await import('@/services/rateLimitNotice')
+    const { GraphSelector } = await import('./GraphSelector')
+    useGlobalStore.setState({ errors: [] })
+    // A Graph Manager switch was refused a moment ago.
+    noticeRateLimited(
+      { status: 429, data: { error: { retryAfter: 30 } } },
+      { method: 'post', url: '/graphs/g2/activate' }
+    )
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const user = userEvent.setup()
+    render(
+      <QueryClientProvider client={client}>
+        <GraphSelector />
+        <NotificationCenter />
+      </QueryClientProvider>
+    )
+    const button = await screen.findByRole('button', { name: /Main Timeline/ })
+    await waitFor(() => expect(button).toBeEnabled())
+    await user.click(button)
+    await user.click(await screen.findByRole('button', { name: /Alternative Branch/ }))
+    await screen.findByTestId('graph-switch-error')
+    const naming = screen.getAllByRole('alert').filter((el) => /Switching graphs was refused/.test(el.textContent ?? ''))
+    expect(naming).toHaveLength(1)
+  })
+
   it('hides the alert once the graph it could not open is the open one', async () => {
     await refuseASwitch()
     // A switch made elsewhere (the Graph Manager, another tab) lands on g2.

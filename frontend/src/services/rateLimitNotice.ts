@@ -149,8 +149,17 @@ export function noticeRateLimited(response: RefusedResponse | undefined, request
   let notice = store.errors.find((e) => e.refusal === stem)
   // The picker's own switch says so itself (its alert); every other switch,
   // from the Graph Manager, a branch dialog, a copy and so on, gets the notice.
-  // A notice a different door already raised still follows the server's wait.
-  if (req.toldByCaller && !notice) return null
+  // If a different door already raised one, it goes: the picker's alert carries
+  // the wait alone, so the refusal is not announced twice.
+  if (req.toldByCaller) {
+    if (notice) {
+      store.removeError(notice.id)
+      const pending = expiry.get(stem)
+      if (pending) clearTimeout(pending)
+      expiry.delete(stem)
+    }
+    return null
+  }
   if (notice) {
     store.updateError(notice.id, { retryAt })
   } else {

@@ -86,14 +86,22 @@ describe('noticeRateLimited', () => {
     expect(useGlobalStore.getState().errors).toHaveLength(0)
   })
 
-  it('lets a quiet request move the countdown of a notice another door already raised, but never raises one', () => {
-    noticeRateLimited(refused({}, { error: { retryAfter: 5 } }), { method: 'post', url: '/graphs/g2/activate' })
-    const before = useGlobalStore.getState().errors[0]!.retryAt!
-    const quiet = { method: 'post', url: '/graphs/g2/activate', toldByCaller: true }
-    expect(noticeRateLimited(refused({}, { error: { retryAfter: 40 } }), quiet)).not.toBeNull()
-    const after = useGlobalStore.getState().errors
-    expect(after).toHaveLength(1)
-    expect(after[0]!.retryAt! - before).toBeGreaterThan(30000)
+  it('a quiet request takes down a switch notice another door raised, so the picker\'s alert carries the wait alone', () => {
+    vi.useFakeTimers()
+    try {
+      noticeRateLimited(refused({}, { error: { retryAfter: 5 } }), { method: 'post', url: '/graphs/g2/activate' })
+      expect(useGlobalStore.getState().errors).toHaveLength(1)
+      const quiet = { method: 'post', url: '/graphs/g2/activate', toldByCaller: true }
+      expect(noticeRateLimited(refused({}, { error: { retryAfter: 40 } }), quiet)).toBeNull()
+      expect(useGlobalStore.getState().errors).toHaveLength(0)
+      // Its expiry timer went with it.
+      expect(vi.getTimerCount()).toBe(0)
+      // And a quiet request alone raises nothing.
+      expect(noticeRateLimited(refused({}, { error: { retryAfter: 40 } }), quiet)).toBeNull()
+      expect(useGlobalStore.getState().errors).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('does not notify for a job-status poll, and words it as a check if it is ever shown', () => {

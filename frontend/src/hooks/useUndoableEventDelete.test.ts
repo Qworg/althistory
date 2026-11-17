@@ -345,6 +345,31 @@ describe('useUndoableEventDelete', () => {
       expect(messages()).toHaveLength(1)
     })
 
+    it('a redo that is only queued offline takes the "is back" notice down and says so', async () => {
+      createLink.mockRejectedValue(busy())
+      const record = vi.fn<(entry: EditHistoryEntry) => void>()
+      const { result } = renderHook(() => useUndoableEventDelete(record))
+      await act(() => result.current(event, [link('l1', 'e1', 'e2')]))
+      const entry = record.mock.calls[0]![0]
+      await entry.undo()
+      expect(messages()[0]).toContain('is back')
+      deleteEvent.mockResolvedValueOnce({ delivery: 'queued', mutation: {} })
+      await expect(entry.redo()).resolves.toBe(true)
+      expect(messages()).toEqual(['You are offline; it will be deleted again when you reconnect.'])
+    })
+
+    it('takes the "is back" notice down when the restored event is deleted by another route', async () => {
+      createLink.mockRejectedValue(busy())
+      const record = vi.fn<(entry: EditHistoryEntry) => void>()
+      const { result } = renderHook(() => useUndoableEventDelete(record))
+      await act(() => result.current(event, [link('l1', 'e1', 'e2')]))
+      await record.mock.calls[0]![0].undo()
+      expect(messages()).toHaveLength(1)
+      // The person deletes the restored copy directly (a new history entry).
+      await act(() => result.current({ ...event, id: 'e1-restored' }, []))
+      expect(messages()).toHaveLength(0)
+    })
+
     it('does not post a notice for an undo that finishes after another graph was opened', async () => {
       let release: (value: unknown) => void = () => undefined
       createEvent.mockReturnValue(new Promise((resolve) => (release = resolve)))
