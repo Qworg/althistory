@@ -1,4 +1,5 @@
 import { IEngine, type GenerationRunHooks } from './IEngine';
+import { LINK_EVIDENCE_REQUIRED, readLinkEvidence } from '@/utils/linkEvidence';
 import type { GenerationHooks } from '../generator/GenerationHooks';
 import {
   HealthInfo,
@@ -541,6 +542,10 @@ export class DirectEngine implements IEngine {
     graphId: string,
     data: { causeId: string; effectId: string; weight?: number; type?: string; reasoning?: string }
   ): Promise<CausalRelationshipDto> {
+    // Every link says why: refused before anything is read.
+    const evidence = readLinkEvidence(data.reasoning);
+    if (evidence === undefined) throw new ValidationErrorCLI(LINK_EVIDENCE_REQUIRED);
+
     const container = await this.getInitializedContainer();
     const scoped = await container.graphScopedRepositories(graphId);
 
@@ -564,7 +569,7 @@ export class DirectEngine implements IEngine {
 
     const rel: CausalRelationship = {
       weight: data.weight ?? 1.0,
-      evidence: data.reasoning || 'Observed historical causality',
+      evidence,
       confidence: 1.0,
       relationship_type: (data.type as CausalRelationshipType) || 'direct',
     };

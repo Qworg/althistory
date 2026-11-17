@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { LINK_EVIDENCE_REQUIRED, readLinkEvidence } from '@/utils/linkEvidence';
 import { ExecutionContext } from './engine/ExecutionContext';
 import { cliGenerationHooks } from './utils/generationHooks';
 import { formatOutput, formatErrorJson } from './formatters';
@@ -583,19 +584,24 @@ export function createProgram(): Command {
     .requiredOption('-e, --effect <eventId>', 'Effect event ID')
     .option('-w, --weight <weight>', 'Causal weight (0 to 1)', '1')
     .option('-t, --type <type>', 'Relationship type: direct, indirect, contributory', 'direct')
-    .option('-r, --reasoning <text>', 'Historical or causal reasoning')
+    .option('--evidence <text>', 'Why the cause led to the effect (required)')
+    .option('-r, --reasoning <text>', 'The same as --evidence')
     .action(async (cmdOpts?: Record<string, unknown>) => {
       const opts = program.opts<GlobalCLIOptions>();
       const ctx = new ExecutionContext(opts);
       const start = Date.now();
       try {
+        const evidence = readLinkEvidence(cmdOpts?.evidence) ?? readLinkEvidence(cmdOpts?.reasoning);
+        if (evidence === undefined) {
+          throw new ValidationErrorCLI(`--evidence is required: ${LINK_EVIDENCE_REQUIRED}`);
+        }
         const engine = await ctx.getEngine();
         const link = await engine.createCausalLink(String(cmdOpts?.graphId), {
           causeId: String(cmdOpts?.cause),
           effectId: String(cmdOpts?.effect),
           weight: cmdOpts?.weight ? parseFloat(String(cmdOpts.weight)) : 1.0,
           type: (cmdOpts?.type as string) || 'direct',
-          reasoning: cmdOpts?.reasoning as string | undefined,
+          reasoning: evidence,
         });
         const output = formatOutput(link, getFormat(opts), engine.mode, {
           durationMs: Date.now() - start,

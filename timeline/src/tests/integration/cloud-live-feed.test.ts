@@ -25,6 +25,7 @@ import type { RawData } from 'ws';
 import { Application } from '@/index';
 import { getContainer, type Container } from '@/container';
 import { getDatabaseManager } from '@/utils/database';
+import { runCausalLinkIdMigration, type CausalLinkIdMigrationResult } from '@/services/CausalLinkIdMigration';
 import { resetStreamTokenStore, STREAM_PATH } from '@/websocket';
 import type { Permission } from '@/models/ApiKey';
 
@@ -132,7 +133,7 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
   };
 
   async function http(
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     url: string,
     key: string,
     graph?: string,
@@ -328,11 +329,13 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
       const ofPair = (all: Record<string, Record<string, unknown>>, a: string, b: string): string[] =>
         Object.entries(all).filter(([, link]) => link.cause_event_id === a && link.effect_event_id === b).map(([id]) => id);
       const before = await links();
-      // Neo4j keeps no edge id, so a link is named by its events: the single
-      // route's link, and the batch's, the same way (it used to be "null").
-      expect(ofPair(before, effect, doomed)).toEqual([`${effect}->${doomed}`]);
+      // Each link carries an id of its own in Neo4j, the single route's and
+      // the batch's alike; it is not the pair of its events (#30).
+      const [singleId] = ofPair(before, effect, doomed);
+      expect(singleId).toMatch(/^link_/);
       const batchIds = ofPair(before, cause, effect);
-      expect(batchIds).toEqual([`${cause}->${effect}`]);
+      expect(batchIds).toHaveLength(1);
+      expect(batchIds[0]).toMatch(/^link_/);
       expect(change).toMatchObject({ operation: 'create', entities: [{ type: 'relationship', id: batchIds[0] }] });
 
       // A transaction removes the batch's link and the event the single link ends at.
@@ -349,6 +352,281 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
       expect(ofPair(after, cause, effect)).toEqual([]);
       expect(ofPair(after, effect, doomed)).toEqual([]);
       expect(await neo4jGraphOf('Event', doomed)).toBeNull();
+    });
+
+    describe('links between the same pair of events (#30)', () => {
+      const addEvent = async (description: string, timestamp: string): Promise<string> => {
+        const res = await http('POST', '/api/events', agentKey, graphA, { description, actor: 'A', target: 'B', timestamp });
+        expect(res.status).toBe(201);
+        return (res.body.data as { id: string }).id;
+      };
+      const link = (cause: string, effect: string, evidence: string): Promise<{ status: number; body: Record<string, unknown> }> =>
+        http('POST', '/api/causal/link', agentKey, graphA, {
+          causeEventId: cause,
+          effectEventId: effect,
+          relationship: { type: 'direct', strength: 0.5, confidence: 0.5, evidence },
+        });
+      const headLinks = async (cause: string, effect: string): Promise<Array<[string, Record<string, unknown>]>> => {
+        const head = await container.graphRepository.checkout(graphA);
+        return Object.entries(head.relationships).filter(([, l]) => l.cause_event_id === cause && l.effect_event_id === effect);
+      };
+      const neo4jLinks = async (cause: string, effect: string): Promise<Array<{ id: unknown; evidence: unknown }>> => {
+        const session = getDatabaseManager().getNeo4jSession();
+        try {
+          const result = await session.run(
+            'MATCH (:Event {id: $cause})-[r:CAUSES]->(:Event {id: $effect}) RETURN r.id AS id, r.evidence AS evidence ORDER BY r.created_at',
+            { cause, effect }
+          );
+          return result.records.map((record) => ({ id: record.get('id'), evidence: record.get('evidence') }));
+        } finally {
+          await session.close();
+        }
+      };
+      const changeIds = (change: Message): string[] => (change.entities as Array<{ id: string }>).map((entity) => entity.id);
+
+      it('gives two links on one pair, from the single route and from a batch, ids of their own', async () => {
+        const cause = await addEvent('Pair cause', '1300-01-01T00:00:00.000Z');
+        const effect = await addEvent('Pair effect', '1301-01-01T00:00:00.000Z');
+        const client = await watcher(agentKey, graphA);
+
+        expect((await link(cause, effect, 'first')).status).toBe(201);
+        const first = await client.nextOf('change');
+        expect((await link(cause, effect, 'second')).status).toBe(201);
+        const second = await client.nextOf('change');
+        const batch = await http('POST', '/api/batch/relationships', agentKey, graphA, {
+          graphId: graphA,
+          relationships: [{ cause_event_id: cause, effect_event_id: effect, evidence: 'third' }],
+        });
+        expect(batch.status).toBe(201);
+        const third = await client.nextOf('change');
+
+        // Three announcements, three different ids: a watcher can tell them apart.
+        const announced = [first, second, third].map((change) => changeIds(change)[0]);
+        expect(new Set(announced).size).toBe(3);
+        for (const change of [first, second, third]) expect(change).toMatchObject({ operation: 'create', entities: [{ type: 'relationship' }] });
+
+        // The version store holds all three, under those ids.
+        const versioned = await headLinks(cause, effect);
+        expect(versioned.map(([id]) => id).sort()).toEqual([...announced].sort());
+        expect(versioned.map(([, l]) => l.evidence).sort()).toEqual(['first', 'second', 'third']);
+
+        // And Neo4j stores the same ids on the edges.
+        const stored = await neo4jLinks(cause, effect);
+        expect(stored.map((l) => l.id)).toEqual(announced);
+
+        // The read route returns them too.
+        const read = await http('GET', '/api/causal/relationships', agentKey, graphA);
+        const ids = (read.body.data as Array<{ id: string; cause_event_id: string }>).filter((l) => l.cause_event_id === cause).map((l) => l.id);
+        expect(ids.sort()).toEqual([...announced].sort());
+      });
+
+      it('deletes the links of one pair one at a time, announcing and versioning each', async () => {
+        const cause = await addEvent('Del cause', '1310-01-01T00:00:00.000Z');
+        const effect = await addEvent('Del effect', '1311-01-01T00:00:00.000Z');
+        const ids: string[] = [];
+        const client = await watcher(agentKey, graphA);
+        for (const evidence of ['one', 'two', 'three']) {
+          expect((await link(cause, effect, evidence)).status).toBe(201);
+          ids.push(changeIds(await client.nextOf('change'))[0]);
+        }
+
+        // The route names a link by its events and takes the oldest, as the local store does.
+        const removed = await http('DELETE', '/api/causal/link', agentKey, graphA, { causeEventId: cause, effectEventId: effect });
+        expect(removed.status).toBe(200);
+        expect(await client.nextOf('change')).toMatchObject({ operation: 'delete', entities: [{ type: 'relationship', id: ids[0] }] });
+        expect((await headLinks(cause, effect)).map(([id]) => id).sort()).toEqual([ids[1], ids[2]].sort());
+        expect((await neo4jLinks(cause, effect)).map((l) => l.evidence)).toEqual(['two', 'three']);
+
+        // A transaction does the same for the next one; the third stays.
+        const tx = await http('POST', '/api/batch/transaction', agentKey, graphA, {
+          graphId: graphA,
+          operations: [{ type: 'delete_relationship', data: { cause_event_id: cause, effect_event_id: effect } }],
+        });
+        expect(tx.status).toBe(200);
+        expect(await client.nextOf('change')).toMatchObject({ operation: 'delete', entities: [{ type: 'relationship', id: ids[1] }] });
+        expect((await headLinks(cause, effect)).map(([id]) => id)).toEqual([ids[2]]);
+        expect((await neo4jLinks(cause, effect)).map((l) => l.id)).toEqual([ids[2]]);
+      });
+
+      it('creates two links on one pair in one transaction and versions both', async () => {
+        const cause = await addEvent('Tx cause', '1320-01-01T00:00:00.000Z');
+        const effect = await addEvent('Tx effect', '1321-01-01T00:00:00.000Z');
+        const tx = await http('POST', '/api/batch/transaction', agentKey, graphA, {
+          graphId: graphA,
+          operations: [
+            { type: 'create_relationship', data: { cause_event_id: cause, effect_event_id: effect, evidence: 'tx one' } },
+            { type: 'create_relationship', data: { cause_event_id: cause, effect_event_id: effect, evidence: 'tx two' } },
+          ],
+        });
+        expect(tx.status).toBe(200);
+        const versioned = await headLinks(cause, effect);
+        expect(versioned.map(([, l]) => l.evidence).sort()).toEqual(['tx one', 'tx two']);
+        expect((await neo4jLinks(cause, effect)).map((l) => l.id).sort()).toEqual(versioned.map(([id]) => id).sort());
+      });
+
+      // Links made before ids existed are named once, by the startup migration; the
+      // app is already running here, so the test runs the migration as a restart would.
+      const legacyEdge = async (cause: string, effect: string, evidence: string, createdAt: string): Promise<void> => {
+        const session = getDatabaseManager().getNeo4jSession();
+        try {
+          await session.run(
+            `MATCH (c:Event {id: $cause}), (e:Event {id: $effect})
+             CREATE (c)-[:CAUSES {weight: 0.4, evidence: $evidence, confidence: 0.6, relationship_type: 'direct', created_at: datetime($createdAt), graphId: $graphId}]->(e)`,
+            { cause, effect, evidence, createdAt, graphId: graphA }
+          );
+        } finally {
+          await session.close();
+        }
+      };
+      const migrate = (): Promise<CausalLinkIdMigrationResult> => runCausalLinkIdMigration(container, { log: () => undefined });
+      /** What main versioned for a cloud link: the pair as its id. */
+      const versionAsMainDid = (cause: string, effect: string, evidence: string): Promise<void> =>
+        container.graphWriteVersioningService.recordRelationship(
+          graphA,
+          { id: `${cause}->${effect}`, cause_event_id: cause, effect_event_id: effect, weight: 0.4, confidence: 0.6, evidence, relationship_type: 'direct' },
+          'create'
+        );
+      const liveLinks = async (cause: string): Promise<Array<{ id: string; evidence: string }>> => {
+        const res = await http('GET', '/api/causal/relationships', agentKey, graphA);
+        return (res.body.data as Array<{ id: string; evidence: string; cause_event_id: string }>).filter((l) => l.cause_event_id === cause);
+      };
+
+      it('names an upgraded link as the version history knew it, so an edit, a delete and a rollback stay consistent', async () => {
+        const cause = await addEvent('Upgraded cause', '1330-01-01T00:00:00.000Z');
+        const effect = await addEvent('Upgraded effect', '1331-01-01T00:00:00.000Z');
+        await legacyEdge(cause, effect, 'OLD', '2020-01-01T00:00:00Z');
+        await versionAsMainDid(cause, effect, 'OLD');
+        const pairId = `${cause}->${effect}`;
+
+        const first = await migrate();
+        expect(first.named).toBeGreaterThanOrEqual(1);
+        expect((await neo4jLinks(cause, effect)).map((l) => l.id)).toEqual([pairId]);
+        expect((await liveLinks(cause)).map((l) => l.id)).toEqual([pairId]);
+
+        // An edit updates the one head entry; it does not add a second.
+        const updated = await http('PUT', '/api/causal/link', agentKey, graphA, {
+          causeEventId: cause,
+          effectEventId: effect,
+          relationship: { evidence: 'REVISED' },
+        });
+        expect(updated.status).toBe(200);
+        expect((await headLinks(cause, effect)).map(([id, l]) => [id, l.evidence])).toEqual([[pairId, 'REVISED']]);
+
+        // A delete removes it from the head.
+        const removed = await http('DELETE', '/api/causal/link', agentKey, graphA, { causeEventId: cause, effectEventId: effect });
+        expect(removed.status).toBe(200);
+        expect(removed.body.data).toMatchObject({ id: pairId });
+        expect(await headLinks(cause, effect)).toEqual([]);
+
+        // Rolling back to the head does not bring it back.
+        const versions = await http('GET', `/api/graphs/${graphA}/versions`, agentKey, graphA);
+        const latest = Math.max(...(versions.body.data as Array<{ version: number }>).map((v) => v.version));
+        expect((await http('POST', `/api/graphs/${graphA}/rollback/${latest}`, agentKey, graphA)).status).toBeLessThan(300);
+        expect(await liveLinks(cause)).toEqual([]);
+        expect(await neo4jLinks(cause, effect)).toEqual([]);
+        expect(await headLinks(cause, effect)).toEqual([]);
+      });
+
+      it('gives each of two id-less edges on a pair the id the head holds for its data, or a derived one, and puts both in the head', async () => {
+        const cause = await addEvent('Twin cause', '1340-01-01T00:00:00.000Z');
+        const effect = await addEvent('Twin effect', '1341-01-01T00:00:00.000Z');
+        await legacyEdge(cause, effect, 'ELDER', '2020-01-01T00:00:00Z');
+        await legacyEdge(cause, effect, 'YOUNGER', '2021-01-01T00:00:00Z');
+        // Both shared one head entry, which holds whichever was written last.
+        await versionAsMainDid(cause, effect, 'YOUNGER');
+        const pairId = `${cause}->${effect}`;
+
+        const result = await migrate();
+        expect(result.reconciledGraphs).toBeGreaterThanOrEqual(1);
+
+        const stored = await neo4jLinks(cause, effect);
+        const idOf = (evidence: string): string => String(stored.find((l) => l.evidence === evidence)!.id);
+        // The head held `cause->effect` with the younger edge's data: the younger edge keeps it.
+        expect(idOf('YOUNGER')).toBe(pairId);
+        expect(idOf('ELDER')).toMatch(/^link_[0-9a-f]{24}$/);
+
+        // Nothing lost: the head holds each live link under its own id, with its own evidence.
+        const head = await headLinks(cause, effect);
+        expect(Object.fromEntries(head.map(([id, l]) => [id, l.evidence]))).toEqual({ [pairId]: 'YOUNGER', [idOf('ELDER')]: 'ELDER' });
+
+        // Each can be named by id; deleting one leaves the other, live and versioned.
+        const removed = await http('DELETE', '/api/causal/link', agentKey, graphA, { causeEventId: cause, effectEventId: effect, id: idOf('ELDER') });
+        expect(removed.status).toBe(200);
+        expect((await neo4jLinks(cause, effect)).map((l) => l.evidence)).toEqual(['YOUNGER']);
+        expect((await headLinks(cause, effect)).map(([id]) => id)).toEqual([pairId]);
+
+        // The pair's own id also names the survivor on a PUT.
+        const put = await http('PUT', '/api/causal/link', agentKey, graphA, {
+          causeEventId: cause,
+          effectEventId: effect,
+          id: pairId,
+          relationship: { evidence: 'YOUNGER, revised' },
+        });
+        expect(put.status).toBe(200);
+        expect((await headLinks(cause, effect)).map(([id, l]) => [id, l.evidence])).toEqual([[pairId, 'YOUNGER, revised']]);
+      });
+
+      it('changes and removes the named link of a pair, and only it (cloud)', async () => {
+        const cause = await addEvent('ById cause', '1350-01-01T00:00:00.000Z');
+        const effect = await addEvent('ById effect', '1351-01-01T00:00:00.000Z');
+        expect((await link(cause, effect, 'first')).status).toBe(201);
+        expect((await link(cause, effect, 'second')).status).toBe(201);
+        const [first, second] = await neo4jLinks(cause, effect);
+
+        const put = await http('PUT', '/api/causal/link', agentKey, graphA, {
+          causeEventId: cause,
+          effectEventId: effect,
+          id: second!.id,
+          relationship: { evidence: 'second, revised' },
+        });
+        expect(put.status).toBe(200);
+        expect((await neo4jLinks(cause, effect)).map((l) => l.evidence)).toEqual(['first', 'second, revised']);
+
+        const del = await http('DELETE', '/api/causal/link', agentKey, graphA, { causeEventId: cause, effectEventId: effect, id: second!.id });
+        expect(del.status).toBe(200);
+        expect((await neo4jLinks(cause, effect)).map((l) => l.id)).toEqual([first!.id]);
+        expect((await headLinks(cause, effect)).map(([id]) => id)).toEqual([first!.id]);
+
+        const missing = await http('DELETE', '/api/causal/link', agentKey, graphA, { causeEventId: cause, effectEventId: effect, id: second!.id });
+        expect(missing.status).toBe(404);
+      });
+
+      it('is safe to run again: nothing is renamed and no version is made', async () => {
+        const cause = await addEvent('Rerun cause', '1360-01-01T00:00:00.000Z');
+        const effect = await addEvent('Rerun effect', '1361-01-01T00:00:00.000Z');
+        await legacyEdge(cause, effect, 'A', '2020-01-01T00:00:00Z');
+        await legacyEdge(cause, effect, 'B', '2021-01-01T00:00:00Z');
+        await migrate();
+        const idsBefore = (await neo4jLinks(cause, effect)).map((l) => l.id);
+        const versionsBefore = ((await http('GET', `/api/graphs/${graphA}/versions`, agentKey, graphA)).body.data as unknown[]).length;
+
+        expect(await migrate()).toEqual({ named: 0, adopted: 0, reconciledGraphs: 0, failedGraphs: 0 });
+
+        expect((await neo4jLinks(cause, effect)).map((l) => l.id)).toEqual(idsBefore);
+        expect(((await http('GET', `/api/graphs/${graphA}/versions`, agentKey, graphA)).body.data as unknown[]).length).toBe(versionsBefore);
+      });
+
+      it('returns stable ids to concurrent reads, and a read does not write', async () => {
+        const cause = await addEvent('Race cause', '1370-01-01T00:00:00.000Z');
+        const effect = await addEvent('Race effect', '1371-01-01T00:00:00.000Z');
+        await legacyEdge(cause, effect, 'X', '2020-01-01T00:00:00Z');
+        await legacyEdge(cause, effect, 'Y', '2021-01-01T00:00:00Z');
+        await migrate();
+        const settled = (await neo4jLinks(cause, effect)).map((l) => l.id);
+
+        const reads = await Promise.all(Array.from({ length: 30 }, () => liveLinks(cause)));
+        for (const links of reads) expect(links.map((l) => l.id).sort()).toEqual([...settled].sort());
+        expect((await neo4jLinks(cause, effect)).map((l) => l.id)).toEqual(settled);
+
+        // An edge that appears after the migration is read under its pair name and left alone:
+        // a GET never writes an id.
+        const later = await addEvent('Late cause', '1372-01-01T00:00:00.000Z');
+        const latest = await addEvent('Late effect', '1373-01-01T00:00:00.000Z');
+        await legacyEdge(later, latest, 'LATE', '2022-01-01T00:00:00Z');
+        const seen = await Promise.all(Array.from({ length: 10 }, () => liveLinks(later)));
+        for (const links of seen) expect(links.map((l) => l.id)).toEqual([`${later}->${latest}`]);
+        expect((await neo4jLinks(later, latest)).map((l) => l.id)).toEqual([null]);
+      });
     });
 
     it("undoes only the link a failed batch made, never the user's older link between the same events", async () => {

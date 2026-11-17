@@ -168,6 +168,23 @@ describe('the OpenAPI description', () => {
     expect(token.required).toEqual(expect.arrayContaining(['token', 'expiresIn', 'graphId', 'permissions', 'mode']))
   })
 
+  it('marks a causal link\'s evidence required at every door that makes one (#31)', () => {
+    type Schema = { properties?: Record<string, Schema>; required?: string[]; items?: Schema; minLength?: number }
+    const schemas = document.components.schemas as unknown as Record<string, Schema>
+    // POST /api/causal/link
+    expect(schemas.CausalLinkRequest!.properties!.relationship!.required).toContain('evidence')
+    expect(schemas.CausalLinkRequest!.properties!.relationship!.properties!.evidence!.minLength).toBe(1)
+    // PUT /api/causal/link: optional, but never blank
+    expect(schemas.CausalLinkUpdate!.properties!.relationship!.properties!.evidence!.minLength).toBe(1)
+    // POST /api/batch/relationships
+    const item = schemas.BatchRelationshipsRequest!.properties!.relationships!.items!
+    expect(item.required).toContain('evidence')
+    expect(item.properties!.evidence!.minLength).toBe(1)
+    // POST /api/batch/transaction names the rule for create_relationship
+    expect(JSON.stringify(schemas.BatchTransactionRequest)).toContain('create_relationship')
+    expect(JSON.stringify(schemas.BatchTransactionRequest)).toContain('data.evidence')
+  })
+
   it('uses only OpenAPI 3.0 schema syntax', () => {
     // 3.0 has no union types: `type` is a single string, and a nullable field
     // is `nullable: true`.

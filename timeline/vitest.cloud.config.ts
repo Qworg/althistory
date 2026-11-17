@@ -32,6 +32,8 @@ export default defineConfig({
       // The live feed, stream tokens and generation jobs (issue 26): their
       // state is in the process, their entities in Neo4j. Boots the real app.
       'src/tests/integration/cloud-live-feed.test.ts',
+      // The startup migration that names cloud links (issue 30), incl. 300k edges on a 1 GB heap.
+      'src/tests/integration/cloud-link-migration.test.ts',
     ],
     // These suites share one Neo4j instance and each deletes every node with
     // its label in its own hooks, so running the files concurrently makes them

@@ -84,7 +84,7 @@ Every tool that takes a date takes it as the world's calendar writes it: a day (
 
 3. Write the events. Add the moments that matter, such as foundings, wars, discoveries, deaths, betrayals and treaties, with althistory_create_event. Give each an actor and a target, and the arcId of the age it belongs to. A dozen events is enough to start; write them before you link anything.
 
-4. Link the causes. For each event, link the earlier events that brought it about with althistory_link_events: "direct", "indirect" or "contributory", with a sentence of reasoning. A cause cannot come after its effect, and the tool refuses one that does. Treat that refusal as a question about the history, not just a typo.
+4. Link the causes. For each event, link the earlier events that brought it about with althistory_link_events: "direct", "indirect" or "contributory", with a sentence of evidence, which is required. A cause cannot come after its effect, and the tool refuses one that does. Treat that refusal as a question about the history, not just a typo.
 
 5. Check it. Run althistory_validate_graph and fix what it reports: an event outside its age, a cause after its effect, a cycle.
 
@@ -116,7 +116,7 @@ Althistory keeps the history as a graph of events, arcs (periods) and causal lin
 
 2. Ground it. Before the divergence, the history is real. Where the draft gets real events wrong, correct them with althistory_create_event, or ingest a summary of what actually happened with althistory_ingest_text.
 
-3. Make the consequences earn their place. For each event after the divergence, ask what real constraints apply, such as geography, logistics, the people alive at the time and what they wanted. Link each consequence to its causes with althistory_link_events and a sentence of reasoning, and cut what nothing caused.
+3. Make the consequences earn their place. For each event after the divergence, ask what real constraints apply, such as geography, logistics, the people alive at the time and what they wanted. Link each consequence to its causes with althistory_link_events and a sentence of evidence (required), and cut what nothing caused.
 
 4. Check it. Run althistory_validate_graph and fix what it reports.
 

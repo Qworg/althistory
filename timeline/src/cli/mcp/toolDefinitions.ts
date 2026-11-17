@@ -247,9 +247,14 @@ export const MCP_TOOLS: McpToolDefinition[] = [
           description: 'How strong the link is, from 0 to 1',
           default: 1,
         },
+        evidence: {
+          type: 'string',
+          description:
+            'Why the cause led to the effect, in a sentence. Required: give `evidence` or its older name `reasoning`; a link with neither, or with only blank text, is refused.',
+        },
         reasoning: {
           type: 'string',
-          description: 'Why the cause led to the effect, in a sentence',
+          description: 'The older name for `evidence`. Give one of the two.',
         },
       },
       required: ['graphId', 'causeId', 'effectId'],

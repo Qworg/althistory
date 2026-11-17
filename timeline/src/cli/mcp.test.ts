@@ -250,6 +250,55 @@ describe('CLI Phase 6: Model Context Protocol (MCP) Server & Tooling', () => {
     });
   });
 
+  describe('link evidence (#31)', () => {
+    const link = (args: Record<string, unknown>) =>
+      server.handleMessage(
+        JSON.stringify({ jsonrpc: '2.0', id: 31, method: 'tools/call', params: { name: 'althistory_link_events', arguments: args } })
+      );
+
+    it('documents evidence and its alias reasoning in the tool schema', () => {
+      const tool = MCP_TOOLS.find((t) => t.name === 'althistory_link_events')!;
+      const schema = tool.inputSchema as { properties: Record<string, unknown> };
+      expect(Object.keys(schema.properties)).toEqual(expect.arrayContaining(['evidence', 'reasoning']));
+    });
+
+    it('accepts reasoning alone as the evidence', async () => {
+      const a = await engine.createEvent(testGraphId, { description: 'A', timestamp: '1700-01-01T00:00:00Z' });
+      const b = await engine.createEvent(testGraphId, { description: 'B', timestamp: '1701-01-01T00:00:00Z' });
+      const response = JSON.parse((await link({ graphId: testGraphId, causeId: a.id, effectId: b.id, reasoning: 'An older client' }))!);
+      expect(response.result.isError).toBeUndefined();
+      expect((await engine.listCausalLinks(testGraphId)).map((l) => l.reasoning)).toEqual(['An older client']);
+    });
+
+    it('refuses blank evidence even when reasoning is blank too', async () => {
+      const a = await engine.createEvent(testGraphId, { description: 'A', timestamp: '1700-01-01T00:00:00Z' });
+      const b = await engine.createEvent(testGraphId, { description: 'B', timestamp: '1701-01-01T00:00:00Z' });
+      const response = JSON.parse((await link({ graphId: testGraphId, causeId: a.id, effectId: b.id, evidence: ' ', reasoning: '' }))!);
+      expect(response.result.isError).toBe(true);
+      expect(response.result.content[0].text).toMatch(/evidence is required/);
+    });
+
+    it.each([['missing', {}], ['empty', { evidence: '' }], ['whitespace', { evidence: '   ' }]])(
+      'refuses a link whose evidence is %s, and writes nothing',
+      async (_name, extra) => {
+        const a = await engine.createEvent(testGraphId, { description: 'A', timestamp: '1700-01-01T00:00:00Z' });
+        const b = await engine.createEvent(testGraphId, { description: 'B', timestamp: '1701-01-01T00:00:00Z' });
+        const response = JSON.parse((await link({ graphId: testGraphId, causeId: a.id, effectId: b.id, ...extra }))!);
+        expect(response.result.isError).toBe(true);
+        expect(response.result.content[0].text).toMatch(/evidence is required/);
+        expect(await engine.listCausalLinks(testGraphId)).toEqual([]);
+      }
+    );
+
+    it('stores the evidence it is given', async () => {
+      const a = await engine.createEvent(testGraphId, { description: 'A', timestamp: '1700-01-01T00:00:00Z' });
+      const b = await engine.createEvent(testGraphId, { description: 'B', timestamp: '1701-01-01T00:00:00Z' });
+      await link({ graphId: testGraphId, causeId: a.id, effectId: b.id, evidence: 'A chronicle says so' });
+      const links = await engine.listCausalLinks(testGraphId);
+      expect(links.map((l) => l.reasoning)).toEqual(['A chronicle says so']);
+    });
+  });
+
   describe('epochYear in the tool schemas', () => {
     it('gives an example of a BCE epoch that names the year it says (stored years are astronomical)', () => {
       const described = MCP_TOOLS.flatMap((tool) => {

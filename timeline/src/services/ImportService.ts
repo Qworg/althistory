@@ -15,6 +15,7 @@
  * - Provenance recording for imported entities
  */
 
+import { hasLinkEvidence, importedEvidence, NO_EVIDENCE_PLACEHOLDER } from '@/utils/linkEvidence';
 import { GraphRepository } from '../repositories/GraphRepository';
 import {
   type WorldCalendarSet,
@@ -100,6 +101,8 @@ export type ImportWarningCode =
   | 'FUTURE_DATE'
   | 'MISSING_PROVENANCE'
   | 'LOW_CONFIDENCE'
+  | 'MISSING_EVIDENCE'
+  | 'RENAMED_ID'
   | 'DEPRECATED_FIELD'
   | 'EMPTY_COLLECTION'
   | 'INVALID_VALUE'
@@ -562,7 +565,8 @@ export class ImportService {
       return this.createValidationResult(false, errors, warnings);
     }
 
-    const exportData = importData.data as ExportData;
+    const checkedData = importData.data as ExportData;
+    const exportData = splitDuplicateLinkIds(checkedData).data;
 
     // Validate checksum if provided
     const metadata = importData.metadata;
@@ -572,7 +576,7 @@ export class ImportService {
       // reported separately by validateMetadata.
       const checksumError = this.validateChecksum({
         metadata: metadata as ExportMetadata,
-        data: exportData,
+        data: checkedData,
       });
       if (checksumError) {
         errors.push(checksumError);
@@ -593,6 +597,16 @@ export class ImportService {
           ? "The document's dates are in its own world calendars, which the target graph does not keep: they will be shown in the graph's calendars instead."
           : "The document's dates are in its own world calendars, and the target graph has none: they will be shown as Gregorian dates. Import into a new graph to keep the calendars.",
         code: 'CALENDAR_MISMATCH',
+      });
+    }
+    // An export made in cloud mode before links had ids of their own can hold
+    // two links under one `cause->effect` id: the later ones are given fresh
+    // ids on import, which is said here rather than refused as a duplicate.
+    for (const renamed of splitDuplicateLinkIds(checkedData).renamed) {
+      warnings.push({
+        path: `$.data.causalRelationships[${renamed.index}].id`,
+        message: `Relationship id '${renamed.from}' is used by more than one link (an export from before links had ids of their own); this one is imported as '${renamed.to}'`,
+        code: 'RENAMED_ID',
       });
     }
     this.validateEvents(exportData.events, errors, warnings, world);
@@ -1267,6 +1281,16 @@ export class ImportService {
           path: `${path}.confidence`,
           message: `Low confidence relationship: ${r.confidence}`,
           code: 'LOW_CONFIDENCE',
+        });
+      }
+
+      // A link made now always has evidence. One exported before that rule
+      // may not: it is still imported, with a placeholder, and reported here.
+      if (!hasLinkEvidence(r.evidence)) {
+        warnings.push({
+          path: `${path}.evidence`,
+          message: `Relationship has no evidence; it is imported with "${NO_EVIDENCE_PLACEHOLDER}"`,
+          code: 'MISSING_EVIDENCE',
         });
       }
 
@@ -2735,6 +2759,8 @@ export class ImportService {
           data: {
             ...sanitizedRel,
             id: newId,
+            // A link exported without evidence is kept, marked with a placeholder.
+            evidence: importedEvidence(sanitizedRel.evidence).evidence,
             cause_event_id: causeEventId,
             effect_event_id: effectEventId,
             // Preserve cross-graph IDs
@@ -2960,6 +2986,7 @@ export class ImportService {
  * whose metadata does not already state one (an export's does).
  */
 function readImportedDates(data: AlthistoryExport, calendar: WorldCalendarSet | undefined): AlthistoryExport {
+  data = withSplitLinkIds(data);
   const time = (value: unknown, edge: 'start' | 'end') =>
     typeof value === 'string' ? readImportedTime(value, calendar, edge) : null;
   const events = Array.isArray(data.data?.events)
@@ -2988,4 +3015,47 @@ function readImportedDates(data: AlthistoryExport, calendar: WorldCalendarSet | 
 /** An imported calendar as a new graph stores it: what still checks out, if its dates read back. */
 function readableCalendar(value: unknown) {
   return adoptableCalendarSet(value) ?? undefined;
+}
+
+/**
+ * The relationships of `data` with every id that an earlier relationship
+ * already has made fresh.
+ *
+ * Cloud mode named a link `cause->effect` before links had ids of their own, so
+ * an export made then can hold two links between one pair under one id. The
+ * first keeps the id; each later one becomes `<id>~2`, `<id>~3`, ... (skipping
+ * any name the document already uses), so validation and the import read the
+ * same document and an old export still imports. The rename is deterministic.
+ */
+export function splitDuplicateLinkIds(data: ExportData): {
+  data: ExportData;
+  renamed: Array<{ index: number; from: string; to: string }>;
+} {
+  const links = data?.causalRelationships;
+  if (!Array.isArray(links)) return { data, renamed: [] };
+  const used = new Set<string>();
+  for (const link of links) if (link && typeof link.id === 'string') used.add(link.id);
+  const seen = new Set<string>();
+  const renamed: Array<{ index: number; from: string; to: string }> = [];
+  const next = links.map((link, index) => {
+    if (!link || typeof link.id !== 'string' || link.id === '') return link;
+    if (!seen.has(link.id)) {
+      seen.add(link.id);
+      return link;
+    }
+    let n = 2;
+    while (used.has(`${link.id}~${n}`)) n += 1;
+    const to = `${link.id}~${n}`;
+    used.add(to);
+    seen.add(to);
+    renamed.push({ index, from: link.id, to });
+    return { ...link, id: to };
+  });
+  return renamed.length === 0 ? { data, renamed } : { data: { ...data, causalRelationships: next }, renamed };
+}
+
+function withSplitLinkIds(document: AlthistoryExport): AlthistoryExport {
+  if (!document?.data) return document;
+  const split = splitDuplicateLinkIds(document.data);
+  return split.renamed.length === 0 ? document : { ...document, data: split.data };
 }

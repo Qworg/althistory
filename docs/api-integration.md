@@ -616,6 +616,55 @@ curl -s -X POST http://localhost:3000/api/causal/link \
   -d '{"causeEventId":"evt-1","effectEventId":"evt-2","relationship":{"type":"direct","strength":0.9,"confidence":0.8,"evidence":"Contemporary account"}}'
 ```
 
+## Causal links
+
+A link says why. **`evidence` is required** at every door that makes or
+changes one, and a missing, empty or whitespace-only value is refused with a
+`400` and the message "evidence is required: …":
+
+| Door | Where `evidence` goes |
+| --- | --- |
+| `POST /api/causal/link` | `relationship.evidence` |
+| `PUT /api/causal/link` | `relationship.evidence`, optional here, but if given it must not be blank: evidence can be changed, not taken away |
+| `POST /api/batch/relationships` | `evidence` on each item. One item without it refuses the whole batch (`400`, nothing written), whatever `validation` and `onError` say |
+| `POST /api/batch/transaction` | `data.evidence` of each `create_relationship`. One without it refuses the whole transaction before any step runs |
+| a `relationship` message on the write WebSocket | `data.evidence` (`data.reasoning` is accepted as an older name) |
+| the CLI and MCP | `althistory causal link --evidence`, `althistory_link_events` `evidence` |
+
+There is no default: nothing fills in "Observed historical causality" or an
+empty string for you.
+
+**Importing is the exception.** An export made before the rule can hold a link
+with no evidence, and it must still import. `POST /api/import` and
+`althistory import` keep that link and store `(no evidence recorded)` as its
+evidence, and report it (a `MISSING_EVIDENCE` warning on `/api/import`, a line
+in the CLI's `warnings`). Edit the link to replace the placeholder.
+
+An export made in cloud mode before links had ids of their own can hold two
+links between one pair of events under one `cause->effect` id. It still
+imports: the first keeps the id, each later one is given `<id>~2`, `<id>~3`, ...,
+and `/api/import` reports each as a `RENAMED_ID` warning. (An id shared with an
+event or an arc is still refused as `DUPLICATE_ID`.)
+
+**Every link has an id of its own**, in local and cloud mode alike, so two
+links between the same two events are two links: each is versioned, announced
+on the live feed and deletable under its own id. `GET /api/causal/relationships`
+returns the ids, and `POST /api/causal/link` answers with the id of the link it
+made (`data.relationship.id`).
+
+`PUT` and `DELETE /api/causal/link` take an optional **`id`** in the body (next
+to `causeEventId` and `effectEventId`). With it, exactly that link is changed or
+removed, and a link that is not between those two events in this graph is a
+`404`. Without it they act on the oldest link of the pair. `DELETE` answers with
+the id it removed (`data.id`).
+
+In cloud mode, links stored before ids existed are named once, when the server
+starts (never by a read): for each pair of events the oldest such edge takes
+`cause->effect`, the id older versions already used in the version history and on
+the live feed, and any further edge between the same two events takes a new
+`link_<uuid>`; the version history is then updated so it holds each of them
+under its own id. Both id forms are accepted wherever an id is.
+
 ## What this API does not offer
 
 - **No long-lived webhook subscriptions** — webhooks are per job (above).

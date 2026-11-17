@@ -137,15 +137,15 @@ describe('deep time', () => {
       const listed = await engine.listEvents(graph.id);
       expect(listed.map((event) => event.description)).toEqual(['earlier', 'later']);
       // A cause one millisecond after its effect is a paradox, and refused.
-      await expect(engine.createCausalLink(graph.id, { causeId: later.id, effectId: earlier.id })).rejects.toThrow();
-      await expect(engine.createCausalLink(graph.id, { causeId: earlier.id, effectId: later.id })).resolves.toBeDefined();
+      await expect(engine.createCausalLink(graph.id, { reasoning: 'Test evidence', causeId: later.id, effectId: earlier.id })).rejects.toThrow();
+      await expect(engine.createCausalLink(graph.id, { reasoning: 'Test evidence', causeId: earlier.id, effectId: later.id })).resolves.toBeDefined();
     });
 
     it('validates causal order across the whole range, and refuses a cause after its effect', async () => {
       const { graphId, ids } = await build();
-      await engine.createCausalLink(graphId, { causeId: ids[0]!, effectId: ids[1]!, type: 'indirect' });
-      await engine.createCausalLink(graphId, { causeId: ids[2]!, effectId: ids[3]!, type: 'indirect' });
-      await expect(engine.createCausalLink(graphId, { causeId: ids[4]!, effectId: ids[0]! })).rejects.toThrow(/after|paradox|before/i);
+      await engine.createCausalLink(graphId, { reasoning: 'Test evidence', causeId: ids[0]!, effectId: ids[1]!, type: 'indirect' });
+      await engine.createCausalLink(graphId, { reasoning: 'Test evidence', causeId: ids[2]!, effectId: ids[3]!, type: 'indirect' });
+      await expect(engine.createCausalLink(graphId, { reasoning: 'Test evidence', causeId: ids[4]!, effectId: ids[0]! })).rejects.toThrow(/after|paradox|before/i);
       const report = await engine.validateGraph(graphId);
       expect(report.valid).toBe(true);
       expect(report.errorCount).toBe(0);
@@ -191,7 +191,7 @@ describe('deep time', () => {
 
     it('is exported as version 1.1, with a checksum that matches, and imports again to the same moments', async () => {
       const { graphId, ids } = await build();
-      await engine.createCausalLink(graphId, { causeId: ids[0]!, effectId: ids[1]! });
+      await engine.createCausalLink(graphId, { reasoning: 'Test evidence', causeId: ids[0]!, effectId: ids[1]! });
       await engine.createArc(graphId, { name: 'Ages', startTime: '-499999-01-01T00:00:00Z', endTime: '+300000-12-31T23:59:59.999Z' });
 
       const exported = checksums((await engine.exportGraph(graphId, 'json')).content!);
@@ -301,8 +301,8 @@ describe('deep time', () => {
       const { graphId, ids } = await build();
       const middle = await engine.listEvents(graphId, { from: 'Ember 1, 100 AF', to: 'Rest 3, 600000 AF' });
       expect(middle.map((event) => event.description)).toEqual(['Event 1', 'Event 2']);
-      await engine.createCausalLink(graphId, { causeId: ids[0]!, effectId: ids[3]!, type: 'indirect' });
-      await expect(engine.createCausalLink(graphId, { causeId: ids[3]!, effectId: ids[1]! })).rejects.toThrow();
+      await engine.createCausalLink(graphId, { reasoning: 'Test evidence', causeId: ids[0]!, effectId: ids[3]!, type: 'indirect' });
+      await expect(engine.createCausalLink(graphId, { reasoning: 'Test evidence', causeId: ids[3]!, effectId: ids[1]! })).rejects.toThrow();
       expect((await engine.validateGraph(graphId)).valid).toBe(true);
     });
 

@@ -480,7 +480,12 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
             description: 'Alias of `strength`; the name the link is stored under.',
           },
           confidence: { type: 'number', minimum: 0, maximum: 1 },
-          evidence: { type: 'string', minLength: 1, description: 'Why the link holds. Must not be empty.' },
+          evidence: {
+            type: 'string',
+            minLength: 1,
+            pattern: '\\S',
+            description: 'Required. Why the link holds. Missing, empty or whitespace-only evidence is refused with a 400.',
+          },
         },
         required: ['confidence', 'evidence'],
       },
@@ -492,7 +497,23 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: {
       causeEventId: { type: 'string' },
       effectEventId: { type: 'string' },
-      relationship: { type: 'object' },
+      id: {
+        type: 'string',
+        description:
+          'Optional. The id of the link to change (from `GET /api/causal/relationships`). Without it the oldest link between the two events is changed. A link that is not between these two events in this graph is a 404.',
+      },
+      relationship: {
+        type: 'object',
+        description:
+          'The fields to change. `evidence` may be changed but not taken away: an empty or whitespace-only value is refused with a 400.',
+        properties: {
+          type: { type: 'string', enum: ['direct', 'indirect', 'contributory'] },
+          relationship_type: { type: 'string', enum: ['direct', 'indirect', 'contributory'] },
+          weight: { type: 'number', minimum: 0, maximum: 1 },
+          confidence: { type: 'number', minimum: 0, maximum: 1 },
+          evidence: { type: 'string', minLength: 1, pattern: '\\S' },
+        },
+      },
     },
     required: ['causeEventId', 'effectEventId'],
   },
@@ -501,6 +522,11 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: {
       causeEventId: { type: 'string' },
       effectEventId: { type: 'string' },
+      id: {
+        type: 'string',
+        description:
+          'Optional. The id of the link to remove. Without it the oldest link between the two events is removed. A link that is not between these two events in this graph is a 404.',
+      },
     },
     required: ['causeEventId', 'effectEventId'],
   },
@@ -1012,7 +1038,27 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     type: 'object',
     properties: {
       graphId: { type: 'string' },
-      relationships: { type: 'array', items: { type: 'object' } },
+      relationships: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            cause_event_id: { type: 'string' },
+            effect_event_id: { type: 'string' },
+            weight: { type: 'number', minimum: 0, maximum: 1 },
+            confidence: { type: 'number', minimum: 0, maximum: 1 },
+            relationship_type: { type: 'string', enum: ['direct', 'indirect', 'contributory'] },
+            evidence: {
+              type: 'string',
+              minLength: 1,
+              pattern: '\\S',
+              description:
+                'Required. Why the link holds. If any relationship lacks it (missing, empty or whitespace-only) the whole batch is refused with a 400 and nothing is written.',
+            },
+          },
+          required: ['cause_event_id', 'effect_event_id', 'evidence'],
+        },
+      },
       validation: { type: 'string', enum: ['strict', 'lenient', 'skip'] },
       onError: { type: 'string', enum: ['abort', 'continue'] },
     },
@@ -1022,7 +1068,12 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     type: 'object',
     properties: {
       graphId: { type: 'string' },
-      operations: { type: 'array', items: { type: 'object' } },
+      operations: {
+        type: 'array',
+        description:
+          'Each is `{ type, data }`. A `create_relationship` needs `data.evidence` (non-empty, not whitespace-only); a transaction with one that lacks it is refused with a 400 before any step runs.',
+        items: { type: 'object' },
+      },
       atomic: { type: 'boolean' },
     },
     required: ['graphId', 'operations'],

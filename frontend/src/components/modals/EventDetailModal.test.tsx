@@ -662,9 +662,51 @@ describe('EventDetailModal: what the form records', () => {
     expect(Array.from((picker as HTMLSelectElement).options).map(o => o.value)).toEqual(['', 'e1'])
     await user.selectOptions(picker, 'e1')
     await user.selectOptions(screen.getByLabelText(/^link$/i), 'contributory')
+    await user.type(screen.getByLabelText(/why it caused this/i), '  The treaty cut its supply  ')
     await user.click(screen.getByRole('button', { name: /^save$/i }))
     await waitFor(() => expect(onSave).toHaveBeenCalled())
-    expect(onSave.mock.calls[0]![1]).toEqual({ cause: { eventId: 'e1', type: 'contributory' } })
+    expect(onSave.mock.calls[0]![1]).toEqual({ cause: { eventId: 'e1', type: 'contributory', evidence: 'The treaty cut its supply' } })
+  })
+
+  it('asks for no evidence until a cause is picked, then requires it', async () => {
+    withClient(<EventDetailModal event={null} isOpen onClose={vi.fn()} onSave={vi.fn()} />)
+    expect(screen.queryByLabelText(/why it caused this/i)).not.toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.selectOptions(screen.getByLabelText(/caused by/i), 'e1')
+    expect(screen.getByLabelText(/why it caused this/i)).toBeRequired()
+  })
+
+  it.each([['empty', ''], ['whitespace', '   ']])(
+    'blocks the save when a cause is picked with %s evidence, with an inline error, and creates nothing',
+    async (_name, typed) => {
+      const onSave = vi.fn().mockResolvedValue(undefined)
+      withClient(<EventDetailModal event={null} isOpen onClose={vi.fn()} onSave={onSave} />)
+      const user = await fillRequired('1866-06-01')
+      await user.selectOptions(screen.getByLabelText(/caused by/i), 'e1')
+      if (typed) await user.type(screen.getByLabelText(/why it caused this/i), typed)
+
+      await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+      const alert = await screen.findByText(/evidence is required/i)
+      expect(alert).toHaveAttribute('role', 'alert')
+      const field = screen.getByLabelText(/why it caused this/i)
+      expect(field).toHaveAttribute('aria-invalid', 'true')
+      expect(field).toHaveAttribute('aria-describedby', alert.id)
+      await waitFor(() => expect(field).toHaveFocus())
+      expect(onSave).not.toHaveBeenCalled()
+
+      await user.type(field, 'A real reason')
+      expect(screen.queryByText(/evidence is required/i)).not.toBeInTheDocument()
+    }
+  )
+
+  it('saves an event with no cause without asking for link evidence', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    withClient(<EventDetailModal event={null} isOpen onClose={vi.fn()} onSave={onSave} />)
+    const user = await fillRequired('1866-06-01')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0]).toHaveLength(1)
   })
 
   describe('in a world calendar', () => {

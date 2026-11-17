@@ -143,6 +143,18 @@ describe('CLI Phase 4: Graph, Event, Arc & Causal CRUD Engine', () => {
       expect(linksAfter).toHaveLength(1);
     });
 
+    it.each([['missing', undefined], ['empty', ''], ['whitespace', '  \t']])(
+      'refuses a link whose evidence is %s',
+      async (_name, reasoning) => {
+        const e1 = await engine.createEvent(graphId, { description: 'First', timestamp: '1700-01-01T00:00:00Z' });
+        const e2 = await engine.createEvent(graphId, { description: 'Second', timestamp: '1701-01-01T00:00:00Z' });
+        await expect(
+          engine.createCausalLink(graphId, { causeId: e1.id, effectId: e2.id, reasoning })
+        ).rejects.toThrow(/evidence is required/);
+        expect(await engine.listCausalLinks(graphId)).toEqual([]);
+      }
+    );
+
     it('rejects causal links violating temporal direction (cause >= effect)', async () => {
       const e1 = await engine.createEvent(graphId, {
         description: 'Future event',
@@ -160,6 +172,7 @@ describe('CLI Phase 4: Graph, Event, Arc & Causal CRUD Engine', () => {
 
       await expect(
         engine.createCausalLink(graphId, {
+          reasoning: 'Test evidence',
           causeId: e1.id,
           effectId: e2.id,
         })

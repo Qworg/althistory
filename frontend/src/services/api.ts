@@ -126,6 +126,7 @@ interface APIErrorPayload {
 // create reads `strength`/`type`, update reads `weight`/`relationship_type`.
 // Every field is therefore optional and both spellings are declared.
 interface LinkRelationshipPayload {
+  id?: string
   type?: CausalRelationship['relationship_type']
   relationship_type?: CausalRelationship['relationship_type']
   weight?: number
@@ -453,7 +454,8 @@ class APIClient {
                 // Transform response back to frontend format
                 const now = new Date().toISOString()
                 const result: CausalRelationship = {
-                    id: `${causeId}_${effectId}`,
+                    // The id the server gave the link; two links on one pair differ.
+                    id: response.data.data.relationship.id ?? `${causeId}_${effectId}`,
                     cause_event_id: causeId,
                     effect_event_id: effectId,
                     weight: response.data.data.relationship.strength || relationshipData.weight,
@@ -469,11 +471,13 @@ class APIClient {
             }
         },
 
-        updateLink: async (causeEventId: string, effectEventId: string, data: Partial<CausalRelationshipData>): Promise<CausalRelationship> => {
+        updateLink: async (causeEventId: string, effectEventId: string, data: Partial<CausalRelationshipData>, linkId?: string): Promise<CausalRelationship> => {
             try {
                 const requestData = {
                     causeEventId,
                     effectEventId,
+                    // Names the link when a pair has several; without it the server takes the oldest.
+                    ...(linkId ? { id: linkId } : {}),
                     relationship: {
                         type: data.relationship_type,
                         weight: data.weight,
@@ -485,7 +489,7 @@ class APIClient {
                 // Transform response back to frontend format
                 const now = new Date().toISOString()
                 const result: CausalRelationship = {
-                    id: `${causeEventId}_${effectEventId}`,
+                    id: response.data.data.relationship.id ?? linkId ?? `${causeEventId}_${effectEventId}`,
                     cause_event_id: causeEventId,
                     effect_event_id: effectEventId,
                     weight: response.data.data.relationship.weight ?? data.weight ?? 0,
@@ -501,12 +505,12 @@ class APIClient {
             }
         },
 
-        deleteLink: async (causeEventId: string, effectEventId: string): Promise<void> => {
+        deleteLink: async (causeEventId: string, effectEventId: string, linkId?: string): Promise<void> => {
             try {
                 await this.client.request({
                     method: 'DELETE',
                     url: '/causal/link',
-                    data: { causeEventId, effectEventId }
+                    data: { causeEventId, effectEventId, ...(linkId ? { id: linkId } : {}) }
                 })
             } catch (error) {
                 handleAPIError(error as AxiosError)

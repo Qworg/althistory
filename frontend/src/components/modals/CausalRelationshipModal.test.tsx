@@ -281,7 +281,7 @@ describe('CausalRelationshipModal', () => {
         evidence: 'Strong evidence for this relationship',
         confidence: 0.9,
         relationship_type: 'direct'
-      })
+      }, 'rel1')
     })
     
     expect(mockGlobalStore.updateCausalRelationship).toHaveBeenCalledWith('rel1', {
@@ -293,6 +293,79 @@ describe('CausalRelationshipModal', () => {
     
     expect(mockOnSave).toHaveBeenCalled()
     expect(mockOnClose).toHaveBeenCalled()
+  })
+
+  describe('evidence is required', () => {
+    const createMode = (onCreate = vi.fn().mockResolvedValue(undefined)) => {
+      render(
+        <CausalRelationshipModal
+          relationship={null}
+          isOpen={true}
+          onClose={mockOnClose}
+          onCreate={onCreate}
+          causeEventId="event1"
+          effectEventId="event2"
+        />
+      )
+      return onCreate
+    }
+
+    it('marks the field required', () => {
+      createMode()
+      const field = screen.getByRole('textbox', { name: /evidence/i })
+      expect(field).toBeRequired()
+      expect(field).not.toHaveAttribute('aria-invalid', 'true')
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+
+    it.each([['empty', ''], ['whitespace', '   \n ']])(
+      'refuses to create a link whose evidence is %s, with an inline error and no request',
+      async (_name, typed) => {
+        const onCreate = createMode()
+        if (typed) fireEvent.change(screen.getByRole('textbox', { name: /evidence/i }), { target: { value: typed } })
+
+        await user.click(screen.getByText('Create Relationship'))
+
+        const alert = await screen.findByRole('alert')
+        expect(alert).toHaveTextContent(/evidence is required/i)
+        const field = screen.getByRole('textbox', { name: /evidence/i })
+        expect(field).toHaveAttribute('aria-invalid', 'true')
+        expect(field).toHaveAttribute('aria-describedby', alert.id)
+        expect(field).toHaveFocus()
+        expect(alert).toHaveClass('text-danger')
+        expect(field).toHaveClass('border-danger')
+        expect(onCreate).not.toHaveBeenCalled()
+        expect(mockOnClose).not.toHaveBeenCalled()
+      }
+    )
+
+    it('clears the error once evidence is typed, and creates the link with it trimmed', async () => {
+      const onCreate = createMode()
+      await user.click(screen.getByText('Create Relationship'))
+      expect(await screen.findByRole('alert')).toBeInTheDocument()
+
+      await user.type(screen.getByRole('textbox', { name: /evidence/i }), '  A contemporary letter  ')
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+      await user.click(screen.getByText('Create Relationship'))
+      await waitFor(() => {
+        expect(onCreate).toHaveBeenCalledWith(
+          'event1',
+          'event2',
+          expect.objectContaining({ evidence: 'A contemporary letter' })
+        )
+      })
+    })
+
+    it('does not save an edit that blanks the evidence of an existing link', async () => {
+      render(<CausalRelationshipModal relationship={mockRelationship} isOpen={true} onClose={mockOnClose} onSave={mockOnSave} />)
+      fireEvent.change(screen.getByDisplayValue('Strong evidence for this relationship'), { target: { value: '  ' } })
+
+      await user.click(screen.getByText('Save Changes'))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/evidence is required/i)
+      expect(apiClient.causal.updateLink).not.toHaveBeenCalled()
+    })
   })
 
   it('should validate weight range and show error for invalid values', async () => {
@@ -381,7 +454,7 @@ describe('CausalRelationshipModal', () => {
     await user.click(deleteButton)
     
     await waitFor(() => {
-      expect(apiClient.causal.deleteLink).toHaveBeenCalledWith('event1', 'event2')
+      expect(apiClient.causal.deleteLink).toHaveBeenCalledWith('event1', 'event2', 'rel1')
     })
     
     expect(mockGlobalStore.deleteCausalRelationship).toHaveBeenCalledWith('rel1')
@@ -547,7 +620,7 @@ describe('CausalRelationshipModal', () => {
           relationship_type: 'direct',
           isCrossGraph: true,
           effectGraphId: 'foreign-graph-1'
-        })
+        }, 'rel1')
       })
     })
 

@@ -438,8 +438,8 @@ describe('Graph routes (request-level)', () => {
         // requires evidence, so the engine supplies the same default.
         const cause = await engine.createEvent(made.id, { description: 'Cause', timestamp: '1001-01-01T00:00:00Z' });
         const effect = await engine.createEvent(made.id, { description: 'Effect', timestamp: '1002-01-01T00:00:00Z' });
-        const link = await engine.createCausalLink(made.id, { causeId: cause.id, effectId: effect.id });
-        expect(link.reasoning).toBe('Observed historical causality');
+        const link = await engine.createCausalLink(made.id, { causeId: cause.id, effectId: effect.id, reasoning: 'Seen' });
+        expect(link.reasoning).toBe('Seen');
       } finally {
         await new Promise((resolve) => server.close(resolve));
       }
