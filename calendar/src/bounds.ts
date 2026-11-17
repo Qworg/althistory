@@ -239,8 +239,14 @@ export function readHistoricalText(
 ): { ok: true; iso: string; time: AxisTime; precision: DatePrecision } | { ok: false; error: string } {
   const trimmed = String(text).trim()
   const timed = TIME_SUFFIX.exec(trimmed)
-  // Something like a time after the date that is not one: say so, not "write the year first".
-  if (!timed && TIME_LIKE_SUFFIX.test(trimmed)) return { ok: false, error: TIME_FORM_ERROR }
+  // Something like a time after the date that is not one: the date is read
+  // first, so a bad date (or a missing year) is named before the time.
+  if (!timed && TIME_LIKE_SUFFIX.test(trimmed)) {
+    const dated = readHistoricalFields(trimmed.replace(TIME_LIKE_SUFFIX, ''), 'start')
+    if (!dated.ok) return { ok: false, error: dated.error }
+    if (boundPrecision(dated.text) !== 'day') return { ok: false, error: 'A time needs a whole date: 1843-11-20 14:30.' }
+    return { ok: false, error: TIME_FORM_ERROR }
+  }
   // A date with a time is range-checked once the time is added: the axis's
   // first day starts before its bound, and its later hours are inside it.
   const parsed = timed ? readHistoricalFields(timed[1]!, 'start') : parseHistoricalDate(trimmed, edge)

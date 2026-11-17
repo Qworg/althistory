@@ -443,7 +443,8 @@ describe('ActorTimeline', () => {
         />
       )
       const labels = Array.from(container.querySelectorAll('.actor-event-label')).map((t) => t.textContent)
-      expect(labels).toEqual(['Declaration of…', 'Treaty with Spain'])
+      // Where a row has room a title is whole (up to the main timeline's 44 characters), not cut to 18.
+      expect(labels).toEqual(['Declaration of Independence', 'Treaty with Spain'])
       // The role is the lane, the colour and the accessible name.
       const marks = Array.from(container.querySelectorAll('.actor-event'))
       for (const mark of marks) {
@@ -478,9 +479,129 @@ describe('ActorTimeline', () => {
       expect(mark.querySelector('.actor-event-label')).toBeNull()
 
       fireEvent.click(mark)
-      const label = mark.querySelector('.actor-event-label')
-      expect(label).toHaveTextContent('Event e6')
-      expect(label?.getAttribute('fill')).toBe('var(--accent-selected)')
+      // No room for its title: named on a plate over every mark, in the selection colour.
+      const pinned = container.querySelector('[data-pinned-label-for="e6"]')
+      expect(pinned).not.toBeNull()
+      expect(pinned!.querySelector('text')).toHaveTextContent('Event e6')
+      expect(pinned!.querySelector('text')!.getAttribute('style')).toContain('var(--accent-selected)')
+      expect(pinned!.querySelector('rect.event-label-plate')!.getAttribute('style')).toContain('var(--surface-card)')
+      expect(mark.querySelector('.actor-event-label')).toBeNull()
+    })
+
+    it('keeps the selected name inside the plot at both edges, and every other label where it was', () => {
+      const edge = [
+        ...['a1', 'a2', 'a3', 'a4', 'a5'].map((id) => ({ ...actorEvent(id, 'actor', 'Britain'), timestamp: '1700-01-01T00:00:00Z' })),
+        { ...actorEvent('first', 'actor', 'Britain'), description: 'A selected title long enough to need room', timestamp: '1700-01-01T00:00:00Z' },
+        ...['z1', 'z2', 'z3', 'z4', 'z5'].map((id) => ({ ...actorEvent(id, 'actor', 'Britain'), timestamp: '1900-01-01T00:00:00Z' })),
+        { ...actorEvent('last', 'actor', 'Britain'), description: 'A selected title long enough to need room', timestamp: '1900-01-01T00:00:00Z' },
+      ]
+      const { container } = render(<ActorTimeline actor="U.S." layoutMode="chronological" events={edge} arcs={[]} width={500} />)
+      let pinnedCount = 0
+      for (const id of ['first', 'last']) {
+        fireEvent.click(container.querySelector(`.actor-event[data-event-id="${id}"]`)!)
+        const text = container.querySelector(`.actor-pinned-label[data-pinned-label-for="${id}"] text`)
+        if (!text) { fireEvent.click(container.querySelector(`.actor-event[data-event-id="${id}"]`)!); continue }
+        pinnedCount++
+        const x = Number(text!.getAttribute('x') ?? 0)
+        const width = text!.textContent!.length * 12 * 0.56
+        const anchor = text!.getAttribute('text-anchor')
+        const left = anchor === 'start' ? x : anchor === 'end' ? x - width : x - width / 2
+        expect(left).toBeGreaterThanOrEqual(-0.5)
+        expect(left + width).toBeLessThanOrEqual(500 - 80 - 20 + 0.5)
+        fireEvent.click(container.querySelector(`.actor-event[data-event-id="${id}"]`)!)
+      }
+      expect(pinnedCount).toBeGreaterThan(0)
+    })
+
+    it('puts the selection\'s plate where it covers no label by less than half, hides what it covers whole, and keeps its leader beneath the marks', () => {
+      // Marks piled at both ends of a narrow chart: the selected ones at the edges find no room in the layout.
+      const crowd = [
+        ...['a1', 'a2', 'a3', 'a4', 'a5'].map((id) => ({ ...actorEvent(id, 'actor', 'Britain'), timestamp: '1700-01-01T00:00:00Z' })),
+        { ...actorEvent('first', 'actor', 'Britain'), description: 'A selected title long enough to need room', timestamp: '1700-01-01T00:00:00Z' },
+        ...['z1', 'z2', 'z3', 'z4', 'z5'].map((id) => ({ ...actorEvent(id, 'actor', 'Britain'), timestamp: '1900-01-01T00:00:00Z' })),
+        { ...actorEvent('last', 'actor', 'Britain'), description: 'A selected title long enough to need room', timestamp: '1900-01-01T00:00:00Z' },
+      ]
+      const { container } = render(<ActorTimeline actor="U.S." layoutMode="chronological" events={crowd} arcs={[]} width={500} />)
+      const boxes = () =>
+        new Map(
+          Array.from(container.querySelectorAll<SVGTextElement>('.actor-event .actor-event-label')).map((text) => {
+            const mark = text.closest('.actor-event')!
+            const [mx, my] = /translate\(\s*([-\d.e]+)[ ,]+([-\d.e]+)/.exec(mark.getAttribute('transform')!)!.slice(1).map(Number) as [number, number]
+            const width = text.textContent!.length * 12 * 0.56
+            const anchor = text.getAttribute('text-anchor')
+            const left = anchor === 'start' ? mx : anchor === 'end' ? mx - width : mx - width / 2
+            const base = my + Number(text.getAttribute('y'))
+            return [mark.getAttribute('data-event-id')!, { left, right: left + width, top: base - 9.6, bottom: base + 3 }]
+          })
+        )
+      const before = boxes()
+      let plates = 0
+      for (const event of crowd) {
+        fireEvent.click(container.querySelector(`.actor-event[data-event-id="${event.id}"]`)!)
+        const pinned = container.querySelector(`[data-pinned-label-for="${event.id}"]`)
+        const after = boxes()
+        if (!pinned) {
+          if (!before.has(event.id)) for (const key of before.keys()) expect(after.has(key), `${key} vanished with no plate`).toBe(true)
+        } else {
+          plates++
+          const rect = pinned.querySelector('rect')!
+          const plate = { left: +rect.getAttribute('x')!, right: +rect.getAttribute('x')! + +rect.getAttribute('width')!, top: +rect.getAttribute('y')!, bottom: +rect.getAttribute('y')! + +rect.getAttribute('height')! }
+          const covered = (b: { left: number; right: number; top: number; bottom: number }) =>
+            (Math.max(0, Math.min(b.right, plate.right) - Math.max(b.left, plate.left)) * Math.max(0, Math.min(b.bottom, plate.bottom) - Math.max(b.top, plate.top))) / ((b.right - b.left) * (b.bottom - b.top))
+          for (const [key, box] of before) {
+            if (after.has(key)) {
+              expect(after.get(key)).toEqual(box)
+              expect(covered(box), `${key} is partly covered`).toBe(0)
+            } else expect(covered(box), `${key} hidden though the plate does not touch it`).toBeGreaterThan(0)
+          }
+          // Every plate hangs from its mark by a leader, in a layer before the marks and labels.
+          const line = container.querySelector(`line[data-pinned-leader-for="${event.id}"]`)
+          expect(line, `${event.id}'s plate has a leader`).not.toBeNull()
+          // The leader runs from the plate's edge to the mark.
+          const markTransform = /translate\(\s*([-\d.e]+)[ ,]+([-\d.e]+)/.exec(container.querySelector(`.actor-event[data-event-id="${event.id}"]`)!.getAttribute('transform')!)!
+          const markY = Number(markTransform[2])
+          const [ly1, ly2] = [Number(line!.getAttribute('y1')), Number(line!.getAttribute('y2'))]
+          if (plate.bottom <= markY) {
+            expect(ly1).toBeCloseTo(plate.bottom, 0)
+            expect(ly2).toBeGreaterThan(ly1 + 1)
+            expect(ly2).toBeLessThanOrEqual(markY)
+          } else {
+            expect(ly1).toBeGreaterThanOrEqual(markY)
+            expect(ly2).toBeCloseTo(plate.top, 0)
+          }
+          const firstMark = container.querySelector('.actor-event')!
+          expect(line!.compareDocumentPosition(firstMark) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        }
+        fireEvent.click(container.querySelector(`.actor-event[data-event-id="${event.id}"]`)!)
+      }
+      expect(plates, 'a plate is drawn for some selection').toBeGreaterThan(0)
+    })
+
+    it('keeps every other label where it was when a mark is selected', () => {
+      const sameDay = ['e1', 'e2', 'e3', 'e4', 'e5', 'e6'].map((id) => actorEvent(id, 'actor', 'Britain'))
+      const { container } = render(
+        <ActorTimeline actor="U.S." layoutMode="chronological" events={sameDay} arcs={[]} />
+      )
+      const drawn = () =>
+        new Map(
+          Array.from(container.querySelectorAll<SVGTextElement>('.actor-event .actor-event-label')).map((text) => [
+            text.closest('.actor-event')!.getAttribute('data-event-id'),
+            [text.getAttribute('y'), text.getAttribute('text-anchor'), text.textContent],
+          ])
+        )
+      const before = drawn()
+      expect(before.size).toBeGreaterThan(0)
+      for (const id of ['e6', 'e1', 'e3']) {
+        fireEvent.click(container.querySelector(`.actor-event[data-event-id="${id}"]`)!)
+        const after = drawn()
+        // None moves; one the selection's plate covers by half or more is hidden whole (and then there is a plate).
+        const plate = container.querySelector('[data-pinned-label-for]')
+        for (const [key, where] of before) {
+          if (after.has(key)) expect(after.get(key), `${id} selected moved ${key}`).toEqual(where)
+          else expect(plate, `${key} vanished with no plate`).not.toBeNull()
+        }
+        fireEvent.click(container.querySelector(`.actor-event[data-event-id="${id}"]`)!)
+      }
     })
 
     it('draws the selected event in indigo, not danger red', () => {

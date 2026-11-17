@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { readDateBound, toAxisTime } from '@althistory/calendar'
+import { VAEL } from '@/test/fixtures/worldCalendars'
 import { instantScale } from '@/utils/timeScale'
+import { axisTicks } from '@/utils/d3Calculations'
+import { labelExtent } from '@/utils/axisLabelFit'
 import { counterfactualAxisTicks, formatTicks } from './counterfactualAxis'
 
 /**
@@ -67,6 +71,44 @@ describe('the counterfactual axis on a real history', () => {
         const indices = all.map((tick) => dates.findIndex((date) => +date === +tick.date))
         const steps = new Set(indices.slice(1).map((index, i) => index - indices[i]!))
         expect(steps.size, `${where}: ${JSON.stringify(all.map((t) => t.label))}`).toBeLessThanOrEqual(1)
+      }
+    }
+  })
+})
+
+describe('the counterfactual axis in a world calendar', () => {
+  const worldDomains: Array<[string, string]> = [
+    ['1000-01-01T00:00:00Z', '1300-01-01T00:00:00Z'],
+    ['1200-03-01T00:00:00Z', '1201-03-01T00:00:00Z'],
+    ['1200-03-01T00:00:00Z', '1200-05-01T00:00:00Z'],
+    ['1200-03-01T00:00:00Z', '1200-03-09T00:00:00Z'],
+    ['1200-03-01T06:00:00Z', '1200-03-02T06:00:00Z'],
+    ['-000500-01-01T00:00:00Z', '0500-01-01T00:00:00Z'],
+  ]
+
+  it('keeps even gaps, no overprinting and labels that read back, at every width', () => {
+    for (const [a, b] of worldDomains) {
+      for (const width of [320, 400, 560, 760, 1100]) {
+        const margin = width < 560 ? { left: 96, right: 16 } : { left: 140, right: 32 }
+        const innerWidth = Math.max(100, width - margin.left - margin.right)
+        const xScale = instantScale(true).domain([new Date(a), new Date(b)]).range([0, innerWidth])
+        const where = `${a.slice(0, 10)}..${b.slice(0, 10)} at ${width}`
+        const kept = counterfactualAxisTicks(xScale, innerWidth, margin, VAEL)
+        expect(kept.length, where).toBeGreaterThan(0)
+        const count = Math.max(2, Math.min(6, Math.floor(innerWidth / 110)))
+        const all = axisTicks(xScale.domain(), count, VAEL)
+        const indices = kept.map((tick) => all.findIndex((t) => +t.date === +tick.date))
+        expect(indices.every((index) => index >= 0), where).toBe(true)
+        expect(new Set(indices.slice(1).map((index, i) => index - indices[i]!)).size, where).toBeLessThanOrEqual(1)
+        for (const [i, tick] of kept.entries()) {
+          if (i > 0) expect(labelExtent(tick, 7.2)[0] - labelExtent(kept[i - 1]!, 7.2)[1], `${where} "${tick.label}"`).toBeGreaterThanOrEqual(12)
+          expect(labelExtent(tick, 7.2)[0], where).toBeGreaterThanOrEqual(-margin.left - 0.5)
+          expect(labelExtent(tick, 7.2)[1], where).toBeLessThanOrEqual(innerWidth + margin.right + 0.5)
+          // A world's time of day alone ("12:00") names no day, as on the main axis; the rest read back.
+          if (/^\d+:\d+/.test(tick.label)) continue
+          const read = readDateBound(tick.label, 'start', VAEL)
+          expect(read.ok && read.time, `${where} "${tick.label}"`).toBe(toAxisTime(tick.date))
+        }
       }
     }
   })

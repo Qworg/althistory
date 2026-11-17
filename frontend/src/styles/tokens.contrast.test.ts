@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest'
+import { DIMMED_OPACITY } from '../components/timeline/dimmedOpacity'
 
 // Read the stylesheet from disk: Vitest blanks CSS modules, `?raw` included,
 // and this package has no @types/node, hence the narrow typed handle on fs.
@@ -125,6 +126,24 @@ describe('text on a filled accent (WCAG AA, 4.5:1)', () => {
 
   it('measures the dark-theme failure it replaced', () => {
     expect(contrast('#ffffff', '#60a5fa')).toBeLessThan(3)
+  })
+})
+
+// A dimmed mark (a ripple traced from another event) fades to DIMMED_OPACITY,
+// but its label keeps --text-muted, which must read on the card in both
+// schemes and still be clearly lighter than the label at rest.
+describe('dimmed event labels (4.5:1 in --text-muted, lighter than at rest)', () => {
+  for (const [theme, tokens] of Object.entries(themes)) {
+    it(`${theme}: the muted ink on the card`, () => {
+      const card = resolve(tokens, '--surface-card')
+      const muted = contrast(resolve(tokens, '--text-muted'), card)
+      expect(muted).toBeGreaterThanOrEqual(4.5)
+      expect(muted).toBeLessThan(contrast(resolve(tokens, '--text-secondary'), card))
+    })
+  }
+  it('fades the mark itself to about a third', () => {
+    expect(DIMMED_OPACITY).toBeGreaterThan(0.2)
+    expect(DIMMED_OPACITY).toBeLessThanOrEqual(0.35)
   })
 })
 

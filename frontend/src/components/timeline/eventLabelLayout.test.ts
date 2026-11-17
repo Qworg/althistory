@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { layoutEventLabels, truncateLabel, LABEL_ROW_OFFSETS, TIMELINE_LABEL_CONFIG } from './eventLabelLayout'
+import { layoutEventLabels, truncateLabel, LABEL_ROW_OFFSETS, TIMELINE_BELOW_ROW_OFFSETS, TIMELINE_LABEL_CONFIG } from './eventLabelLayout'
 
 describe('layoutEventLabels', () => {
   it('labels well-spaced events in the first row, centred', () => {
@@ -98,6 +98,135 @@ describe('layoutEventLabels with the main timeline config (four rows of 12px)', 
     const a = labels.get('a')!
     expect(b.offset).toBe(TIMELINE_LABEL_CONFIG.rowOffsets[0])
     expect(a).toBeDefined()
+  })
+})
+
+describe('rows under the track', () => {
+  const crowd = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((id, i) => ({ id, x: 200 + i * 10, description: `Long label ${id}` }))
+  const free = TIMELINE_BELOW_ROW_OFFSETS.map((offset) => ({ offset, blocked: [] as Array<[number, number]> }))
+
+  it('names more labels in a crowd, using a row under the track where the rows above cannot take one cleanly', () => {
+    const without = layoutEventLabels(crowd, 800, TIMELINE_LABEL_CONFIG)
+    const withBelow = layoutEventLabels(crowd, 800, { ...TIMELINE_LABEL_CONFIG, belowRows: free })
+    const dense = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l'].map((id, i) => ({ id, x: 200 + i * 6, description: `Long label ${id}` }))
+    const aboveOnly = layoutEventLabels(dense, 800, TIMELINE_LABEL_CONFIG)
+    const both = layoutEventLabels(dense, 800, { ...TIMELINE_LABEL_CONFIG, belowRows: free })
+    expect(without.size).toBeLessThan(withBelow.size)
+    expect(aboveOnly.size).toBeLessThan(both.size)
+    expect(withBelow.get('a')).toEqual(without.get('a'))
+    const offsets = [...both.values()].map((p) => p.offset)
+    expect(new Set(offsets.filter((offset) => offset > 0))).toEqual(new Set(TIMELINE_BELOW_ROW_OFFSETS))
+  })
+
+  it('leaves the rows above exactly as they were for a track with no room under it', () => {
+    expect(layoutEventLabels(crowd, 800, { ...TIMELINE_LABEL_CONFIG, belowRows: [] })).toEqual(layoutEventLabels(crowd, 800, TIMELINE_LABEL_CONFIG))
+  })
+
+  it('names a label in full under the track rather than shortening it above', () => {
+    const long = 'Babbage completes the Analytical Engine in 1843'
+    const items = ['a', 'b', 'c', 'd', 'e'].map((id, i) => ({ id, x: 300 + i * 10, description: long }))
+    const withBelow = layoutEventLabels(items, 800, { ...TIMELINE_LABEL_CONFIG, belowRows: free })
+    const below = [...withBelow.values()].filter((p) => p.offset > 0)
+    expect(below.length).toBeGreaterThan(0)
+    expect(withBelow.size).toBeGreaterThan(layoutEventLabels(items, 800, TIMELINE_LABEL_CONFIG).size)
+  })
+
+  it('never covers a link: a blocked span keeps labels out of the row, wherever they could sit', () => {
+    const blocked = TIMELINE_BELOW_ROW_OFFSETS.map((offset) => ({ offset, blocked: [[0, 800]] as Array<[number, number]> }))
+    const placed = layoutEventLabels(crowd, 800, { ...TIMELINE_LABEL_CONFIG, belowRows: blocked })
+    expect([...placed.values()].every((p) => p.offset < 0)).toBe(true)
+    // A span over part of the row: the label goes where the link is not.
+    const part = [{ offset: 34, blocked: [[150, 260]] as Array<[number, number]> }]
+    const items = [...crowd.slice(0, 4), { id: 'late', x: 600, description: 'Late label' }, ...crowd.slice(4)]
+    const some = layoutEventLabels(items, 800, { ...TIMELINE_LABEL_CONFIG, belowRows: part })
+    for (const [id, placement] of some) {
+      if (placement.offset < 0) continue
+      const item = items.find((i) => i.id === id)!
+      const width = placement.text.length * TIMELINE_LABEL_CONFIG.fontSize * 0.56
+      const ax = item.x + (placement.dx ?? 0)
+      const left = placement.anchor === 'start' ? ax : placement.anchor === 'end' ? ax - width : ax - width / 2
+      expect(left + width <= 150 || left >= 260, `${id} at ${left}..${left + width}`).toBe(true)
+    }
+  })
+
+  it('does not depend on which event is prioritised for anything but the order of first claims', () => {
+    // The timeline passes no priority at all: the same input gives the same labels.
+    const a = layoutEventLabels(crowd, 800, { ...TIMELINE_LABEL_CONFIG, belowRows: free })
+    const b = layoutEventLabels(crowd, 800, { ...TIMELINE_LABEL_CONFIG, belowRows: free })
+    expect([...b]).toEqual([...a])
+  })
+})
+
+describe('a lane lengthens its names after it has packed them', () => {
+  const main = { rowOffsets: LABEL_ROW_OFFSETS, fontSize: 12 }
+  const lane = { ...main, fullChars: 44, lengthen: true }
+  const titles = ['Babbage completes the Analytical Engine in 1843', 'Prussia buys three engines', 'Ten thousand clerks are made redundant', 'The Bank of England adopts the engine', 'Peel', 'Moltke uses engines to schedule the railways']
+
+  it('names the same events as a layout that never lengthens, at every density', () => {
+    let seed = 5
+    const next = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff
+    for (let run = 0; run < 400; run++) {
+      const n = 3 + Math.floor(next() * 30)
+      const width = 300 + Math.floor(next() * 1100)
+      const items = Array.from({ length: n }, (_, i) => ({ id: `e${i}`, x: next() * width, description: titles[Math.floor(next() * titles.length)]! }))
+      const before = layoutEventLabels(items, width, main)
+      const after = layoutEventLabels(items, width, lane)
+      expect([...after.keys()].sort(), `${n} events in ${width}px`).toEqual([...before.keys()].sort())
+      for (const [id, placement] of after) {
+        expect(placement.text.length).toBeGreaterThanOrEqual(before.get(id)!.text.length)
+        expect(placement.offset).toBe(before.get(id)!.offset)
+      }
+    }
+  })
+
+  it('names no fewer events overall on the main timeline than packing the longest names first did', () => {
+    const longestFirst = { ...TIMELINE_LABEL_CONFIG, lengthen: false }
+    let seed = 9
+    const next = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff
+    let totalBefore = 0
+    let totalAfter = 0
+    for (let run = 0; run < 300; run++) {
+      const n = 4 + Math.floor(next() * 30)
+      const width = 500 + Math.floor(next() * 900)
+      const items = Array.from({ length: n }, (_, i) => ({ id: `e${i}`, x: next() * width, description: titles[Math.floor(next() * titles.length)]!, weight: Math.floor(next() * 3) }))
+      const before = layoutEventLabels(items, width, longestFirst).size
+      const after = layoutEventLabels(items, width, TIMELINE_LABEL_CONFIG).size
+      totalBefore += before
+      totalAfter += after
+    }
+    expect(totalAfter).toBeGreaterThanOrEqual(totalBefore)
+  })
+
+  it('lengthens a name where its row has room, and not into its neighbour', () => {
+    const alone = layoutEventLabels([{ id: 'a', x: 500, description: titles[0]! }], 1000, lane)
+    expect(alone.get('a')?.text).toBe(truncateLabel(titles[0]!, 44))
+    const pair = layoutEventLabels(
+      [{ id: 'a', x: 400, description: titles[0]! }, { id: 'b', x: 560, description: titles[1]! }],
+      1000,
+      lane
+    )
+    expect(pair.get('a')!.text.length).toBeLessThan(truncateLabel(titles[0]!, 44).length + 1)
+    const a = pair.get('a')!
+    const left = 400 - (a.text.length * 12 * 0.56) / 2
+    expect(left + a.text.length * 12 * 0.56).toBeLessThanOrEqual(560 - (pair.get('b')!.text.length * 12 * 0.56) / 2 + 0.001)
+  })
+})
+
+describe('a linked mark under the track', () => {
+  it('names its title beside the mark, clear of the link that leaves it', () => {
+    const blocked = [[96, 104]] as Array<[number, number]>
+    // Four rows above are full for four marks at one x; these were the fifth and sixth.
+    const five = layoutEventLabels(
+      ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => ({ id, x: 100, description: `Linked event ${id}` })),
+      800,
+      { ...TIMELINE_LABEL_CONFIG, belowRows: [{ offset: 34, blocked }, { offset: 48, blocked }] }
+    )
+    const beside = [...five.values()].filter((p) => p.offset > 0)
+    expect(beside.length).toBeGreaterThan(0)
+    for (const label of beside) {
+      expect(label.beside).toBe(true)
+      expect(label.anchor === 'start' || label.anchor === 'end').toBe(true)
+    }
   })
 })
 

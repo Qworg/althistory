@@ -36,6 +36,8 @@ export interface TimelineGhost {
   label: string
   events: Event[]
   divergence?: Date | null
+  /** The id of the event the point of divergence names (it may be an event the branch no longer has). */
+  divergenceEventId?: string | null
 }
 
 /** The baseline's events, matching the view's own `limit: 1000`. */
@@ -83,6 +85,7 @@ export function useBaselineGhost(branchEvents: readonly Event[]): BaselineGhostS
       label: baseline.name,
       events: baselineEvents,
       divergence: pointOfDivergence ? toInstant(pointOfDivergence.timestamp) : null,
+      divergenceEventId: pointOfDivergence?.event?.id ?? null,
     }
   }, [parentId, baseline, baselineEvents, pointOfDivergence])
 

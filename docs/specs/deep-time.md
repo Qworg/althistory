@@ -118,15 +118,29 @@ default view is 20 seconds, and zoom reaches 1); a day's first moment
 (00:00:00.000) is written as its date. The axis names the day of its times in a
 caption under it ("44-03-15 BCE", or "44-03-14 BCE – 44-03-15 BCE" across
 midnight), taken from the visible span, so the day stays named however the
-ticks are thinned, even where there is no tick. If two labels would still read
-the same (a day-long view whose ends share a time), every tick is its date and
-time instead, and no caption is drawn. The reader takes a time to the
+ticks are thinned, even where there is no tick. A time of day may repeat on
+either side of a dated midnight tick ("12:00", "44-03-15 BCE", "12:00" in a
+day-long view across midnight): a bare time belongs to the day of the dated
+tick before it, or, before any, to the caption's first day, so the labels stay
+short and the caption stays. Only if two labels would still read the same (two
+equal times with no dated tick between them) is every tick its date and time
+instead, and no caption is drawn. A view of a day or less in which no tick names
+a day or a time (a narrow axis may keep only a month's first midnight,
+"66000000-07 BCE") is given the caption too. A two-day caption too wide for the SVG shares its
+year and era ("66000000-06-30 – 07-01 BCE") and is never drawn past its edge;
+the full days are its accessible name and read back. The reader takes a time to the
 minute, second or millisecond after a date, so every label and the caption read
-back. Before 1 CE, in deep time and beyond 9999 (never for a world calendar), an
+back. `readHistoricalText` reads the date part of such text first and reports
+its error before a malformed time: "1843-02-31 9:3" names the impossible day,
+"yesterday 10:00:0" says to write the year first, and "1843 1:2" says a time
+needs a whole date. The main axis's tick fitting is memoised on the scale, so
+it is fitted again when the view zooms or pans, not on every render. Before 1 CE, in deep time and beyond 9999 (never for a world calendar), an
 end label that would run past the SVG is anchored inward, and ticks whose
 labels would overprint are thinned to an even stride, keeping a label that
 names a day among times; the actor view fits such an axis the same way rather
-than turning its labels. An axis from 1 CE to 9999 draws as it always did.
+than turning its labels. The counterfactual canvas keeps its even stride from the
+first tick: trying other starting ticks changed nothing on a real history
+(which must not change), so it is not done. An axis from 1 CE to 9999 draws as it always did.
 
 Full dates in prose (event labels, the inspector, arc spans, tooltips) are the
 locale's (Req 11), "Mar 15, 44 BC" in en-US: nobody types those back. The en-US "BC" of a full date beside
