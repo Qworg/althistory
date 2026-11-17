@@ -207,15 +207,31 @@ describe('demo server', () => {
     it('lets a visitor edit every arc the recording seeded: a rename, a resize, a panel save, a drag', async () => {
       const { respond } = await load()
       const seeded = (await respond(request('get', '/arcs'))).data.data as Array<{ id: string; level: number; parent_arc_id?: string | null; start_time: string; end_time: string; name: string }>
-      // The recording was made before the hierarchy was enforced: parentless arcs at levels 1 and 2 are top level here.
+      type Shown = { id: string; level: number; parent_arc_id: string | null; start_time: string; end_time: string; name: string }
+      const shown = async (id: string) => (await respond(request('get', `/arcs/${id}`))).data.data as Shown
+      // The recording holds a valid hierarchy: roots at level 0, and each child one level under a seeded parent.
       expect(seeded.length).toBeGreaterThan(0)
-      for (const arc of seeded) expect(arc.parent_arc_id ?? null).toBeNull()
-      expect(seeded.every((arc) => arc.level === 0)).toBe(true)
+      const byId = new Map(seeded.map((arc) => [arc.id, arc]))
+      for (const arc of seeded) {
+        const parentId = arc.parent_arc_id ?? null
+        if (parentId === null) expect(arc.level).toBe(0)
+        else expect(arc.level).toBe(byId.get(parentId)!.level + 1)
+      }
+      const children = seeded.filter((arc) => arc.parent_arc_id)
+      expect(children.length).toBeGreaterThan(0)
+      // A seeded child keeps its parent through a panel save and a resize inside the parent's span.
+      for (const arc of children) {
+        const parent = byId.get(arc.parent_arc_id!)!
+        expect((await respond(request('put', `/arcs/${arc.id}`, { name: arc.name, description: 'd', level: arc.level, start_time: arc.start_time, end_time: arc.end_time, parent_arc_id: parent.id }))).status).toBe(200)
+        expect((await respond(request('put', `/arcs/${arc.id}`, { start_time: parent.start_time }))).status).toBe(200)
+        expect(await shown(arc.id)).toMatchObject({ level: arc.level, parent_arc_id: parent.id, start_time: parent.start_time })
+      }
       for (const arc of seeded) {
         expect((await respond(request('put', `/arcs/${arc.id}`, { name: `${arc.name} (edited)` }))).status).toBe(200)
         expect((await respond(request('put', `/arcs/${arc.id}`, { start_time: arc.start_time, end_time: '1860-01-01T00:00:00.000Z', parent_arc_id: null }))).status).toBe(200)
-        // What the arc panel sends on save: the whole arc, level as it shows.
-        expect((await respond(request('put', `/arcs/${arc.id}`, { name: arc.name, description: 'd', level: arc.level, start_time: arc.start_time, end_time: arc.end_time, parent_arc_id: null }))).status).toBe(200)
+        // What the arc panel sends on save: the whole arc, level and parent as it now shows.
+        const now = await shown(arc.id)
+        expect((await respond(request('put', `/arcs/${arc.id}`, { name: now.name, description: 'd', level: now.level, start_time: now.start_time, end_time: now.end_time, parent_arc_id: now.parent_arc_id }))).status).toBe(200)
       }
     })
 
