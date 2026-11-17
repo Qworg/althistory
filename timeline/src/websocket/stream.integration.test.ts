@@ -1033,7 +1033,7 @@ describe('WebSocket streaming (requirement 16)', () => {
             name: 'Renaissance',
             start_time: '1400-01-01T00:00:00.000Z',
             end_time: '1600-01-01T00:00:00.000Z',
-            level: 1,
+            level: 0,
           },
         });
 
@@ -1049,6 +1049,32 @@ describe('WebSocket streaming (requirement 16)', () => {
         const persisted = await scoped.arcRepository.findById(ack.entityId as string);
         expect(persisted).not.toBeNull();
         expect(persisted?.name).toBe('Renaissance');
+      } finally {
+        await harness.close();
+      }
+    });
+
+    it('writes an arc through the arc hierarchy: a parent, a level and a span that fit, or a refusal', async () => {
+      const token = await requestToken(writerKey);
+      const harness = await connectAccepted(token);
+      try {
+        const send = async (requestId: string, data: Record<string, unknown>): Promise<Record<string, unknown>> => {
+          sendJson(harness, { type: 'arc', requestId, data });
+          return harness.next();
+        };
+        const parent = await send('p', { name: 'Age', start_time: '1400-01-01T00:00:00.000Z', end_time: '1600-01-01T00:00:00.000Z', level: 0 });
+        expect(parent.success).toBe(true);
+        const within = { start_time: '1450-01-01T00:00:00.000Z', end_time: '1550-01-01T00:00:00.000Z' };
+        // A root above level 0, a missing parent, a level that does not fit, and a span outside the parent: all refused.
+        expect((await send('r1', { name: 'Root1', ...within, level: 1 })).success).toBe(false);
+        expect((await send('r2', { name: 'Orphan', ...within, level: 1, parent_arc_id: 'nowhere' })).success).toBe(false);
+        expect((await send('r3', { name: 'Skip', ...within, level: 2, parent_arc_id: parent.entityId })).success).toBe(false);
+        expect((await send('r4', { name: 'Outside', start_time: '1300-01-01T00:00:00.000Z', end_time: '1500-01-01T00:00:00.000Z', level: 1, parent_arc_id: parent.entityId })).success).toBe(false);
+        const child = await send('ok', { name: 'Reign', ...within, level: 1, parent_arc_id: parent.entityId });
+        expect(child.success).toBe(true);
+        const scoped = await container.graphScopedRepositories(graphId);
+        expect((await scoped.arcRepository.findById(child.entityId as string))?.metadata?.parentArcId).toBe(parent.entityId);
+        expect((await scoped.arcRepository.findAll()).map((arc) => arc.name)).not.toEqual(expect.arrayContaining(['Root1', 'Orphan', 'Skip', 'Outside']));
       } finally {
         await harness.close();
       }

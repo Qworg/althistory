@@ -1,6 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query'
 import type { LiveChange } from '@/types'
-import { changesGraphCounts, describeChanges, freshIdsOf, generationNotice, queryRootsFor } from './liveChanges'
+import { changesGraphCounts, describeChanges, freshIdsOf, generationNotice, queryRootsFor, rebuildNotice } from './liveChanges'
 import { GRAPH_LIST_CHANNEL } from './liveFeedClient'
 
 /** What the applier writes to the screen's state; the live store satisfies it. */
@@ -199,6 +199,12 @@ export class LiveChangeApplier {
       (graphId) => this.graphName(graphId, active)
     )
     if (notices.length > 0) this.options.sink.addNotices(notices)
+    // A rebuilt graph that is not whole is said so to everyone with it open, the
+    // person who caused the rebuild included (their own change is not announced otherwise).
+    for (const change of batch) {
+      const notice = rebuildNotice(change, this.graphName(change.graphId, active))
+      if (notice !== null) this.options.sink.setNotice(`rebuild:${change.graphId}`, notice)
+    }
     // A run's end is announced once per job: a cancel is published, then
     // corrected when the exact count is known, and the correction replaces the
     // first notice instead of adding a second.

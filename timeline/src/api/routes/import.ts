@@ -961,10 +961,14 @@ export function createImportRouter(config: ImportRouterConfig): Router {
           conflictResolution,
         });
 
+        // A report a rebuild left that nobody collected is not this import's.
+        const liveStore = (req as unknown as { container?: { liveStoreSyncService?: { takeReport?(graphId: string): unknown } } }).container?.liveStoreSyncService;
+        liveStore?.takeReport?.(targetGraphId);
         const result = await importService.executeImport(data as AlthistoryExport, options);
 
         // FIX B#49: Add async: false for consistent response shape
-        const response = { ...result, async: false };
+        const rebuild = result.success ? liveStore?.takeReport?.(targetGraphId) : undefined;
+        const response = { ...result, ...(rebuild ? { rebuild } : {}), async: false };
 
         // Set appropriate status code based on result
         if (result.success) {

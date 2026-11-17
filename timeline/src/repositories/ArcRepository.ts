@@ -1,5 +1,7 @@
 import { Session, Integer } from 'neo4j-driver';
 import { Arc, CreateArcRequest, UpdateArcRequest } from '../models/Arc';
+import { compareInstants } from '@althistory/calendar';
+import { ValidationError } from '../utils/errors';
 import { TimeRange } from '../models/Event';
 import { readInstantValue, runTemporal } from '../utils/temporal';
 import { DatabaseManager, LocalDatabaseManager, LocalSession } from '../utils/database';
@@ -148,6 +150,16 @@ function readDate(value: unknown, field: string): Date {
 }
 
 /**
+ * How a write is judged. `validated`: the arc hierarchy has already judged the
+ * write (its parent, level and time span, against the state it ends in), or
+ * the arc comes from a stored head being rebuilt, so the time check against
+ * the parent as the store holds it right now is skipped.
+ */
+export interface ArcWriteOptions {
+  validated?: boolean;
+}
+
+/**
  * Repository for Arc operations using Neo4j or LocalGraphStore
  */
 export class ArcRepository {
@@ -187,11 +199,12 @@ export class ArcRepository {
   /**
    * Create a new arc with temporal boundary validation
    */
-  async create(arcData: CreateArcRequest): Promise<Arc> {
+  async create(arcData: CreateArcRequest, options: ArcWriteOptions = {}): Promise<Arc> {
     const arc = new Arc(arcData);
 
-    // Validate temporal boundaries at database level
-    await this.validateTemporalBoundaries(arc);
+    // An arc lies within its parent's time span (the hierarchy has judged it
+    // already when it passes `validated`, or when a stored head is rebuilt).
+    if (!options.validated) await this.validateTemporalBoundaries(arc);
 
     const parameters: Record<string, unknown> = {
       id: arc.id,
@@ -229,6 +242,11 @@ export class ArcRepository {
 
       return arc;
     } catch (error) {
+      // The graph store holds one arc per id across every graph (a uniqueness constraint): an id
+      // another arc (here or in another graph) has is a refusal that names it, not a store failure.
+      if ((error as { code?: string } | null)?.code === 'Neo.ClientError.Schema.ConstraintValidationFailed') {
+        throw new ValidationError(`An arc with the id "${arc.id}" already exists (in this graph or another); a create cannot take its place`, 'id', arc.id);
+      }
       throw new Error(`Failed to create arc: ${error}`);
     } finally {
       await session.close();
@@ -492,7 +510,7 @@ export class ArcRepository {
   /**
    * Update an existing arc with temporal boundary validation
    */
-  async update(id: string, updates: UpdateArcRequest): Promise<Arc | null> {
+  async update(id: string, updates: UpdateArcRequest, options: ArcWriteOptions = {}): Promise<Arc | null> {
     // First, get the existing arc
     const existingArc = await this.findById(id);
     if (!existingArc) {
@@ -522,7 +540,14 @@ export class ArcRepository {
     }
 
     // Validate temporal boundaries
-    await this.validateTemporalBoundaries(updatedArc, id);
+    // Judged when the arc's span or its recorded parent changes: an edit that
+    // moves neither (a rename, a description) must not be refused for how the
+    // arc already sat, as an arc stored before the rule does.
+    const placeChanged =
+      compareInstants(updatedArc.start_time, existingArc.start_time) !== 0 ||
+      compareInstants(updatedArc.end_time, existingArc.end_time) !== 0 ||
+      (updatedArc.metadata?.parentArcId ?? null) !== (existingArc.metadata?.parentArcId ?? null);
+    if (!options.validated && placeChanged) await this.validateTemporalBoundaries(updatedArc, existingArc);
 
     const parameters: Record<string, unknown> = {
       id,
@@ -559,6 +584,44 @@ export class ArcRepository {
       return updatedArc;
     } catch (error) {
       throw new Error(`Failed to update arc: ${error}`);
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Set an arc's level and metadata (where its parent is recorded) and nothing
+   * else. This is how the arc hierarchy moves a subtree: raising the children
+   * of a deleted arc, or following a parent whose level changed. The arc is
+   * judged as any write is (it must lie within the parent it now names) unless
+   * the hierarchy has judged the whole move already (`validated`).
+   */
+  async setHierarchy(id: string, hierarchy: { level: number; metadata: Record<string, unknown> }, options: ArcWriteOptions = {}): Promise<Arc | null> {
+    const existing = await this.findById(id);
+    if (!existing) return null;
+    const next = existing.update(hierarchy);
+    // Judged as any write is: the arc must lie within the parent it now names.
+    if (!options.validated) await this.validateTemporalBoundaries(next);
+
+    const parameters: Record<string, unknown> = {
+      id,
+      level: next.level,
+      metadata: JSON.stringify(next.metadata || {})
+    };
+    const graphProperty = graphPatternProperty(parameters, this.graphId);
+    const query = `
+      MATCH (a:Arc {id: $id${graphProperty}})
+      SET a.level = $level,
+          a.metadata = $metadata
+      RETURN a
+    `;
+
+    const session = this.getSession();
+    try {
+      const result = await runTemporal(session, query, parameters);
+      return result.records.length === 0 ? null : next;
+    } catch (error) {
+      throw new Error(`Failed to set arc hierarchy: ${error}`);
     } finally {
       await session.close();
     }
@@ -658,62 +721,41 @@ export class ArcRepository {
   }
 
   /**
-   * Validate temporal boundaries and hierarchy constraints
+   * The temporal rule is parent-based: an arc lies within its own parent's time
+   * span (start at or after the parent's start, end at or before its end). A
+   * root has no constraint from other arcs, and arcs in different branches
+   * overlap freely at any level. The parent here is the one the arc's metadata
+   * records (`parentArcId`); a parent only the version head records is judged
+   * by the arc hierarchy (`ArcHierarchyService`), which every hierarchical
+   * write passes through. Throws a 400.
+   *
+   * With `existing` (an update that changes the span), the arc's recorded
+   * children must also still lie within it.
    */
-  private async validateTemporalBoundaries(arc: Arc, excludeId?: string): Promise<void> {
-    const parameters: Record<string, unknown> = {
-      excludeId: excludeId || '',
-      level: arc.level,
-      start_time: arc.start_time.toISOString(),
-      end_time: arc.end_time.toISOString()
-    };
-    // Only this graph's arcs can conflict with this graph's arc: a boundary
-    // violation in another graph is that graph's problem, and reporting it here
-    // would block a legitimate write. Without the filter the check also reads
-    // every arc in the database.
-    const graphMap = graphPatternMap(parameters, this.graphId);
-
-    // Check for hierarchy violations:
-    // 1. Invalid nesting - child arc ($level) overlaps a parent arc (existing.level < $level)
-    //    but is not fully contained within that parent's [start_time, end_time].
-    // 2. Invalid parent - parent arc ($level) overlaps a child arc (existing.level > $level)
-    //    but does not fully contain that child's [start_time, end_time].
-    const query = `
-      MATCH (existing:Arc${graphMap})
-      WHERE existing.id <> $excludeId
-        AND (
-          (existing.level < $level
-           AND existing.start_time < datetime($end_time)
-           AND existing.end_time > datetime($start_time)
-           AND NOT (datetime($start_time) >= existing.start_time AND datetime($end_time) <= existing.end_time))
-          OR
-          (existing.level > $level
-           AND existing.start_time < datetime($end_time)
-           AND existing.end_time > datetime($start_time)
-           AND NOT (existing.start_time >= datetime($start_time) AND existing.end_time <= datetime($end_time)))
-        )
-      RETURN existing.id as conflictId, existing.name as conflictName, existing.level as conflictLevel
-      LIMIT 1
-    `;
-
-    const session = this.getSession();
-    try {
-      const result = await runTemporal(session, query, parameters);
-
-      if (result.records.length > 0) {
-        const conflict: QueryRecord = result.records[0];
-        throw new Error(
-          `Temporal boundary violation: Arc conflicts with existing arc "${readField(conflict, 'conflictName')}" ` +
-          `(ID: ${readField(conflict, 'conflictId')}, Level: ${readField(conflict, 'conflictLevel')})`
+  private async validateTemporalBoundaries(arc: Arc, existing?: Arc): Promise<void> {
+    const parentId = typeof arc.metadata?.parentArcId === 'string' ? arc.metadata.parentArcId : '';
+    if (parentId && parentId !== arc.id) {
+      const parent = await this.findById(parentId);
+      if (parent && (compareInstants(arc.start_time, parent.start_time) < 0 || compareInstants(arc.end_time, parent.end_time) > 0)) {
+        throw new ValidationError(
+          `Temporal boundary violation: Arc "${arc.name}" (${arc.start_time.toISOString()} to ${arc.end_time.toISOString()}) ` +
+          `must lie within its parent "${parent.name}" (${parent.start_time.toISOString()} to ${parent.end_time.toISOString()})`,
+          'start_time'
         );
       }
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('Temporal boundary violation')) {
-        throw error;
+    }
+    const spanChanged = existing && (compareInstants(arc.start_time, existing.start_time) !== 0 || compareInstants(arc.end_time, existing.end_time) !== 0);
+    if (existing && spanChanged) {
+      for (const child of await this.findAll()) {
+        if (child.id === arc.id || child.metadata?.parentArcId !== arc.id) continue;
+        if (compareInstants(child.start_time, arc.start_time) < 0 || compareInstants(child.end_time, arc.end_time) > 0) {
+          throw new ValidationError(
+            `Temporal boundary violation: Arc "${arc.name}" would no longer contain its child "${child.name}" ` +
+            `(${child.start_time.toISOString()} to ${child.end_time.toISOString()})`,
+            'start_time'
+          );
+        }
       }
-      throw new Error(`Failed to validate temporal boundaries: ${error}`);
-    } finally {
-      await session.close();
     }
   }
 

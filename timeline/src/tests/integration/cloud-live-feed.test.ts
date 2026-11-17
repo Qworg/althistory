@@ -300,6 +300,42 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
       for (const id of created) expect(head.events[id]).toBeDefined();
     });
 
+    it('never lets a create take the place of an arc, nor loses an arc deleted and made again in one batch, in Neo4j', async () => {
+      const arc = (id: string, extra: Record<string, unknown> = {}) => ({ id, name: id, start_time: '1800-01-01T00:00:00.000Z', end_time: '1900-01-01T00:00:00.000Z', level: 0, ...extra });
+      await http('POST', '/api/arcs', agentKey, graphA, arc('keep-me')).then((res) => expect(res.status).toBe(201));
+      const before = (await container.graphRepository.checkout(graphA)).arcs['keep-me'];
+      const failing = { type: 'update_event', data: { id: 'no-such-event', description: 'x' } };
+
+      // A create naming an arc that is there is refused, and the arc is as it was.
+      expect((await http('POST', '/api/arcs', agentKey, graphA, arc('keep-me', { name: 'clobbered' }))).status).toBe(400);
+      expect((await http('POST', '/api/batch/transaction', agentKey, graphA, { graphId: graphA, operations: [{ type: 'create_arc', data: arc('keep-me', { name: 'clobbered' }) }] })).status).toBe(400);
+      // Deleted and made again in one batch that then fails: refused before anything is written.
+      const refused = await http('POST', '/api/batch/transaction', agentKey, graphA, {
+        graphId: graphA,
+        operations: [{ type: 'delete_arc', data: { id: 'keep-me' } }, { type: 'create_arc', data: arc('keep-me', { name: 'again' }) }, failing],
+      });
+      expect(refused.status).toBe(400);
+      const { arcRepository } = await container.graphScopedRepositories(graphA);
+      expect((await arcRepository.findById('keep-me'))?.name).toBe('keep-me');
+      expect((await container.graphRepository.checkout(graphA)).arcs['keep-me']).toEqual(before);
+    });
+
+    it('refuses a create of an arc id another graph holds, by id, in both doors', async () => {
+      const arc = { id: 'held-elsewhere', name: 'held', start_time: '1800-01-01T00:00:00.000Z', end_time: '1900-01-01T00:00:00.000Z', level: 0 };
+      expect((await http('POST', '/api/arcs', agentKey, graphA, arc)).status).toBe(201);
+      // The store has one arc per id across graphs: graph B cannot take it, and the answer is a 400 that names the id.
+      const single = await http('POST', '/api/arcs', agentKey, graphB, arc);
+      expect(single.status).toBe(400);
+      expect(JSON.stringify(single.body)).toContain('held-elsewhere');
+      expect(JSON.stringify(single.body)).not.toMatch(/Neo4jError|Node\(\d+\)/);
+      const batch = await http('POST', '/api/batch/transaction', agentKey, graphB, { graphId: graphB, operations: [{ type: 'create_arc', data: arc }] });
+      expect(batch.status).toBe(400);
+      expect(JSON.stringify(batch.body)).toContain('held-elsewhere');
+      expect(JSON.stringify(batch.body)).not.toMatch(/Neo4jError|Node\(\d+\)/);
+      const { arcRepository } = await container.graphScopedRepositories(graphB);
+      expect(await arcRepository.findById('held-elsewhere')).toBeNull();
+    });
+
     it('versions a batch of links under the id a single link gets in Neo4j, and a transaction that removes it', async () => {
       const add = async (description: string, timestamp: string): Promise<string> => {
         const res = await http('POST', '/api/events', agentKey, graphA, { description, actor: 'A', target: 'B', timestamp });

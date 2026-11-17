@@ -238,21 +238,45 @@ describe('graph-scoped cloud repositories (#59)', () => {
       await repository.update('arc-1', { name: 'changed' });
       await repository.delete('arc-1');
 
-      const predicateQueries = recorded.filter((entry) => !entry.query.includes('conflictId'));
-      expect(predicateQueries.length).toBeGreaterThanOrEqual(13);
-      for (const entry of predicateQueries) {
+      // Every query of the repository is confined to the graph. (The temporal
+      // rule is parent-based and reads the parent through `findById`, so it is
+      // confined with the rest: a parent in another graph is not found.)
+      expect(recorded.length).toBeGreaterThanOrEqual(13);
+      for (const entry of recorded) {
         expect(entry.query).toContain('graphId: $graphId');
         expect(entry.parameters.graphId).toBe(GRAPH_ID);
       }
+    });
 
-      // The boundary check reads arcs of this graph only; otherwise a violation
-      // in another graph would block a legitimate write.
-      const boundaryChecks = recorded.filter((entry) => entry.query.includes('conflictId'));
-      expect(boundaryChecks.length).toBeGreaterThan(0);
-      for (const entry of boundaryChecks) {
-        expect(entry.query).toContain('MATCH (existing:Arc {graphId: $graphId})');
-        expect(entry.parameters.graphId).toBe(GRAPH_ID);
-      }
+    it('turns the store\'s uniqueness violation on create into a 400 that names the id', async () => {
+      // One arc per id across every graph: another graph's arc with the id makes the store refuse the create.
+      const refusing = {
+        getNeo4jSession: () => ({
+          run: async () => {
+            throw Object.assign(new Error('Node(65) already exists with label `Arc` and property `id` = \'dup\''), { code: 'Neo.ClientError.Schema.ConstraintValidationFailed' });
+          },
+          close: async () => undefined,
+        }),
+      } as unknown as DatabaseManager;
+      const repository = new ArcRepository(refusing, undefined, undefined, undefined, { graphId: GRAPH_ID });
+      const created = repository.create({ id: 'dup', name: 'again', start_time: new Date('2020-01-01T00:00:00.000Z'), end_time: new Date('2020-01-02T00:00:00.000Z'), level: 0 });
+      await expect(created).rejects.toMatchObject({ statusCode: 400, field: 'id', message: expect.stringContaining('"dup"') });
+      await expect(created).rejects.not.toThrow(/Node\(65\)|Neo4j/);
+    });
+
+    it('leaves any other failure of the store a failure of the store, not a refusal of the id', async () => {
+      const failing = {
+        getNeo4jSession: () => ({
+          run: async () => {
+            throw Object.assign(new Error('the database is down'), { code: 'Neo.TransientError.General.DatabaseUnavailable' });
+          },
+          close: async () => undefined,
+        }),
+      } as unknown as DatabaseManager;
+      const repository = new ArcRepository(failing, undefined, undefined, undefined, { graphId: GRAPH_ID });
+      const created = repository.create({ id: 'fine', name: 'fine', start_time: new Date('2020-01-01T00:00:00.000Z'), end_time: new Date('2020-01-02T00:00:00.000Z'), level: 0 });
+      await expect(created).rejects.toThrow(/Failed to create arc.*database is down/);
+      await expect(created).rejects.not.toMatchObject({ statusCode: 400 });
     });
 
     it('stamps the graph on a created arc', async () => {

@@ -448,6 +448,15 @@ export class VersionRepository {
     return result;
   }
 
+  /** The ids of one kind of entity the graph's head names (no objects are read). */
+  async getHeadIds(graphId: string, type: EntityType): Promise<string[]> {
+    const treeHash = await this.getCurrentTree(graphId);
+    if (!treeHash) return [];
+    const tree = await this.getTree(graphId, treeHash);
+    const key = `${type === 'relationship' ? 'relationships' : `${type}s`}` as keyof TreeObject;
+    return Object.keys(tree[key] ?? {});
+  }
+
   /**
    * Store a content-addressable object
    */

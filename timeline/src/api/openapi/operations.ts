@@ -179,7 +179,9 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     responses: { 404: 'The graph or the version does not exist.' },
   },
   'POST /api/graphs/:id/rollback/:version': {
-    summary: 'Roll a graph back to an earlier version.',
+    summary:
+      'Roll a graph back to an earlier version. The response carries `rebuild: { warnings, skipped }` when the rebuild ' +
+      'kept arcs that lie outside their parent\'s span or could not write an entity (absent when the graph was whole).',
     response: 'Graph',
     auth: 'required',
   },
@@ -298,7 +300,10 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     ],
   },
   'POST /api/arcs': {
-    summary: 'Create an arc.',
+    summary:
+      'Create an arc. A parent named in `metadata.parentArcId` or `parent_arc_id` must be an arc of the graph, ' +
+      'a child sits one level below it, and it lies within the parent\'s time span; an arc with no parent is ' +
+      'level 0; otherwise `400`.',
     request: 'ArcRequest',
     requestRequired: true,
     response: 'Arc',
@@ -313,14 +318,23 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     graphScoped: true,
   },
   'PUT /api/arcs/:id': {
-    summary: 'Change an arc. Only the fields that are given are changed.',
+    summary:
+      'Change an arc. Only the fields that are given are changed. Changing its level or parent moves its ' +
+      'subtree with it (every descendant stays its parent\'s level + 1). `400` for a parent that is the arc ' +
+      'itself, one of its descendants or no arc of the graph, for a level that does not fit its parent ' +
+      '(name a new parent, or set level 0), and for dates outside its parent\'s span. A null `parent_arc_id` ' +
+      'or `metadata.parentArcId` makes it top level.',
     request: 'ArcUpdate',
     response: 'Arc',
     auth: ENTITY_AUTH,
     graphScoped: true,
   },
   'DELETE /api/arcs/:id': {
-    summary: 'Delete an arc and its children.',
+    summary:
+      'Delete an arc. Its child arcs are not deleted: each moves to the deleted arc\'s parent (or becomes ' +
+      'top level), with its subtree one level up, and `data` lists them as `movedChildArcs`. `400` if a child ' +
+      'would not lie within its new parent\'s span. Its events stay, unassigned (`unassignedEvents`), and ' +
+      'pressures let go of it.',
     response: 'GenericObject',
     auth: ENTITY_AUTH,
     graphScoped: true,
@@ -967,7 +981,10 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     responses: { 207: 'Some of the entities were rejected; the rest were created.' },
   },
   'POST /api/batch/arcs': {
-    summary: 'Create many arcs at once, recorded as one version of the graph.',
+    summary:
+      'Create many arcs at once, recorded as one version of the graph. The arcs\' parents and levels are judged ' +
+      'once, against the state the whole batch ends in (a child may come before its parent); `400` if that is ' +
+      'not a valid hierarchy, with nothing created. All or none: if any arc is not made, none is (`207`).',
     request: 'BatchArcsRequest',
     requestRequired: true,
     response: 'BatchResult',
@@ -988,14 +1005,25 @@ export const OPERATIONS: Record<string, OperationSpec> = {
   },
   'POST /api/batch/transaction': {
     summary:
-      'Apply many changes at once. With `atomic` (the default) a failing step undoes the entities the ' +
-      'transaction created; the updates and deletes before it stay. What the transaction leaves is ' +
-      'recorded as one version of the graph.',
+      'Apply many changes at once. A step that does not apply (an id that is not there) is a failed step, ' +
+      'like one that throws. With `atomic` (the default) a failed step ends the transaction with a `400`: it ' +
+      'undoes the entities the transaction created and every arc write, but not an earlier `update_event`, ' +
+      '`delete_event` or link change, which stay (an `update_event` that put an event in an arc the failure ' +
+      'undid loses that arc reference, with a `warning` on its step). Without `atomic` the other steps carry on and any failed ' +
+      'step makes the response a `207` with `success: false`. A create of an arc whose id exists, or that ' +
+      'an earlier step uses, is a `400`. What the transaction leaves is ' +
+      'recorded as one version of the graph. Its arc steps are judged once, against the state they end in: ' +
+      'a hierarchy that is not valid there (a parent that is the arc itself, its descendant or missing, a ' +
+      'level that does not fit, dates outside the parent\'s span) is a `400` before any step runs, whatever ' +
+      'the order of the steps. `delete_arc` lifts the arc\'s children. The arc steps land or fail together: if ' +
+      'one fails when carried out, every arc write is put back (atomic or not) and the arc steps that had ' +
+      'succeeded report "not applied: another arc step in this batch failed".',
     request: 'BatchTransactionRequest',
     requestRequired: true,
     response: 'BatchTransactionResult',
     auth: 'required',
     graphScoped: true,
+    responses: { 207: 'Not atomic, and a step failed; the other steps were applied (the arc steps all fail together).' },
   },
 
   // --- stream --------------------------------------------------------------

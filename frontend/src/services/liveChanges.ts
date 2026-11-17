@@ -211,6 +211,26 @@ export function describeChanges(
 }
 
 /**
+ * What a rebuilt graph (an import, a rollback, a merge) could not restore or kept
+ * against a rule, in a line a person can act on; null when it was whole. This
+ * notice is for whoever has the graph open, including the person who caused it.
+ */
+export function rebuildNotice(change: LiveChange, graphName: string): string | null {
+  if (change.kind !== 'replaced') return null
+  const parts: string[] = []
+  if (change.warnings) {
+    parts.push(
+      `${change.warnings === 1 ? '1 arc lies' : `${change.warnings} arcs lie`} outside ${change.warnings === 1 ? 'its' : 'their'} parent arc's time span; ` +
+        'edits to the dates or parent of such an arc are refused until it is fixed'
+    )
+  }
+  if (change.skipped) {
+    parts.push(`${change.skipped === 1 ? '1 entity' : `${change.skipped} entities`} could not be restored`)
+  }
+  return parts.length > 0 ? `${graphName} was rebuilt, but ${parts.join(', and ')}.` : null
+}
+
+/**
  * The line that announces how a generation run ended, or null while it runs
  * (or for any other kind of change).
  */

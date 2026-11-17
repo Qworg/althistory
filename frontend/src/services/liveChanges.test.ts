@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { ChangeActor, LiveChange } from '@/types'
-import { actorLabel, changesGraphCounts, describeChanges, freshIdsOf, queryRootsFor } from './liveChanges'
+import { actorLabel, changesGraphCounts, describeChanges, freshIdsOf, queryRootsFor, rebuildNotice } from './liveChanges'
 
 let seq = 0
 function entities(
@@ -162,6 +162,15 @@ describe('describeChanges', () => {
     expect(describeChanges([replaced], names)).toEqual(['The command line rolled back “The Tide War”'])
     expect(describeChanges([made], names)).toEqual(['An agent created the graph “Vael”'])
     expect(describeChanges([calendar], names)).toEqual(['An agent changed the calendar of “The Tide War”'])
+  })
+
+  it('says when a rebuilt graph is not whole, naming how many arcs break the rule', () => {
+    const replaced = (extra: Partial<Extract<LiveChange, { kind: 'replaced' }>>): LiveChange =>
+      ({ kind: 'replaced', graphId: 'g1', seq: 1, at: 'x', actor: { kind: 'cli' }, reason: 'import', summary: 'x', ...extra }) as LiveChange
+    expect(rebuildNotice(replaced({}), '“Tide War”')).toBeNull()
+    expect(rebuildNotice(replaced({ warnings: 2 }), '“Tide War”')).toMatch(/2 arcs lie outside their parent arc's time span.*refused until it is fixed/)
+    expect(rebuildNotice(replaced({ warnings: 1, skipped: 3 }), '“Tide War”')).toMatch(/1 arc lies outside its parent.*3 entities could not be restored/)
+    expect(rebuildNotice(entities('g1', 'create', [['arc', 'a']]), '“Tide War”')).toBeNull()
   })
 
   it('says nothing for a generation run until it ends, and then says whether it is a template', () => {

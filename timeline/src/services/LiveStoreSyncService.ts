@@ -23,7 +23,7 @@
  * them; they are inferred from the events on every read.
  */
 
-import { toInstant } from '@althistory/calendar';
+import { compareInstants, toInstant } from '@althistory/calendar';
 import type { ResolvedGraphData } from '@/repositories/VersionRepository';
 import type { GraphScopedRepositories } from '@/container';
 import type { StoredCausalRelationship } from './CausalService';
@@ -48,12 +48,24 @@ export interface LiveStoreSyncConfig {
   logger?: ILogger;
 }
 
+/** What a rebuild of the live store reports to a person: entities it refused, arcs it kept against a rule. */
+export interface RebuildReport {
+  skipped: MaterializeResult['skipped'];
+  warnings: string[];
+}
+
 export interface MaterializeResult {
   events: number;
   arcs: number;
   relationships: number;
   /** Entities in the tree the live store refused, with the reason. */
   skipped: Array<{ type: 'event' | 'arc' | 'relationship'; id: string; reason: string }>;
+  /**
+   * Arcs kept though they break a rule of the hierarchy a write now enforces
+   * (an arc outside its parent's time span, written before the rule): they are
+   * materialized so no data is lost, and reported here.
+   */
+  warnings?: string[];
 }
 
 /**
@@ -102,10 +114,22 @@ export class LiveStoreSyncService {
   private readonly logger: ILogger;
   /** One materialization per graph at a time; a second waits for the first. */
   private readonly inFlight = new Map<string, Promise<MaterializeResult>>();
+  /** What the last rebuild of each graph could not write or kept against a rule, until a response takes it. */
+  private readonly reports = new Map<string, RebuildReport>();
 
   constructor(config: LiveStoreSyncConfig) {
     this.config = config;
     this.logger = config.logger ?? createLogger('LiveStoreSyncService');
+  }
+
+  /**
+   * What the last rebuild of a graph reported, once (null when it had nothing to
+   * say). The response of the import, rollback or merge that caused it carries it.
+   */
+  takeReport(graphId: string): RebuildReport | null {
+    const report = this.reports.get(graphId) ?? null;
+    this.reports.delete(graphId);
+    return report;
   }
 
   async materialize(graphId: string, reason: ReplacedReason = 'sync'): Promise<MaterializeResult> {
@@ -126,7 +150,8 @@ export class LiveStoreSyncService {
     const { eventRepository, arcRepository, causalService } = await this.config.scopedRepositories(graphId);
     await this.config.clearLiveStore(graphId);
 
-    const result: MaterializeResult = { events: 0, arcs: 0, relationships: 0, skipped: [] };
+    const result: MaterializeResult = { events: 0, arcs: 0, relationships: 0, skipped: [], warnings: [] };
+    const spans = new Map<string, { name: string; start: Date; end: Date; parent: string | null }>();
 
     for (const [id, data] of Object.entries(tree.arcs)) {
       const start = asDate(data.start_time);
@@ -145,10 +170,20 @@ export class LiveStoreSyncService {
           end_time: end,
           level: asNumber(data.level, 1),
           metadata: asRecord(data.metadata),
-        });
+        }, { validated: true });
+        spans.set(id, { name, start, end, parent: asString(data.parent_arc_id) || (asString(asRecord(data.metadata)?.parentArcId) ?? null) });
         result.arcs += 1;
       } catch (error) {
         result.skipped.push({ type: 'arc', id, reason: reasonOf(error) });
+      }
+    }
+
+    // The head is the truth and is rebuilt whole, so an arc that sits outside
+    // its parent's span is still written; it is reported, never dropped.
+    for (const [id, span] of spans) {
+      const parent = span.parent ? spans.get(span.parent) : undefined;
+      if (parent && (compareInstants(span.start, parent.start) < 0 || compareInstants(span.end, parent.end) > 0)) {
+        result.warnings!.push(`Arc "${span.name}" (${id}) lies outside its parent "${parent.name}"'s time span`);
       }
     }
 
@@ -201,6 +236,14 @@ export class LiveStoreSyncService {
       this.logger.warn('Could not announce a replaced graph head', { graphId, error: reasonOf(error) });
     }
 
+    if (result.skipped.length > 0 || result.warnings!.length > 0) {
+      this.reports.set(graphId, { skipped: result.skipped, warnings: result.warnings! });
+    } else {
+      this.reports.delete(graphId);
+    }
+    if (result.warnings!.length > 0) {
+      this.logger.warn('Some arcs break the hierarchy rules and were kept', { graphId, warnings: result.warnings });
+    }
     if (result.skipped.length > 0) {
       this.logger.warn('Some version entities could not be written to the live store', {
         graphId,

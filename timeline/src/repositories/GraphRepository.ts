@@ -284,6 +284,11 @@ export class GraphRepository {
     return this.versionRepository.getLatestVersion(graphId);
   }
 
+  /** The ids of one kind of entity the graph's head names. */
+  async getHeadIds(graphId: string, type: EntityType): Promise<string[]> {
+    return this.versionRepository.getHeadIds(graphId, type);
+  }
+
   /**
    * Some entities' data at the graph's head version, by id (absent ids are
    * omitted). For describing a write in Version history.

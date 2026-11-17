@@ -1901,39 +1901,57 @@ export class ImportService {
         }
       });
 
-      // Incoming arcs that overlap existing arcs must respect hierarchy containment
+      // An arc lies within its own parent's time span, and arcs of different
+      // branches overlap freely: an incoming arc is judged against its own
+      // parent (an existing arc or another incoming one), and against the
+      // existing arcs that name it as their parent.
+      // Its parent as the export reads it: the field, then the metadata's.
+      const parentOf = (raw: object): string | null => {
+        const { parent_arc_id: field, metadata } = raw as { parent_arc_id?: unknown; metadata?: unknown };
+        if (typeof field === 'string' && field) return field;
+        const recorded = metadata && typeof metadata === 'object' ? (metadata as Record<string, unknown>).parentArcId : undefined;
+        return typeof recorded === 'string' && recorded ? recorded : null;
+      };
+      const incomingArcs = new Map<string, { start: Date; end: Date; raw: ExportedArc }>();
       (exportData.arcs || []).forEach((arc) => {
-        const incomingStart = toInstant(arc.start_time);
-        const incomingEnd = toInstant(arc.end_time);
-        if (isNaN(incomingStart.getTime()) || isNaN(incomingEnd.getTime())) return;
-
+        const start = toInstant(arc.start_time);
+        const end = toInstant(arc.end_time);
+        if (!isNaN(start.getTime()) && !isNaN(end.getTime())) incomingArcs.set(arc.id, { start, end, raw: arc });
+      });
+      const outside = (inner: { start: Date; end: Date }, outer: { start: Date; end: Date }): boolean =>
+        compareInstants(inner.start, outer.start) < 0 || compareInstants(inner.end, outer.end) > 0;
+      incomingArcs.forEach((incoming, arcId) => {
+        const parentId = parentOf(incoming.raw);
+        const parentSpan = parentId ? (incomingArcs.get(parentId) ?? (existingArcsMap.get(parentId) ? { start: existingArcsMap.get(parentId)!.startTime, end: existingArcsMap.get(parentId)!.endTime } : undefined)) : undefined;
+        if (parentId && parentSpan && outside(incoming, parentSpan)) {
+          addConflict({
+            id: `conflict-temporal-arc-${arcId}`,
+            type: 'temporal-violation',
+            severity: 'error',
+            entityType: 'arc',
+            entityId: arcId,
+            existingEntity: existingArcsMap.get(parentId)?.raw,
+            incomingEntity: incoming.raw as unknown as Record<string, unknown>,
+            suggestedResolution: 'skip',
+            message: `Temporal violation: arc "${arcId}" lies outside its parent arc "${parentId}"`,
+          });
+          return;
+        }
+        // Existing children of an arc this import replaces must still lie within it.
         for (const [existingId, existingArc] of existingArcsMap.entries()) {
-          if (existingId === arc.id) continue;
-
-          const overlaps =
-            compareInstants(incomingStart, existingArc.endTime) < 0 && compareInstants(incomingEnd, existingArc.startTime) > 0;
-          if (!overlaps) continue;
-
-          const incomingContainedInExisting =
-            compareInstants(incomingStart, existingArc.startTime) >= 0 && compareInstants(incomingEnd, existingArc.endTime) <= 0;
-          const existingContainedInIncoming =
-            compareInstants(existingArc.startTime, incomingStart) >= 0 && compareInstants(existingArc.endTime, incomingEnd) <= 0;
-
-          if (
-            (arc.level > existingArc.level && !incomingContainedInExisting) ||
-            (arc.level < existingArc.level && !existingContainedInIncoming) ||
-            (arc.parent_arc_id === existingId && !incomingContainedInExisting)
-          ) {
+          if (existingId === arcId || incomingArcs.has(existingId)) continue;
+          if (parentOf(existingArc.raw) !== arcId) continue;
+          if (outside({ start: existingArc.startTime, end: existingArc.endTime }, incoming)) {
             addConflict({
-              id: `conflict-temporal-arc-${arc.id}`,
+              id: `conflict-temporal-arc-${arcId}`,
               type: 'temporal-violation',
               severity: 'error',
               entityType: 'arc',
-              entityId: arc.id,
+              entityId: arcId,
               existingEntity: existingArc.raw,
-              incomingEntity: arc as unknown as Record<string, unknown>,
+              incomingEntity: incoming.raw as unknown as Record<string, unknown>,
               suggestedResolution: 'skip',
-              message: `Temporal violation: arc "${arc.id}" violates hierarchy boundaries with existing arc "${existingId}"`,
+              message: `Temporal violation: arc "${arcId}" no longer contains its existing child arc "${existingId}"`,
             });
             break;
           }

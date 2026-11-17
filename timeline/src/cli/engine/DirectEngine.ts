@@ -1,3 +1,5 @@
+import { ArcHierarchyService } from '@/services/ArcHierarchyService';
+import { ValidationError } from '@/utils/errors';
 import { IEngine, type GenerationRunHooks } from './IEngine';
 import { LINK_EVIDENCE_REQUIRED, readLinkEvidence } from '@/utils/linkEvidence';
 import type { GenerationHooks } from '../generator/GenerationHooks';
@@ -488,7 +490,15 @@ export class DirectEngine implements IEngine {
   async deleteArc(graphId: string, arcId: string): Promise<void> {
     const container = await this.getInitializedContainer();
     const scoped = await container.graphScopedRepositories(graphId);
-    const deleted = await scoped.arcRepository.delete(arcId);
+    // Its child arcs move up to its parent (or to the top), and the delete is
+    // versioned as the API's is: left alone, the version head kept the arc.
+    const { deleted } = await new ArcHierarchyService(container.graphWriteVersioningService)
+      .deleteArc(graphId, { arcRepository: scoped.arcRepository, eventRepository: scoped.eventRepository }, arcId)
+      .catch((error) => {
+        // A child that would not fit its new parent refuses the delete.
+        if (error instanceof ValidationError) throw new ValidationErrorCLI(error.message);
+        throw error;
+      });
     if (!deleted) {
       throw new NotFoundErrorCLI(`Arc not found: ${arcId} in graph ${graphId}`);
     }
@@ -819,7 +829,8 @@ export class DirectEngine implements IEngine {
         description: a.description || '',
         start_time: startTime,
         end_time: endTime,
-        level: a.level ?? 0,
+        // An extracted arc names no parent, so it is top level: an arc with no parent is level 0.
+        level: 0,
       });
       try {
         await container.graphWriteVersioningService.recordArc(targetGraphId, created, 'create');
@@ -1096,6 +1107,14 @@ export class DirectEngine implements IEngine {
       autoRepair,
       crossGraphLookup: this.createCrossGraphLookup(graphId),
       calendar: await this.calendarOf(graphId),
+      // A repair of an arc's dates is judged and versioned like any edit of it.
+      writeArc: (id, updates) =>
+        new ArcHierarchyService(container.graphWriteVersioningService).updateArc(
+          graphId,
+          { arcRepository: scoped.arcRepository, eventRepository: scoped.eventRepository },
+          id,
+          updates
+        ),
     });
   }
 

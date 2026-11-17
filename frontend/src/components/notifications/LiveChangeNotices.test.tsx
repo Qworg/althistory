@@ -42,4 +42,23 @@ describe('LiveChangeNotices', () => {
     expect(screen.getAllByTestId('live-change-notice')).toHaveLength(1)
     expect(screen.getByRole('status')).toHaveTextContent('Two')
   })
+
+  it('shows a warning with the warning colour and keeps it until it is dismissed', () => {
+    render(<LiveChangeNotices />)
+    act(() => {
+      useLiveChangesStore.getState().setNotice('rebuild:g1', '“Tide War” was rebuilt, but 1 arc lies outside its parent arc\'s time span.')
+      useLiveChangesStore.getState().addNotices(['An agent added 1 event'])
+    })
+    const [warning] = screen.getAllByTestId('live-change-notice')
+    expect(warning?.querySelector('span')?.className).toMatch(/bg-warning/)
+    expect(warning?.querySelector('span')?.className).not.toMatch(/bg-success/)
+    act(() => {
+      vi.advanceTimersByTime(NOTICE_MS * 3)
+    })
+    // The other notice expired; the warning did not.
+    expect(screen.getAllByTestId('live-change-notice')).toHaveLength(1)
+    expect(screen.getByRole('status')).toHaveTextContent('outside its parent arc')
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss notice' }))
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
 })
