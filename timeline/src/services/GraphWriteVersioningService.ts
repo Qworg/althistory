@@ -561,15 +561,24 @@ export class GraphWriteVersioningService {
       if (arc) write('arc', id, arcToVersionData(arc), head.arcs[id]);
       else if (inHead('arc', head.arcs, id)) remove('arc', id);
     }
+    // The head's links by their two events, read once: a scan of every head link
+    // per pair made a batch of N pairs cost N times the size of the graph.
+    const headLinksByPair = new Map<string, string[]>();
+    if ((state.links ?? []).length > 0) {
+      for (const [id, link] of Object.entries(head.relationships)) {
+        const key = `${link.cause_event_id}\u0000${link.effect_event_id}`;
+        const ids = headLinksByPair.get(key);
+        if (ids) ids.push(id);
+        else headLinksByPair.set(key, [id]);
+      }
+    }
     for (const pair of state.links ?? []) {
       for (const link of pair.live) {
         liveLinkIds.add(link.id);
         write('relationship', link.id, relationshipToVersionData(link), head.relationships[link.id]);
       }
-      for (const [id, link] of Object.entries(head.relationships)) {
-        if (link.cause_event_id === pair.cause_event_id && link.effect_event_id === pair.effect_event_id && !liveLinkIds.has(id)) {
-          remove('relationship', id);
-        }
+      for (const id of headLinksByPair.get(`${pair.cause_event_id}\u0000${pair.effect_event_id}`) ?? []) {
+        if (!liveLinkIds.has(id)) remove('relationship', id);
       }
     }
     // The live store detached every link of a deleted event.

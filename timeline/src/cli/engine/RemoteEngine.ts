@@ -770,8 +770,17 @@ export class RemoteEngine implements IEngine {
       // The route answers with the link it stored, id included. A lookup by
       // the pair would find the oldest link of the two events, which is not
       // this one when the pair already has another.
+      let id = readString(echoedRecord?.id, '');
+      if (id === '') {
+        // A daemon that does not echo the id: look the link up by its pair and
+        // the evidence just sent, and take the newest match. Unknown ('') if none.
+        const matches = (await this.listCausalLinks(graphId).catch(() => [])).filter(
+          (link) => link.causeId === data.causeId && link.effectId === data.effectId && link.reasoning === evidence
+        );
+        id = matches[matches.length - 1]?.id ?? '';
+      }
       return {
-        id: readString(echoedRecord?.id, ''),
+        id,
         graphId,
         causeId: data.causeId,
         effectId: data.effectId,

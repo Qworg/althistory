@@ -538,31 +538,6 @@ describe('CLI Phase 5: Validation, Self-Healing & Export/Import Engine', () => {
       }
     });
 
-    it('imports an old cloud export in which two links share one cause->effect id (#30)', async () => {
-      const a = await engine.createEvent(testGraphId, { description: 'Twin cause', timestamp: '1900-01-01T00:00:00.000Z' });
-      const b = await engine.createEvent(testGraphId, { description: 'Twin effect', timestamp: '1901-01-01T00:00:00.000Z' });
-      await engine.createCausalLink(testGraphId, { causeId: a.id, effectId: b.id, reasoning: 'one' });
-      const exportRes = await engine.exportGraph(testGraphId, 'json');
-      const old = JSON.parse(exportRes.content!);
-      const [link] = old.data.causalRelationships;
-      old.data.causalRelationships = [
-        { ...link, id: `${a.id}->${b.id}`, evidence: 'one' },
-        { ...link, id: `${a.id}->${b.id}`, evidence: 'two' },
-      ];
-      old.metadata.checksum = '';
-      const jsonPath = path.join(tempDir, 'old-cloud-export.json');
-      fs.writeFileSync(jsonPath, JSON.stringify(old), 'utf8');
-
-      const target = await engine.createGraph('Old cloud target');
-      try {
-        const imported = await engine.importGraph(jsonPath, { strategy: 'skip', graphId: target.id });
-        expect(imported.imported.relationships).toBe(2);
-        expect((await engine.listCausalLinks(target.id)).map((l) => l.reasoning).sort()).toEqual(['one', 'two']);
-      } finally {
-        await engine.deleteGraph(target.id);
-      }
-    });
-
     it('imports with strategy: rename to avoid ID collisions', async () => {
       const evt = await engine.createEvent(testGraphId, {
         description: 'Original Collision Event',

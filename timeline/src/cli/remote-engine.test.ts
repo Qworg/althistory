@@ -232,7 +232,9 @@ function createDaemon(): { app: Express; requests: RecordedRequest[]; state: Dae
       data: {
         cause: { id: causeEventId },
         effect: { id: effectEventId },
-        relationship: { ...relationship, id: stored.id, evidence: stored.evidence, weight: stored.weight, relationship_type: stored.relationship_type },
+        relationship: state.echoLinkId === false
+          ? relationship
+          : { ...relationship, id: stored.id, evidence: stored.evidence, weight: stored.weight, relationship_type: stored.relationship_type },
       },
       message: 'Causal link created successfully',
     });
@@ -377,6 +379,8 @@ interface DaemonState {
   events: FakeEvent[];
   arcs: FakeArc[];
   relationships: FakeRelationship[];
+  /** An older daemon answers a new link with the request's own relationship, no id. */
+  echoLinkId?: boolean;
   /**
    * The source the ingestion route records its events with: `llm` when the
    * model answered, `text` when the patterns did.
@@ -582,6 +586,22 @@ describe('RemoteEngine against a stand-in daemon', () => {
     expect(link.id).not.toBe('older-link');
     expect(link).toMatchObject({ weight: 0.9, type: 'direct', reasoning: 'The new link' });
     expect(daemon.requests.map((r) => `${r.method} ${r.path}`)).not.toContain('GET /api/causal/relationships');
+  });
+
+  it('looks the link up by its pair and evidence, newest match, when the daemon does not echo an id', async () => {
+    await engine.createEvent('g1', { description: 'First', timestamp: '1775-04-19T00:00:00Z' });
+    await engine.createEvent('g1', { description: 'Second', timestamp: '1776-07-04T00:00:00Z' });
+    daemon.state.echoLinkId = false;
+    const base = { causeId: 'event-1', effectId: 'event-2', weight: 0.9, type: 'direct' };
+
+    const older = await engine.createCausalLink('g1', { ...base, reasoning: 'Same words' });
+    const newer = await engine.createCausalLink('g1', { ...base, reasoning: 'Same words' });
+    const other = await engine.createCausalLink('g1', { ...base, reasoning: 'Other words' });
+
+    expect(older.id).not.toBe('');
+    expect(newer.id).not.toBe(older.id); // the newest of the two matches, not the oldest
+    expect(other.id).not.toBe(newer.id);
+    expect(other.reasoning).toBe('Other words');
   });
 
   it('computes the diff from the graph data route, not from a route that does not exist', async () => {

@@ -25,7 +25,7 @@ import type { RawData } from 'ws';
 import { Application } from '@/index';
 import { getContainer, type Container } from '@/container';
 import { getDatabaseManager } from '@/utils/database';
-import { migrateCausalLinkIds } from '@/services/CausalLinkIdMigration';
+import { runCausalLinkIdMigration, type CausalLinkIdMigrationResult } from '@/services/CausalLinkIdMigration';
 import { resetStreamTokenStore, STREAM_PATH } from '@/websocket';
 import type { Permission } from '@/models/ApiKey';
 
@@ -478,12 +478,7 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
           await session.close();
         }
       };
-      const migrate = (): Promise<{ named: number; extra: number; reconciledGraphs: number }> =>
-        migrateCausalLinkIds({
-          openSession: () => getDatabaseManager().getNeo4jSession(),
-          versioning: container.graphWriteVersioningService,
-          log: () => undefined,
-        });
+      const migrate = (): Promise<CausalLinkIdMigrationResult> => runCausalLinkIdMigration(container, { log: () => undefined });
       /** What main versioned for a cloud link: the pair as its id. */
       const versionAsMainDid = (cause: string, effect: string, evidence: string): Promise<void> =>
         container.graphWriteVersioningService.recordRelationship(
@@ -532,7 +527,7 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
         expect(await headLinks(cause, effect)).toEqual([]);
       });
 
-      it('names the oldest of two id-less edges on a pair cause->effect, gives the other an id of its own, and puts both in the head', async () => {
+      it('gives each of two id-less edges on a pair the id the head holds for its data, or a derived one, and puts both in the head', async () => {
         const cause = await addEvent('Twin cause', '1340-01-01T00:00:00.000Z');
         const effect = await addEvent('Twin effect', '1341-01-01T00:00:00.000Z');
         await legacyEdge(cause, effect, 'ELDER', '2020-01-01T00:00:00Z');
@@ -542,23 +537,22 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
         const pairId = `${cause}->${effect}`;
 
         const result = await migrate();
-        expect(result.extra).toBeGreaterThanOrEqual(1);
         expect(result.reconciledGraphs).toBeGreaterThanOrEqual(1);
 
         const stored = await neo4jLinks(cause, effect);
-        expect(stored.map((l) => l.evidence)).toEqual(['ELDER', 'YOUNGER']);
-        expect(stored[0]!.id).toBe(pairId);
-        expect(String(stored[1]!.id)).toMatch(/^link_/);
+        const idOf = (evidence: string): string => String(stored.find((l) => l.evidence === evidence)!.id);
+        // The head held `cause->effect` with the younger edge's data: the younger edge keeps it.
+        expect(idOf('YOUNGER')).toBe(pairId);
+        expect(idOf('ELDER')).toMatch(/^link_[0-9a-f]{24}$/);
 
         // Nothing lost: the head holds each live link under its own id, with its own evidence.
         const head = await headLinks(cause, effect);
-        expect(Object.fromEntries(head.map(([id, l]) => [id, l.evidence]))).toEqual({ [pairId]: 'ELDER', [String(stored[1]!.id)]: 'YOUNGER' });
+        expect(Object.fromEntries(head.map(([id, l]) => [id, l.evidence]))).toEqual({ [pairId]: 'YOUNGER', [idOf('ELDER')]: 'ELDER' });
 
         // Each can be named by id; deleting one leaves the other, live and versioned.
-        const extraId = String(stored[1]!.id);
-        const removed = await http('DELETE', '/api/causal/link', agentKey, graphA, { causeEventId: cause, effectEventId: effect, id: extraId });
+        const removed = await http('DELETE', '/api/causal/link', agentKey, graphA, { causeEventId: cause, effectEventId: effect, id: idOf('ELDER') });
         expect(removed.status).toBe(200);
-        expect((await neo4jLinks(cause, effect)).map((l) => l.evidence)).toEqual(['ELDER']);
+        expect((await neo4jLinks(cause, effect)).map((l) => l.evidence)).toEqual(['YOUNGER']);
         expect((await headLinks(cause, effect)).map(([id]) => id)).toEqual([pairId]);
 
         // The pair's own id also names the survivor on a PUT.
@@ -566,10 +560,10 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
           causeEventId: cause,
           effectEventId: effect,
           id: pairId,
-          relationship: { evidence: 'ELDER, revised' },
+          relationship: { evidence: 'YOUNGER, revised' },
         });
         expect(put.status).toBe(200);
-        expect((await headLinks(cause, effect)).map(([id, l]) => [id, l.evidence])).toEqual([[pairId, 'ELDER, revised']]);
+        expect((await headLinks(cause, effect)).map(([id, l]) => [id, l.evidence])).toEqual([[pairId, 'YOUNGER, revised']]);
       });
 
       it('changes and removes the named link of a pair, and only it (cloud)', async () => {
@@ -606,7 +600,7 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
         const idsBefore = (await neo4jLinks(cause, effect)).map((l) => l.id);
         const versionsBefore = ((await http('GET', `/api/graphs/${graphA}/versions`, agentKey, graphA)).body.data as unknown[]).length;
 
-        expect(await migrate()).toEqual({ named: 0, extra: 0, reconciledGraphs: 0 });
+        expect(await migrate()).toEqual({ named: 0, adopted: 0, reconciledGraphs: 0, failedGraphs: 0 });
 
         expect((await neo4jLinks(cause, effect)).map((l) => l.id)).toEqual(idsBefore);
         expect(((await http('GET', `/api/graphs/${graphA}/versions`, agentKey, graphA)).body.data as unknown[]).length).toBe(versionsBefore);
