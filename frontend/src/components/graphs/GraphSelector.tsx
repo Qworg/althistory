@@ -518,7 +518,7 @@ export const GraphSelector = memo(function GraphSelector({
           bottom sheet, because a 20rem panel anchored to the button's right
           edge started off the left of a 390px screen. */}
       {isOpen && !sheet && (
-        <div className="absolute top-full right-0 mt-1 w-80 max-w-[calc(100vw-2rem)] bg-card text-ink border border-line rounded-lg shadow-lg z-50">
+        <div data-overlay-open className="absolute top-full right-0 mt-1 w-80 max-w-[calc(100vw-2rem)] bg-card text-ink border border-line rounded-lg shadow-lg z-50">
           {panelBody}
         </div>
       )}
