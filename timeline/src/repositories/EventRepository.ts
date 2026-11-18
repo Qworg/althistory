@@ -1,6 +1,7 @@
 import { Session, Integer } from 'neo4j-driver';
 import { Event, CreateEventRequest, UpdateEventRequest, TimeRange } from '../models/Event';
 import { readInstantValue, runTemporal } from '../utils/temporal';
+import { ValidationError } from '../utils/errors';
 import { DatabaseManager, LocalDatabaseManager, LocalSession } from '../utils/database';
 import {
   graphPatternMap,
@@ -222,6 +223,10 @@ export class EventRepository {
 
       return event;
     } catch (error) {
+      // An id is unique within a graph (a `(graphId, id)` constraint); another graph may hold the same one.
+      if ((error as { code?: string } | null)?.code === 'Neo.ClientError.Schema.ConstraintValidationFailed') {
+        throw new ValidationError(`An event with the id "${event.id}" already exists in this graph; a create cannot take its place`, 'id', event.id);
+      }
       throw new Error(`Failed to create event: ${error}`);
     } finally {
       await session.close();

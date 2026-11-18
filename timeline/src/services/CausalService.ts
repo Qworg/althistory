@@ -445,6 +445,10 @@ export class CausalService {
       effectEventId: link.effect_event_id,
     };
     const conditions: string[] = [LINK_ID_CONDITION, 'cause.id = $causeEventId', 'effect.id = $effectEventId'];
+    // The endpoints too: an event id is only unique within a graph, so a bare `cause.id`
+    // would also name the same-id event of another graph (#35).
+    addGraphCondition(conditions, 'cause', graphId, parameters);
+    addGraphCondition(conditions, 'effect', graphId, parameters);
     addGraphCondition(conditions, 'r', graphId, parameters);
     let deleted = 0;
     try {

@@ -184,6 +184,18 @@ describe('graph-scoped causal queries (#59)', () => {
     expect(recorded[0]!.parameters.graphId).toBe(GRAPH_ID);
   });
 
+  it('deletes a link by its id inside its own graph, endpoints included (an event id is only unique within a graph, #35)', async () => {
+    const service = new CausalService({ graphId: GRAPH_ID });
+
+    await service.deleteCausalLinkById({ id: 'link_1', cause_event_id: 'cause-1', effect_event_id: 'effect-1' });
+
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]!.query).toContain('cause.graphId = $graphId');
+    expect(recorded[0]!.query).toContain('effect.graphId = $graphId');
+    expect(recorded[0]!.query).toContain('r.graphId = $graphId');
+    expect(recorded[0]!.parameters.graphId).toBe(GRAPH_ID);
+  });
+
   it('updates and deletes only its own graph links', async () => {
     const service = new CausalService({ graphId: GRAPH_ID });
 
