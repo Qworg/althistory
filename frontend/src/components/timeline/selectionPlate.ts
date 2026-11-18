@@ -21,7 +21,6 @@
  */
 
 import { PLATE_ASCENT, PLATE_DESCENT, PLATE_ONLY_ASCENT, PLATE_ONLY_DESCENT, planPinnedText, type PinnedPlan, type PlacedLabelBox, type PlateText } from './pinnedLabel'
-import { truncateLabel } from './eventLabelLayout'
 import { linkSpansInBands } from './timelineLinks'
 
 /**
@@ -42,8 +41,13 @@ const SHORTENED_FROM_CHARS = 13
 export function shortenedPlateTexts(description: string, measure: (text: string) => PlateText, known: readonly string[] = []): PlateText[] {
   const seen = new Set(known)
   const found: PlateText[] = []
+  if (description.length <= SHORTENED_FROM_CHARS) return found
   for (let chars = SHORTENED_FROM_CHARS; chars >= MIN_PLATE_CHARS; chars--) {
-    const text = truncateLabel(description, chars)
+    // Only at a word's end: "Prussia buy…" or "Antarctica'…" says less than the word before it. A length with no word end that gives
+    // 11 characters or more is skipped.
+    const room = description.slice(0, chars - 1)
+    const cut = /\s/.test(description[chars - 1] ?? ' ') ? room : room.slice(0, Math.max(0, room.lastIndexOf(' ')))
+    const text = `${cut.replace(/[\s,;:.\u2013\u2014\-'\u2018\u2019(\u201C\u201D"/]+$/, '')}…`
     if (text.length < MIN_PLATE_CHARS || text.length > chars || seen.has(text)) continue
     seen.add(text)
     found.push(measure(text))
@@ -128,7 +132,7 @@ export function planSelectionPlate(input: SelectionPlateInput): { text: string; 
     }
     return boxes
   }
-  // The plate-only row's plate cannot grow (an arc bar's foot above it, the top label row's text below): text whose measured ink does not fit it goes in another row.
+  // The plate-only row's plate cannot grow (an arc bar's foot above it, the top label row's text below): text whose measured ink does not fit it is drawn smaller there, and is never moved to another row for it.
   const plateBox = (offset: number) => (plateOnlyRows.includes(offset) ? { ascent: PLATE_ONLY_ASCENT, descent: PLATE_ONLY_DESCENT, fixed: true } : { ascent: PLATE_ASCENT, descent: PLATE_DESCENT })
   const attempt = (rows: readonly number[]) => {
     // Every pass that hides no label comes before any that may: covering a sliver arc's edge, or an untraced link, is better than hiding a neighbour.
@@ -149,10 +153,10 @@ export function planSelectionPlate(input: SelectionPlateInput): { text: string; 
         if (found && found.plan.hidden.length === 0) return found
       }
     }
-    const every = [...texts, ...shortTexts]
+    // The shorter forms are only for the clear spots above: in the passes that hide or cover they would beat the full name by sitting in a nearer row.
     for (const allowHide of [false, true]) {
       for (const pass of passes) {
-        const found = planPinnedText({ x, markY, innerWidth, rows, labels: pass, plateBox }, every, allowHide)
+        const found = planPinnedText({ x, markY, innerWidth, rows, labels: pass, plateBox }, texts, allowHide)
         if (found) return found
       }
     }

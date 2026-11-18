@@ -266,6 +266,17 @@ describe('planSelectionPlate', () => {
       expect(found?.plan.hidden).toEqual([])
     })
 
+    it('keeps the short forms out of the passes that hide or cover: they are for the clear spots only', () => {
+      // One row. Every placement of the full name meets a protected label (centred and starting at the mark: one at 360; ending at it: one at 150),
+      // so it fits nowhere. The short name, centred, would fit only by covering a small label whole (hiding it).
+      const labels = [box('P', 360, 372, -20, { protectedLabel: true }), box('Q', 150, 200, -20, { protectedLabel: true }), box('L', 300, 330, -20, { length: 5 })]
+      const base = { aboveRows: [-20], plateOnlyRows: [], belowRows: [], labels, texts: [full], shortTexts: [short] }
+      // Not in the clear tier (it hides L), and not in the hiding passes, which take the ordinary forms alone.
+      expect(planSelectionPlate(input(base))).toBeNull()
+      // With room for the short name in a clear spot, it is used.
+      expect(planSelectionPlate(input({ ...base, labels: labels.filter((label) => label.id !== 'L') }))?.text).toBe(short.text)
+    })
+
     it('leaves the last resort as it was: with no clear spot even for the short name, the plate still covers an untraced link', () => {
       const dense = [link('a', 270, 100), link('b', 290, 120), link('c', 310, 480), link('d', 330, 600)]
       const found = planSelectionPlate(input({ ...noLabelRows, texts: [full], shortTexts: [short], links: dense }))
@@ -290,6 +301,18 @@ describe('planSelectionPlate', () => {
     it('offers nothing shorter than the minimum, whatever the first words are', () => {
       for (const name of ['An ox ate the grain fully', 'A B C D E F G H I J K', 'Up in the air and away']) {
         for (const form of shortenedPlateTexts(name, measure)) expect(form.text.length).toBeGreaterThanOrEqual(MIN_PLATE_CHARS)
+      }
+    })
+
+    it('cuts only at word ends, and strips quotes and punctuation before the ellipsis', () => {
+      // Whole words only: "Prussia buys…", never "Prussia buy…"; and nothing where no word ends at 11 characters or more.
+      expect(shortenedPlateTexts('Prussia buys the engine', measure).map((form) => form.text)).toEqual(['Prussia buys…'])
+      expect(shortenedPlateTexts('Parliamentary reform bill', measure)).toEqual([])
+      expect(shortenedPlateTexts("Antarctica's drift begins", measure).map((form) => form.text)).toEqual(["Antarctica's…"])
+      expect(shortenedPlateTexts('Antarctica \u2019 drift begins now', measure).map((form) => form.text)).toEqual(['Antarctica…'])
+      expect(shortenedPlateTexts('Prussia in a war that will not end', measure).map((form) => form.text)).toEqual(['Prussia in a…', 'Prussia in…'])
+      for (const name of ['War of 1812 was fought here', 'Prussia (the state) buys it', 'Treaty \u201Cof\u201D Paris signed here']) {
+        for (const form of shortenedPlateTexts(name, measure)) expect(/[\s,;:.'\u2019(\u201C/-]…$/.test(form.text)).toBe(false)
       }
     })
 

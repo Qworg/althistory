@@ -21,7 +21,7 @@ import {
 import { formatHistoricalTimestamp, formatEventDate, formatHistoricalEnd } from '@/utils/historicalTime'
 import { measureLabelInk, measureLabelWidth } from './labelWidth'
 import { useFontEpoch } from './useFontEpoch'
-import { PLATE_INK_SLACK, PLATE_MIN_FONT_SIZE, PLATE_ONLY_ASCENT, PLATE_ONLY_DESCENT, PLATE_PAD, type PlacedLabelBox, type PlateSize } from './pinnedLabel'
+import { PLATE_MIN_FONT_SIZE, PLATE_ONLY_ASCENT, PLATE_PAD, type PlacedLabelBox, type PlateSize } from './pinnedLabel'
 import { planSelectionPlate, shortenedPlateTexts, type PlateLink } from './selectionPlate'
 import { layoutEventLabels, truncateLabel, PRIORITY_LABEL_MAX_CHARS, BESIDE_PX, LABEL_FONT_SIZE, TIMELINE_BELOW_ROW_OFFSETS, TIMELINE_LABEL_CONFIG } from './eventLabelLayout'
 import { tooltipPlacement } from './tooltipPlacement'
@@ -631,6 +631,7 @@ const Timeline = memo(function Timeline({
       const markX = xScale(toInstant(ev.timestamp))
       const emphasised = highlightedEventIds?.has(ev.id) ?? false
       const labelWidth = measureLabelWidth(placement.text, LABEL_FONT_SIZE, emphasised ? 600 : 400)
+      const ink = measureLabelInk(placement.text, LABEL_FONT_SIZE, emphasised ? 600 : 400)
       const anchorX = markX + (placement.dx ?? 0)
       const left = placement.anchor === 'start' ? anchorX : placement.anchor === 'end' ? anchorX - labelWidth : anchorX - labelWidth / 2
       labels.push({
@@ -639,6 +640,9 @@ const Timeline = memo(function Timeline({
         right: left + labelWidth,
         top: eventY + placement.offset - LABEL_FONT_SIZE * 0.8,
         bottom: eventY + placement.offset + 3,
+        // Where the text's ink really reaches: an accented capital rises past the box's top, and a plate beside it keeps clear of that.
+        inkTop: eventY + placement.offset - ink.ascent,
+        inkBottom: eventY + placement.offset + ink.descent,
         length: placement.text.length,
         // The traced and highlighted labels, and the point of divergence event's (named by the ghost): the one a branch view turns on.
         protectedLabel:
@@ -699,12 +703,11 @@ const Timeline = memo(function Timeline({
     // The full name if a plate fits; else the shorter forms the layout uses.
     const measurePlateText = (text: string) => {
       const ink = measureLabelInk(text, LABEL_FONT_SIZE, 600)
-      // The plate-only row's plate cannot grow: ink that does not fit it is drawn smaller (11.5px down to 10px), where the plate is that row's.
+      // The same name at smaller sizes (11.5px down to 10px), for a plate that cannot hold the ink at the usual one: the plate-only row's,
+      // a row where the plate's growth would cover the ink above it, or a plate shortened at the bottom (see pinnedLabel.ts).
       const sizes: PlateSize[] = []
-      if (ink.ascent > PLATE_ONLY_ASCENT + PLATE_INK_SLACK || ink.descent > PLATE_ONLY_DESCENT + PLATE_INK_SLACK) {
-        for (let fontSize = LABEL_FONT_SIZE - 0.5; fontSize >= PLATE_MIN_FONT_SIZE; fontSize -= 0.5) {
-          sizes.push({ fontSize, width: measureLabelWidth(text, fontSize, 600), ink: measureLabelInk(text, fontSize, 600) })
-        }
+      for (let fontSize = LABEL_FONT_SIZE - 0.5; fontSize >= PLATE_MIN_FONT_SIZE; fontSize -= 0.5) {
+        sizes.push({ fontSize, width: measureLabelWidth(text, fontSize, 600), ink: measureLabelInk(text, fontSize, 600) })
       }
       return { text, width: measureLabelWidth(text, LABEL_FONT_SIZE, 600), ink, sizes }
     }
@@ -1899,7 +1902,7 @@ const Timeline = memo(function Timeline({
                   <text
                     className="event-label event-label-pinned"
                     x={pinned.plan.anchor === 'start' ? pinned.plan.left : pinned.plan.anchor === 'end' ? pinned.plan.right : pinned.x}
-                    y={eventY + pinned.plan.offset}
+                    y={eventY + pinned.plan.offset - (pinned.plan.lift ?? 0)}
                     textAnchor={pinned.plan.anchor}
                     fontSize={pinned.plan.fontSize ?? LABEL_FONT_SIZE}
                     fontWeight={600}
