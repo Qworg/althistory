@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import { useGlobalStore } from '@/stores/globalStore'
-import { revealScrollDelta, revealSelectedMark, useRevealSelectionAboveSheet } from './revealAboveSheet'
+import { resetRevealInFlight, revealScrollDelta, revealSelectedMark, useRevealSelectionAboveSheet } from './revealAboveSheet'
 
 // Visible band with these: header bottom 100, sheet top 500, margin 12 -> 112..488.
 const H = 100
@@ -65,6 +65,7 @@ const originalMatchMedia = window.matchMedia
 describe('revealSelectedMark', () => {
   afterEach(() => {
     document.body.innerHTML = ''
+    resetRevealInFlight()
     vi.restoreAllMocks()
     window.matchMedia = originalMatchMedia
     document.documentElement.style.removeProperty('--inspector-sheet-h')
@@ -143,6 +144,7 @@ describe('revealSelectedMark', () => {
 describe('useRevealSelectionAboveSheet', () => {
   afterEach(() => {
     document.body.innerHTML = ''
+    resetRevealInFlight()
     document.documentElement.style.removeProperty('--inspector-sheet-h')
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
@@ -220,6 +222,21 @@ describe('useRevealSelectionAboveSheet', () => {
     await vi.waitFor(() => expect(scrollBy).toHaveBeenCalled())
   })
 
+  it('starts one scroll, not one per mutation, while the curves animate', async () => {
+    const scrollBy = dock(600)
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => window.setTimeout(() => cb(0), 2))
+    renderHook(() => useRevealSelectionAboveSheet('e1'))
+    await vi.waitFor(() => expect(scrollBy).toHaveBeenCalledTimes(1))
+    // The canvas mutates on every frame for a while.
+    for (let i = 0; i < 20; i += 1) {
+      document.querySelector('svg')!.setAttribute('data-ripple', String(i))
+      const p = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      document.querySelector('svg')!.appendChild(p)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    expect(scrollBy.mock.calls.length).toBeLessThanOrEqual(2)
+  })
+
   it('clears the reserved room when the selection ends', () => {
     dock(600)
     document.documentElement.style.setProperty('--inspector-sheet-h', '300px')
@@ -236,6 +253,7 @@ describe('trace measurement and observer lifetime', () => {
 
   afterEach(() => {
     document.body.innerHTML = ''
+    resetRevealInFlight()
     document.documentElement.style.removeProperty('--inspector-sheet-h')
     vi.restoreAllMocks()
     vi.unstubAllGlobals()

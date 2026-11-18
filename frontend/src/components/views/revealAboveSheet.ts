@@ -139,9 +139,29 @@ export function revealSelectedMark(eventId: string): boolean {
 
   const behavior: ScrollBehavior = reduceMotion() ? 'auto' : 'smooth'
   const parent = scrollParent(mark)
+  // The absolute place this scroll ends. While a smooth scroll is under way the
+  // rects (and so `delta`) move with it, but this stays put; a re-check that
+  // lands on the same place must not restart the animation (a burst of canvas
+  // mutations while the curves animate used to hold the page still).
+  const target = (parent ? parent.scrollTop : window.scrollY) + delta
+  const now = Date.now()
+  if (inFlight && inFlight.scroller === (parent ?? window) && now - inFlight.at < IN_FLIGHT_MS && Math.abs(inFlight.target - target) < SAME_TARGET_PX) {
+    return false
+  }
+  inFlight = { scroller: parent ?? window, target, at: now }
   if (parent) parent.scrollBy({ top: delta, behavior })
   else window.scrollBy({ top: delta, behavior })
   return true
+}
+
+/** A scroll started a moment ago, and where it is headed. */
+let inFlight: { scroller: Window | HTMLElement; target: number; at: number } | null = null
+const IN_FLIGHT_MS = 1000
+const SAME_TARGET_PX = 1
+
+/** Forget a scroll in flight (tests, and when a selection ends). */
+export function resetRevealInFlight(): void {
+  inFlight = null
 }
 
 /**
@@ -156,6 +176,7 @@ export function useRevealSelectionAboveSheet(selectedEventId: string | null): vo
   useEffect(() => clearSheetSpace, [])
 
   useEffect(() => {
+    inFlight = null
     if (!selectedEventId) {
       clearSheetSpace()
       return
@@ -178,7 +199,12 @@ export function useRevealSelectionAboveSheet(selectedEventId: string | null): vo
     let observer: ResizeObserver | undefined
     let mutations: MutationObserver | undefined
     let pending: number | null = null
+    let trailing: number | null = null
     const runSoon = () => {
+      // Once the changes stop and the scroll has come to rest, one last check
+      // corrects whatever the animated curves left a pixel or two short.
+      if (trailing !== null) window.clearTimeout(trailing)
+      trailing = window.setTimeout(run, 150)
       if (pending !== null) return
       pending = requestAnimationFrame(() => {
         pending = null
@@ -204,6 +230,7 @@ export function useRevealSelectionAboveSheet(selectedEventId: string | null): vo
       cancelAnimationFrame(frame)
       window.clearTimeout(settle)
       if (pending !== null) cancelAnimationFrame(pending)
+      if (trailing !== null) window.clearTimeout(trailing)
       observer?.disconnect()
       mutations?.disconnect()
       window.removeEventListener('wheel', stop)

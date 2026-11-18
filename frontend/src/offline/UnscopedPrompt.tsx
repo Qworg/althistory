@@ -44,8 +44,11 @@ function PromptBody({ count }: { count: number }) {
               onClick={() => {
                 setConfirming(false)
                 discardUnscopedMutations()
+                // The prompt is gone with its decision; leave focus on the page,
+                // not on <body>. The summary notice is announced by the live region.
+                document.getElementById('main-view')?.focus({ preventScroll: true })
               }}
-              className={`${button} border border-line bg-subtle text-ink hover:bg-line`}
+              className={`${button} border border-danger bg-danger/10 text-danger hover:bg-danger/20`}
             >
               Discard {count} {noun}?
             </button>
@@ -61,7 +64,7 @@ function PromptBody({ count }: { count: number }) {
               onClick={() => activeGraphId && sendUnscopedToGraph(activeGraphId)}
               className={`${button} bg-ink text-canvas hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50`}
             >
-              Send to {name}
+              {activeGraphId ? `Send to ${name}` : 'Send'}
             </button>
             <button type="button" onClick={() => setConfirming(true)} className={`${button} border border-line text-ink hover:bg-subtle`}>
               Discard

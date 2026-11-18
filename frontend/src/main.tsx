@@ -5,7 +5,6 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryProvider } from './components/providers/QueryProvider'
 import App from './App.tsx'
-import { OfflineIndicator } from './offline/OfflineIndicator'
 import { startOfflineSync } from './offline/offlineSync'
 import { registerServiceWorker } from './offline/registerServiceWorker'
 import { DEMO_MODE } from './demo/flag'
@@ -34,7 +33,6 @@ createRoot(document.getElementById('root')!).render(
     {DEMO_MODE && <DemoBanner />}
     <QueryProvider>
       <App />
-      <OfflineIndicator />
     </QueryProvider>
   </StrictMode>,
 )

@@ -148,6 +148,21 @@ describe('after a decision', () => {
     stop()
   })
 
+  it('moves focus to the page after Discard is confirmed, not to <body>', async () => {
+    enqueueMutation({ method: 'PUT', url: '/events/e1', body: {} })
+    syncCounts()
+    const user = userEvent.setup()
+    render(
+      <>
+        <main id="main-view" tabIndex={-1} />
+        <UnscopedPrompt />
+      </>,
+    )
+    await user.click(screen.getByRole('button', { name: 'Discard' }))
+    await user.click(screen.getByRole('button', { name: 'Discard 1 change?' }))
+    expect(document.getElementById('main-view')).toHaveFocus()
+  })
+
   it('Cancel on the confirm step keeps everything', async () => {
     enqueueMutation({ method: 'PUT', url: '/events/e1', body: {} })
     syncCounts()
@@ -164,7 +179,7 @@ describe('after a decision', () => {
     enqueueMutation({ method: 'PUT', url: '/events/e1', body: {} })
     syncCounts()
     render(<UnscopedPrompt />)
-    expect(screen.getByRole('button', { name: /^Send to/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
     expect(screen.getByTestId('unscoped-prompt')).toHaveTextContent('Open a graph to send them.')
     expect(() => stampUnscopedMutations(null as unknown as string)).toThrow()
     expect(readMutationQueue()[0]!.graphId).toBeUndefined()
