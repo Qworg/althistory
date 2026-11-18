@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { planSelectionPlate, type PlateLink, type SelectionPlateInput } from './selectionPlate'
+import { MIN_PLATE_CHARS, planSelectionPlate, shortenedPlateTexts, type PlateLink, type SelectionPlateInput } from './selectionPlate'
 import { PLATE_ASCENT, PLATE_DESCENT, PLATE_PAD, type PlacedLabelBox } from './pinnedLabel'
 
 const X = 300
@@ -226,4 +226,140 @@ describe('planSelectionPlate', () => {
       expect(found!.plan.hidden.length).toBeGreaterThan(0)
     })
   })
+
+  describe('a shorter name before a covered link (#41)', () => {
+    const full = { text: 'The selected name that is long…', width: 150 }
+    const short = { text: 'The selected…', width: 70 }
+    // Untraced links leave the track either side of the mark, 60px and 120px out: every placement of the full name (centred, or
+    // ending or starting at the mark) covers one of them; the short name, centred, fits between.
+    const sides = [link('left', 240, 100), link('right', 420, 600)]
+    const noLabelRows = { labels: wall }
+
+    it('picks the shorter text for a clear spot over covering an untraced link with the full one', () => {
+      const without = planSelectionPlate(input({ ...noLabelRows, texts: [full], links: sides }))
+      // Before the shorter forms: the plate can only be put over the links.
+      const over = plateOf(without!)
+      expect(over.left < 242 || over.right > 418).toBe(true)
+      const found = planSelectionPlate(input({ ...noLabelRows, texts: [full], shortTexts: [short], links: sides }))
+      expect(found?.text).toBe(short.text)
+      const plate = plateOf(found!)
+      expect(plate.left > 242 && plate.right < 418).toBe(true)
+      expect(found!.plan.hidden).toEqual([])
+    })
+
+    it('does not shorten when the full text fits a clear spot', () => {
+      const found = planSelectionPlate(input({ ...noLabelRows, texts: [full], shortTexts: [short], links: [link('far', 560, 640)] }))
+      expect(found?.text).toBe(full.text)
+    })
+
+    it('does not shorten when the full text fits in the nearest row', () => {
+      expect(planSelectionPlate(input({ texts: [full], shortTexts: [short] }))).toMatchObject({ text: full.text, plan: { offset: -20 } })
+    })
+
+    it('shortens before it hides a neighbour: the shorter name beside a label beats the full name over it', () => {
+      // Row -20 holds a small label either side of the mark, clear of the short plate; every placement of the full plate covers one whole. The other rows are walled.
+      const labels = [...wall.filter((w) => w.id !== 'wall-20'), box('smallL', 225, 255, -20, { length: 6 }), box('smallR', 345, 375, -20, { length: 6 })]
+      const hides = planSelectionPlate(input({ labels, belowRows: [], texts: [full] }))
+      expect(hides?.plan.hidden).toHaveLength(1)
+      const found = planSelectionPlate(input({ labels, belowRows: [], texts: [full], shortTexts: [short] }))
+      expect(found?.text).toBe(short.text)
+      expect(found?.plan.hidden).toEqual([])
+    })
+
+    it('keeps the short forms out of the passes that hide or cover: they are for the clear spots only', () => {
+      // One row. Every placement of the full name meets a protected label (centred and starting at the mark: one at 360; ending at it: one at 150),
+      // so it fits nowhere. The short name, centred, would fit only by covering a small label whole (hiding it).
+      const labels = [box('P', 360, 372, -20, { protectedLabel: true }), box('Q', 150, 200, -20, { protectedLabel: true }), box('L', 300, 330, -20, { length: 5 })]
+      const base = { aboveRows: [-20], plateOnlyRows: [], belowRows: [], labels, texts: [full], shortTexts: [short] }
+      // Not in the clear tier (it hides L), and not in the hiding passes, which take the ordinary forms alone.
+      expect(planSelectionPlate(input(base))).toBeNull()
+      // With room for the short name in a clear spot, it is used.
+      expect(planSelectionPlate(input({ ...base, labels: labels.filter((label) => label.id !== 'L') }))?.text).toBe(short.text)
+    })
+
+    it('leaves the last resort as it was: with no clear spot even for the short name, the plate still covers an untraced link', () => {
+      const dense = [link('a', 270, 100), link('b', 290, 120), link('c', 310, 480), link('d', 330, 600)]
+      const found = planSelectionPlate(input({ ...noLabelRows, texts: [full], shortTexts: [short], links: dense }))
+      expect(found).not.toBeNull()
+    })
+  })
+
+  describe('shortenedPlateTexts', () => {
+    const measure = (text: string) => ({ text, width: text.length * 6.7 })
+    it('gives forms of 11 to 13 characters ending in an ellipsis, longest first, never below the minimum', () => {
+      const forms = shortenedPlateTexts('Manchester clerks hold a meeting of the guild', measure)
+      expect(forms.length).toBeGreaterThan(0)
+      for (const form of forms) {
+        expect(form.text.endsWith('…')).toBe(true)
+        expect(form.text.length).toBeGreaterThanOrEqual(MIN_PLATE_CHARS)
+        expect(form.text.length).toBeLessThanOrEqual(13)
+      }
+      expect(forms[0]!.text).toBe('Manchester…')
+      expect(forms.map((form) => form.width)).toEqual(forms.map((form) => form.text.length * 6.7))
+    })
+
+    it('offers nothing shorter than the minimum, whatever the first words are', () => {
+      for (const name of ['An ox ate the grain fully', 'A B C D E F G H I J K', 'Up in the air and away']) {
+        for (const form of shortenedPlateTexts(name, measure)) expect(form.text.length).toBeGreaterThanOrEqual(MIN_PLATE_CHARS)
+      }
+    })
+
+    it('cuts only at word ends, and strips quotes and punctuation before the ellipsis', () => {
+      // Whole words only: "Prussia buys…", never "Prussia buy…"; and nothing where no word ends at 11 characters or more.
+      expect(shortenedPlateTexts('Prussia buys the engine', measure).map((form) => form.text)).toEqual(['Prussia buys…'])
+      expect(shortenedPlateTexts('Parliamentary reform bill', measure)).toEqual([])
+      expect(shortenedPlateTexts("Antarctica's drift begins", measure).map((form) => form.text)).toEqual(["Antarctica's…"])
+      expect(shortenedPlateTexts('Antarctica \u2019 drift begins now', measure).map((form) => form.text)).toEqual(['Antarctica…'])
+      expect(shortenedPlateTexts('Prussia in a war that will not end', measure).map((form) => form.text)).toEqual(['Prussia in a…', 'Prussia in…'])
+      for (const name of ['War of 1812 was fought here', 'Prussia (the state) buys it', 'Treaty \u201Cof\u201D Paris signed here']) {
+        for (const form of shortenedPlateTexts(name, measure)) expect(/[\s,;:.'\u2019(\u201C/-]…$/.test(form.text)).toBe(false)
+      }
+    })
+
+    it('strips an opening bracket, a slash and a full stop left at the cut', () => {
+      for (const name of ['Parliament / the king agrees', 'Parliament ( the king agrees', 'Parliament. The king agrees', 'Parliament, the king agrees', 'Parliament - the king agrees']) {
+        expect(shortenedPlateTexts(name, measure).map((form) => form.text), name).toEqual(['Parliament…'])
+      }
+    })
+
+    it('counts the word end that falls exactly at the length, and not the one just past it', () => {
+      // "Prussia buys" is 12 characters: with its ellipsis 13, the longest form; "Prussia buys a" would be 15.
+      expect(shortenedPlateTexts('Prussia buys a war', measure).map((form) => form.text)).toEqual(['Prussia buys…'])
+      // "Prussia in a" + ellipsis is 13: kept at 13, and "Prussia in…" at 11 follows.
+      expect(shortenedPlateTexts('Prussia in a war that will end', measure).map((form) => form.text)).toEqual(['Prussia in a…', 'Prussia in…'])
+      // A form of exactly the minimum length is allowed; one a character short is not.
+      expect(shortenedPlateTexts('Parliament and the king', measure).map((form) => form.text)).toEqual(['Parliament…'])
+      expect(shortenedPlateTexts('Parliamen and the king', measure)).toEqual([])
+    })
+
+    it('leaves out forms already known and names too short to cut', () => {
+      expect(shortenedPlateTexts('Manchester clerks hold a meeting', measure, ['Manchester…'])).toEqual([])
+      expect(shortenedPlateTexts('Short name', measure)).toEqual([])
+    })
+  })
+
+describe('accented capitals (#42)', () => {
+  const accented = { text: 'Émile Ångström…', width: 100, ink: { ascent: 12, descent: 2 } }
+  const plain = { text: 'The selected name', width: 100, ink: { ascent: 9, descent: 2 } }
+  // The label rows are blocked by things that are not labels, so the plate-only row and the first row under the track compete.
+  const rowsBlocked = ABOVE.map((offset) => box(`o${offset}`, 0, 700, offset, { protectedLabel: true, obstacle: true }))
+
+  const accentedSizes = [{ fontSize: 10.5, width: 86, ink: { ascent: 9.4, descent: 2.3 } }, { fontSize: 10, width: 82, ink: { ascent: 9.2, descent: 2.2 } }]
+  const accentedSmall = { ...accented, sizes: accentedSizes }
+
+  it('keeps accented capitals in the plate-only row, drawn smaller, rather than taking a row under the track', () => {
+    expect(planSelectionPlate(input({ labels: rowsBlocked, texts: [plain] }))).toMatchObject({ plan: { offset: -75 } })
+    const found = planSelectionPlate(input({ labels: rowsBlocked, texts: [accentedSmall] }))
+    expect(found).toMatchObject({ text: accented.text, plan: { offset: -75, fontSize: 10.5 } })
+  })
+
+  it('keeps the row at the smallest size when the ink fits at none, and still hides nothing', () => {
+    const tall = { ...accented, sizes: accentedSizes.map((size) => ({ ...size, ink: { ascent: 10.2, descent: 2 } })) }
+    expect(planSelectionPlate(input({ labels: rowsBlocked, texts: [tall] }))).toMatchObject({ plan: { offset: -75, fontSize: 10, hidden: [] } })
+  })
+
+  it('still names nothing where no row is free at all', () => {
+    expect(planSelectionPlate(input({ labels: wall, texts: [accentedSmall], belowRows: [] }))).toBeNull()
+  })
+})
 })
