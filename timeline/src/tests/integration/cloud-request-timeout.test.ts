@@ -22,6 +22,7 @@ import { Application } from '@/index';
 import { getContainer, type Container } from '@/container';
 import { getDatabaseManager } from '@/utils/database';
 import type { Permission } from '@/models/ApiKey';
+import { RequestBudget, runWithBudget } from '@/utils/requestBudget';
 
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -50,6 +51,8 @@ describe('a 408 saves nothing, in Neo4j', () => {
   let graph: string;
   let key: string;
   let slow = false;
+  let slowReads = false;
+  let slowCommit = false;
   const exits: number[] = [];
   const saved: Record<string, string | undefined> = {};
   const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -90,9 +93,11 @@ describe('a 408 saves nothing, in Neo4j', () => {
     driver.session = (...args: unknown[]) => {
       const session = open(...args) as {
         run: (q: string, p?: unknown, c?: unknown) => unknown;
-        beginTransaction: (...a: unknown[]) => { run: (q: string, p?: unknown) => unknown };
+        beginTransaction: (...a: unknown[]) => { run: (q: string, p?: unknown) => unknown; commit: () => Promise<unknown> };
       };
-      const slowed = (query: string): string => (slow && /\b(CREATE|MERGE)\b/.test(query) ? `CALL apoc.util.sleep(${SLOW_MS}) ${query}` : query);
+      const isWrite = (query: string): boolean => /\b(CREATE|MERGE|SET|DELETE|REMOVE)\b/.test(query);
+      const slowed = (query: string): string =>
+        (slow && isWrite(query)) || (slowReads && !isWrite(query)) ? `CALL apoc.util.sleep(${SLOW_MS}) ${query}` : query;
       // Auto-commit statements too, so the same slowness applies before and after the transactional path.
       const runPlain = session.run.bind(session);
       session.run = (query: string, p?: unknown, c?: unknown) => runPlain(slowed(query), p, c);
@@ -101,6 +106,11 @@ describe('a 408 saves nothing, in Neo4j', () => {
         const tx = begin(...a);
         const run = tx.run.bind(tx);
         tx.run = (query: string, params?: unknown) => run(slowed(query), params);
+        const commit = tx.commit.bind(tx);
+        tx.commit = async () => {
+          if (slowCommit) await wait(SLOW_MS);
+          return commit();
+        };
         return tx;
       };
       return session;
@@ -202,5 +212,152 @@ describe('a 408 saves nothing, in Neo4j', () => {
     expect((await http('POST', '/api/causal/link', link)).status).toBe(201);
     expect(await edges()).toBe(1);
     expect(await versions()).toBe(versionsBefore + 1);
+  });
+
+  const quiet = (): string[] => {
+    const logged: string[] = [];
+    for (const method of ['error', 'warn'] as const) {
+      vi.spyOn(console, method).mockImplementation((...args: unknown[]) => void logged.push(args.map(String).join(' ')));
+    }
+    return logged;
+  };
+  const eventOf = async (id: string): Promise<{ neo4j: string | null; version: string | null }> => {
+    const session = getDatabaseManager().getNeo4jSession();
+    try {
+      const result = await session.run('MATCH (e:Event {id: $id}) RETURN e.description AS d', { id });
+      const version = (await container.graphRepository.checkout(graph)).events[id] as { description?: string } | undefined;
+      return { neo4j: result.records.length ? (result.records[0].get('d') as string) : null, version: version?.description ?? null };
+    } finally {
+      await session.close();
+    }
+  };
+
+  it('keeps an event whose DELETE timed out, in Neo4j and in the version store', async () => {
+    const logged = quiet();
+    const id = ((await http('POST', '/api/events', event('Keep me'))).body.data as { id: string }).id;
+    slow = true;
+    const deleted = await fetch(`${base}/api/events/${id}`, { method: 'DELETE', headers: { 'X-API-Key': key, 'X-Graph-Id': graph } });
+    slow = false;
+    expect(deleted.status).toBe(408);
+    await wait(SLOW_MS + 500);
+    expect(await eventOf(id)).toEqual({ neo4j: 'Keep me', version: 'Keep me' });
+    expect(logged.filter((line) => line.includes('Cannot set headers'))).toEqual([]);
+    vi.restoreAllMocks();
+  });
+
+  it('leaves an event as it was when its PUT timed out', async () => {
+    quiet();
+    const id = ((await http('POST', '/api/events', event('Original'))).body.data as { id: string }).id;
+    slow = true;
+    const put = await fetch(`${base}/api/events/${id}`, {
+      method: 'PUT',
+      headers: { 'X-API-Key': key, 'X-Graph-Id': graph, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description: 'Changed' }),
+    });
+    slow = false;
+    expect(put.status).toBe(408);
+    await wait(SLOW_MS + 500);
+    expect(await eventOf(id)).toEqual({ neo4j: 'Original', version: 'Original' });
+    vi.restoreAllMocks();
+  });
+
+  it('leaves a link as it was when its PUT timed out', async () => {
+    quiet();
+    const cause = ((await http('POST', '/api/events', event('Link cause'))).body.data as { id: string }).id;
+    const effect = ((await http('POST', '/api/events', event('Link effect'))).body.data as { id: string }).id;
+    const created = await http('POST', '/api/causal/link', {
+      causeEventId: cause,
+      effectEventId: effect,
+      relationship: { type: 'direct', strength: 0.8, confidence: 0.9, evidence: 'first' },
+    });
+    expect(created.status).toBe(201);
+    const linkId = ((created.body.data as { relationship: { id: string } }).relationship).id;
+    const evidence = async (): Promise<{ neo4j: string | null; version: string | null }> => {
+      const session = getDatabaseManager().getNeo4jSession();
+      try {
+        const result = await session.run('MATCH (:Event {id: $cause})-[r]->(:Event {id: $effect}) RETURN r.evidence AS v', { cause, effect });
+        const version = (await container.graphRepository.checkout(graph)).relationships[linkId] as { evidence?: string } | undefined;
+        return { neo4j: result.records.length ? (result.records[0].get('v') as string) : null, version: version?.evidence ?? null };
+      } finally {
+        await session.close();
+      }
+    };
+    expect(await evidence()).toEqual({ neo4j: 'first', version: 'first' });
+
+    slow = true;
+    const put = await fetch(`${base}/api/causal/link`, {
+      method: 'PUT',
+      headers: { 'X-API-Key': key, 'X-Graph-Id': graph, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ causeEventId: cause, effectEventId: effect, id: linkId, relationship: { evidence: 'second' } }),
+    });
+    slow = false;
+    expect(put.status).toBe(408);
+    await wait(SLOW_MS + 500);
+    expect(await evidence()).toEqual({ neo4j: 'first', version: 'first' });
+    vi.restoreAllMocks();
+  });
+
+  it('lets a write that is committing when the budget runs out finish, in both stores', async () => {
+    quiet();
+    // The statement is quick; the COMMIT is on the wire past the budget.
+    slowCommit = true;
+    const res = await http('POST', '/api/events', event('Committing'));
+    slowCommit = false;
+    expect(res.status).toBe(201);
+    const id = (res.body.data as { id: string }).id;
+    expect(await eventOf(id)).toEqual({ neo4j: 'Committing', version: 'Committing' });
+    vi.restoreAllMocks();
+  });
+
+  it('a copy that is cancelled does not break the next copy', async () => {
+    quiet();
+    const source = (await container.graphService.createGraph({ name: 'Copy source' })).id;
+    for (const name of ['One', 'Two']) {
+      await fetch(`${base}/api/events`, {
+        method: 'POST',
+        headers: { 'X-API-Key': key, 'X-Graph-Id': source, 'Content-Type': 'application/json' },
+        body: JSON.stringify(event(name)),
+      });
+    }
+    const target = async (name: string): Promise<string> => (await container.graphService.createGraph({ name })).id;
+    const nodesIn = async (id: string): Promise<number> => count('MATCH (n {graphId: $graph}) RETURN count(n) AS n', { graph: id });
+
+    // Cancelled while it reads: the request's budget is a fraction of the read.
+    const cancelled = await target('Copy cancelled');
+    slowReads = true;
+    const budget = new RequestBudget(200, () => undefined);
+    budget.start();
+    await runWithBudget(budget, () => container.graphCopyService.copyFullGraph(source, cancelled)).catch(() => undefined);
+    budget.dispose();
+    slowReads = false;
+    await wait(SLOW_MS + 500);
+
+    const next = await target('Copy next');
+    const result = await container.graphCopyService.copyFullGraph(source, next);
+    expect(result.errors ?? []).toEqual([]);
+    expect(result.success).toBe(true);
+    expect(await nodesIn(next)).toBe(2);
+    vi.restoreAllMocks();
+  });
+
+  it('runs overlapping writes on one session one after the other', async () => {
+    const budget = new RequestBudget(60_000, () => undefined);
+    budget.start();
+    try {
+      await runWithBudget(budget, async () => {
+        const session = getDatabaseManager().getNeo4jSession();
+        try {
+          // A session holds one transaction at a time; the proxy queues the second.
+          await Promise.all(['Overlap one', 'Overlap two'].map((name) =>
+            session.run('CREATE (e:Event {id: $id, graphId: $graph, description: $id})', { id: name, graph })
+          ));
+        } finally {
+          await session.close();
+        }
+      });
+    } finally {
+      budget.dispose();
+    }
+    expect(await count('MATCH (e:Event {graphId: $graph}) WHERE e.id STARTS WITH "Overlap" RETURN count(e) AS n', { graph })).toBe(2);
   });
 });

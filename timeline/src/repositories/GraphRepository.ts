@@ -3,7 +3,7 @@
  */
 
 import { isoOfAxisTime, storedCalendarSet, toAxisTime } from '@althistory/calendar';
-import { checkpoint, commitSection } from '@/utils/requestBudget';
+import { beginCommit, checkpoint, commitSection } from '@/utils/requestBudget';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -71,6 +71,8 @@ export class GraphRepository {
    * Create a new graph
    */
   async create(data: CreateGraphData): Promise<Graph> {
+    // The first durable step is the point of no return (see requestBudget.ts).
+    beginCommit();
     const graph = new Graph(data);
     
     // Initialize version storage for this graph
@@ -201,6 +203,7 @@ export class GraphRepository {
    * Permanently delete a graph and all its data
    */
   async hardDelete(id: string): Promise<boolean> {
+    beginCommit();
     const existing = await this.findById(id);
     if (!existing) {
       return false;
@@ -555,6 +558,7 @@ export class GraphRepository {
   }
 
   private async saveGraphMetadata(graph: Graph): Promise<void> {
+    beginCommit();
     const graphDir = path.join(this.dataDir, 'graphs', graph.id);
     await fs.promises.mkdir(graphDir, { recursive: true });
     
@@ -629,6 +633,7 @@ export class GraphRepository {
     // container each make their own repository over the same index.
     const key = path.resolve(this.graphsIndexPath);
     const run = (indexQueues.get(key) ?? Promise.resolve()).then(async () => {
+      beginCommit();
       const index = await this.loadIndex(true);
       if (change(index) === false) return;
       await this.saveIndex(index);

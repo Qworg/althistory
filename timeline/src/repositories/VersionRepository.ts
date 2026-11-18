@@ -9,7 +9,7 @@
  */
 
 import * as crypto from 'crypto';
-import { checkpoint, commitSection } from '@/utils/requestBudget';
+import { beginCommit, checkpoint, commitSection } from '@/utils/requestBudget';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -120,6 +120,7 @@ export class VersionRepository {
    * Initialize storage directories for a graph
    */
   async initializeGraph(graphId: string): Promise<void> {
+    beginCommit();
     const graphDir = this.getGraphDir(graphId);
     const dirs = [
       graphDir,
@@ -699,6 +700,7 @@ export class VersionRepository {
    * Delete all data for a graph
    */
   async deleteGraph(graphId: string): Promise<void> {
+    beginCommit();
     const graphDir = this.getGraphDir(graphId);
     await fs.promises.rm(graphDir, { recursive: true, force: true });
   }
@@ -719,6 +721,7 @@ export class VersionRepository {
 
   /** Name a version, or clear its name with null. */
   async setVersionLabel(graphId: string, version: number, label: string | null): Promise<void> {
+    beginCommit();
     const labels = await this.getVersionLabels(graphId);
     if (label) labels[String(version)] = label;
     else delete labels[String(version)];

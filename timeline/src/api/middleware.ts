@@ -9,7 +9,7 @@ import { assertSafeGraphId } from '@/utils/GraphContextStore';
 import { getContainer } from '@/container';
 import type { RequestContainer } from '@/container';
 import { ApiKey, Permission, RateLimitConfig } from '@/models/ApiKey';
-import { RequestBudget, RequestCancelledError, runWithBudget } from '@/utils/requestBudget';
+import { RequestBudget, isCancellation, runWithBudget } from '@/utils/requestBudget';
 
 /**
  * The container-injection and request-timing middleware run before every route,
@@ -236,8 +236,9 @@ export function errorHandler(
   // The work of a request that timed out stopped, as it was meant to: the 408
   // is the answer and was already logged by the timeout. Not an error.
   // Wrapped by a layer that rethrows (a repository's own error type) it is
-  // still the cancellation: the request's signal says so.
-  if (res.headersSent && (error instanceof RequestCancelledError || (res.locals?.signal as AbortSignal | undefined)?.aborted)) {
+  // still the cancellation. So is the error of writing to a response that has
+  // gone. Any other error is logged, even on a request that got its 408.
+  if (res.headersSent && (isCancellation(error) || (error as { code?: unknown }).code === 'ERR_HTTP_HEADERS_SENT')) {
     return;
   }
 
@@ -415,6 +416,11 @@ export function requestTimeout(timeoutMs: number = 30000, overrides: Record<stri
       // a route that does not check the signal) must not write to the response
       // that has gone.
       muteResponse(res);
+    }, () => res.headersSent, (budgets) => {
+      console.warn(
+        `Request still running after ${budgets} budgets of ${budgetMs} ms: it had begun to commit, so it is not answered 408`,
+        JSON.stringify({ requestId, method: req.method, path: req.path })
+      );
     });
     res.locals.signal = budget.signal;
 

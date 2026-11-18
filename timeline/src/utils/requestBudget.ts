@@ -41,19 +41,28 @@ export class RequestCancelledError extends Error {
   }
 }
 
+/** A committed request that has run this many budgets is logged once (never answered 408). */
+const OVERRUN_BUDGETS = 5;
+
 export class RequestBudget {
   private readonly controller = new AbortController();
   private timer?: NodeJS.Timeout;
   private committed = false;
   private done = false;
+  private rearms = 0;
 
   /**
    * @param ms       the budget
    * @param onExpire called once, just after the signal fired (sends the 408)
+   * @param answered whether a reply has already started (a stream's headers are
+   *                 out): there is no 408 to send, so the request is not cancelled
+   * @param onOverrun called when a committed request has run past several budgets
    */
   constructor(
     private readonly ms: number,
-    private readonly onExpire: () => void
+    private readonly onExpire: () => void,
+    private readonly answered: () => boolean = () => false,
+    private readonly onOverrun: (budgets: number) => void = () => undefined
   ) {}
 
   get signal(): AbortSignal {
@@ -82,8 +91,16 @@ export class RequestBudget {
 
   private expire(): void {
     if (this.done || this.controller.signal.aborted) return;
+    if (this.answered()) {
+      // The reply is under way (a stream): cancelling now would cut it off
+      // with no 408 to say so. Same as a committed request.
+      this.committed = true;
+    }
     if (this.committed) {
-      // Past the point of no return: let the request finish with its real reply.
+      // Past the point of no return: let the request finish with its real
+      // reply, however long that takes; only say so, now and then.
+      this.rearms++;
+      if (this.rearms === OVERRUN_BUDGETS) this.onOverrun(this.rearms + 1);
       this.arm();
       return;
     }
@@ -99,6 +116,15 @@ export function runWithBudget<T>(budget: RequestBudget, fn: () => T): T {
   return storage.run(budget, fn);
 }
 
+/** Whether `error`, or anything it wraps, is the cancellation of a timed-out request. */
+export function isCancellation(error: unknown): boolean {
+  for (let depth = 0; depth < 6 && error instanceof Error; depth++) {
+    if (error instanceof RequestCancelledError) return true;
+    error = (error as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 export function currentBudget(): RequestBudget | null {
   return storage.getStore() ?? null;
 }
@@ -112,6 +138,17 @@ export function currentSignal(): AbortSignal | undefined {
 export function checkpoint(): void {
   const signal = currentSignal();
   if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new RequestCancelledError();
+}
+
+/**
+ * The synchronous form of `commitSection`, for a mutation that is itself the
+ * durable step (an in-memory store write): refuse it if the request is out of
+ * time, otherwise mark the request committed. Nothing can interleave between
+ * the check and the write, because the caller writes in the same turn.
+ */
+export function beginCommit(): void {
+  checkpoint();
+  currentBudget()?.markCommitted();
 }
 
 /** Run a durable step. The request is committed from here on: a timeout no longer cancels it. */

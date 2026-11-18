@@ -9,7 +9,7 @@ import { describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 import express, { NextFunction, Request, Response } from 'express';
 import { errorHandler, rateLimit, requestTimeout } from './middleware';
-import { RequestCancelledError, checkpoint } from '@/utils/requestBudget';
+import { RequestBudget, RequestCancelledError, checkpoint } from '@/utils/requestBudget';
 
 function slowApp(delayMs: number, fail: boolean): express.Application {
   const app = express();
@@ -155,6 +155,57 @@ describe('a request that timed out is cancelled, not left running', () => {
     const res = { headersSent: true, locals: {}, status: vi.fn(), json: vi.fn() } as unknown as Response;
     const req = { path: '/api/events', url: '/api/events', method: 'POST', get: () => undefined } as unknown as Request;
     errorHandler(new RequestCancelledError(), req, res, vi.fn() as unknown as NextFunction);
+    expect(error).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+});
+
+describe('the budget of a request that has gone past the point of no return', () => {
+  it('is never cancelled once a reply is under way (a stream), and no 408 is sent', () => {
+    vi.useFakeTimers();
+    const expired = vi.fn();
+    const budget = new RequestBudget(50, expired, () => true);
+    budget.start();
+    vi.advanceTimersByTime(500);
+    expect(budget.signal.aborted).toBe(false);
+    expect(expired).not.toHaveBeenCalled();
+    budget.dispose();
+    vi.useRealTimers();
+  });
+
+  it('is not cancelled after it committed, however long it runs, and says so once', () => {
+    vi.useFakeTimers();
+    const expired = vi.fn();
+    const overran = vi.fn();
+    const budget = new RequestBudget(50, expired, () => false, overran);
+    budget.start();
+    budget.markCommitted();
+    vi.advanceTimersByTime(50 * 20);
+    expect(budget.signal.aborted).toBe(false);
+    expect(expired).not.toHaveBeenCalled();
+    expect(overran).toHaveBeenCalledTimes(1);
+    budget.dispose();
+    vi.useRealTimers();
+  });
+});
+
+describe('errorHandler on a request that already got its 408', () => {
+  const req = { path: '/api/events', url: '/api/events', method: 'POST', get: () => undefined } as unknown as Request;
+  const sent = (): Response => ({ headersSent: true, locals: { signal: AbortSignal.abort() }, status: vi.fn(), json: vi.fn() }) as unknown as Response;
+
+  it('still logs an error that is not the cancellation', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    errorHandler(new Error('the database is on fire'), req, sent(), vi.fn() as unknown as NextFunction);
+    expect(error).toHaveBeenCalledWith('Request error:', expect.stringContaining('the database is on fire'));
+    error.mockRestore();
+  });
+
+  it('is quiet about the cancellation, wrapped or not, and about a write to the sent response', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const wrapped = new Error('wrapped');
+    Object.assign(wrapped, { cause: new RequestCancelledError() });
+    errorHandler(wrapped, req, sent(), vi.fn() as unknown as NextFunction);
+    errorHandler(Object.assign(new Error('Cannot set headers after they are sent'), { code: 'ERR_HTTP_HEADERS_SENT' }), req, sent(), vi.fn() as unknown as NextFunction);
     expect(error).not.toHaveBeenCalled();
     error.mockRestore();
   });

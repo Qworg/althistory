@@ -39,9 +39,9 @@ export function cancellableSession(session: Session): Session {
     const work = previous.catch(() => undefined).then(async () => {
       checkpoint();
       if (!isWriteQuery(query)) {
-        return raceAbort(plainRun(query, parameters as never, config as never) as unknown as Promise<unknown>, signal, () => {
-          void session.close().catch(() => undefined);
-        });
+        // The caller owns the session and closes it; closing it here would
+        // break a session that outlives the request.
+        return raceAbort(plainRun(query, parameters as never, config as never) as unknown as Promise<unknown>, signal);
       }
       const tx = session.beginTransaction(config as never);
       try {
