@@ -85,12 +85,28 @@ const quote = (name: string): string => `\`${name.replace(/`/g, '``')}\``;
 export async function migrateGraphScopedIdConstraints(
   options: GraphScopedIdConstraintMigrationOptions
 ): Promise<GraphScopedIdConstraintMigrationResult> {
+  const session = options.openSession();
+  try {
+    return await scopeGraphIdConstraints(session, options);
+  } finally {
+    await session.close();
+  }
+}
+
+/**
+ * The migration on a session the caller owns (and closes). `SchemaManager` runs it this way, so the
+ * composite constraints are only ever created by this code, after the duplicate check, and never by
+ * a bare `CREATE CONSTRAINT` whose failure would not name the pair.
+ */
+export async function scopeGraphIdConstraints(
+  session: ConstraintMigrationSession,
+  options: Pick<GraphScopedIdConstraintMigrationOptions, 'log' | 'warn'> = {}
+): Promise<GraphScopedIdConstraintMigrationResult> {
   const log = options.log ?? ((message: string) => console.log(message));
   const warn = options.warn ?? ((message: string) => console.warn(message));
   const result: GraphScopedIdConstraintMigrationResult = { created: [], dropped: [], unattributed: { events: 0, arcs: 0 } };
 
-  const session = options.openSession();
-  try {
+  {
     const shown = await session.run('SHOW CONSTRAINTS YIELD name, type, labelsOrTypes, properties');
     const constraints: ExistingConstraint[] = shown.records.map((record) => ({
       name: String(record.get('name')),
@@ -138,7 +154,5 @@ export async function migrateGraphScopedIdConstraints(
       }
     }
     return result;
-  } finally {
-    await session.close();
   }
 }

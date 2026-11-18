@@ -37,6 +37,7 @@ export default defineConfig({
       // #35: an id is unique within a graph, so a branch holds its parent's ids; and the migration that scopes the constraints.
       'src/tests/integration/cloud-graph-scoped-ids.test.ts',
       'src/tests/integration/cloud-graph-id-constraint-migration.test.ts',
+      'src/tests/integration/cloud-startup-migration.test.ts',
     ],
     // These suites share one Neo4j instance and each deletes every node with
     // its label in its own hooks, so running the files concurrently makes them

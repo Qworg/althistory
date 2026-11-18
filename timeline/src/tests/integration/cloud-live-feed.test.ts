@@ -200,6 +200,8 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
     port = await freePort();
     setEnv('PORT', String(port));
     setEnv('HOST', '127.0.0.1');
+    // A graph copy runs apoc over every node and relationship and then versions the copy: more than the default 2 s request budget on a cold database.
+    setEnv('QUERY_TIMEOUT_MS', '20000');
     base = `http://127.0.0.1:${port}`;
 
     listenersBefore = new Map(
@@ -339,6 +341,59 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
       expect(again.status).toBe(400);
       expect(JSON.stringify(again.body)).toContain('held-elsewhere');
       expect(JSON.stringify(again.body)).not.toMatch(/Neo4jError|Node\(\d+\)/);
+    });
+
+    it('copies a graph under the source\'s ids, with a version of its own that rollback, export and a branch read (#35)', async () => {
+      const made = await http('POST', '/api/graphs', agentKey, undefined, { name: 'Copy source' });
+      const source = ((made.body.data ?? made.body) as { id: string }).id;
+      graphsMade.push(source);
+      const arc = (await http('POST', '/api/arcs', agentKey, source, { name: 'The Age', start_time: '1800-01-01T00:00:00.000Z', end_time: '1900-01-01T00:00:00.000Z', level: 0 })).body.data as { id: string };
+      const event = (id: string, description: string, timestamp: string) =>
+        http('POST', '/api/events', agentKey, source, { id, description, actor: 'A', target: 'B', timestamp }).then((res) => (res.body.data as { id: string }).id);
+      const first = await event('copy-event-1', 'First', '1810-01-01T00:00:00.000Z');
+      const second = await event('copy-event-2', 'Second', '1820-01-01T00:00:00.000Z');
+      expect((await http('POST', '/api/causal/link', agentKey, source, { causeEventId: first, effectEventId: second, relationship: { type: 'direct', strength: 0.5, confidence: 0.5, evidence: 'Seen' } })).status).toBe(201);
+
+      const copied = await http('POST', '/api/graphs/copy', agentKey, undefined, { sourceGraphId: source, targetName: 'Copy target' });
+      expect(copied.status).toBe(201);
+      const target = ((copied.body.data as { id: string }).id);
+      graphsMade.push(target);
+
+      // The copy's entities answer to the source's ids.
+      expect((await http('GET', `/api/events/${first}`, agentKey, target)).status).toBe(200);
+      expect((await http('GET', `/api/arcs/${arc.id}`, agentKey, target)).status).toBe(200);
+      expect((await http('PUT', `/api/events/${first}`, agentKey, target, { description: 'Edited in the copy' })).status).toBe(200);
+      expect((await http('PUT', `/api/arcs/${arc.id}`, agentKey, target, { name: 'Renamed in the copy' })).status).toBe(200);
+      expect(((await http('GET', `/api/events/${first}`, agentKey, source)).body.data as { description: string }).description).toBe('First');
+      expect(((await http('GET', `/api/arcs/${arc.id}`, agentKey, source)).body.data as { name: string }).name).toBe('The Age');
+
+      // No marker of the copy is left on its nodes.
+      const session = getDatabaseManager().getNeo4jSession();
+      try {
+        const marked = await session.run('MATCH (n) WHERE n.graphId = $target AND n._sourceNodeId IS NOT NULL RETURN count(n) AS marked', { target });
+        expect(Number(marked.records[0]?.get('marked'))).toBe(0);
+      } finally {
+        await session.close();
+      }
+
+      // It has a version: the copy as it was made, which export and a branch read.
+      const head = await container.graphRepository.checkout(target);
+      expect(Object.keys(head.events).sort()).toEqual([first, second].sort());
+      expect(Object.keys(head.arcs)).toEqual([arc.id]);
+      expect(Object.keys(head.relationships)).toHaveLength(1);
+      const exported = await container.exportService.exportGraph({ graphId: target, scope: 'full', includeProvenance: false });
+      expect(exported.export.data.events.map((e: { id: string }) => e.id).sort()).toEqual([first, second].sort());
+      expect(exported.export.data.arcs.map((a: { id: string }) => a.id)).toEqual([arc.id]);
+      const branched = await container.graphService.branchGraph(target, { name: 'Branch of the copy' } as never);
+      graphsMade.push(branched.id);
+      const { eventRepository } = await container.graphScopedRepositories(branched.id);
+      expect((await eventRepository.findAll()).map((e) => e.id).sort()).toEqual([first, second].sort());
+
+      // And the copy's entities can be deleted by those ids, leaving the source's.
+      expect((await http('DELETE', `/api/events/${second}`, agentKey, target)).status).toBe(200);
+      expect((await http('DELETE', `/api/arcs/${arc.id}`, agentKey, target)).status).toBe(200);
+      expect((await http('GET', `/api/events/${second}`, agentKey, source)).status).toBe(200);
+      expect((await http('GET', `/api/arcs/${arc.id}`, agentKey, source)).status).toBe(200);
     });
 
     it('versions a batch of links under the id a single link gets in Neo4j, and a transaction that removes it', async () => {

@@ -27,6 +27,7 @@ import {
 } from '../../models/Graph';
 import type { CopyResult as GraphCopyResult, EntityFilter } from '../../services/GraphCopyService';
 import { ValidationError } from '../../utils/errors';
+import { versionCopiedGraph } from '../../services/CopyVersioning';
 
 export const graphRoutes = Router();
 
@@ -276,6 +277,9 @@ graphRoutes.post(
       } else {
         result = await copyService.copyFullGraph(sourceGraphId, targetGraph.id);
       }
+
+      // The copy is a graph of its own: it gets the version a branch gets, so rollback, export and branching see it.
+      await versionCopiedGraph(req.container, targetGraph.id, sourceGraph.name);
 
       res.status(201).json({
         success: true,

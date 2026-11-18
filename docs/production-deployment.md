@@ -191,9 +191,10 @@ branch looked empty in the live store. The constraints are now `(graphId, id)`
 (`event_graph_id`, `arc_graph_id`), and a query that names an event or arc by id
 also names its graph.
 
-The upgrade runs at startup, after the schema is created and the pre-graph rows
-are attributed (see above), and before any request. It is
-`timeline/src/utils/GraphScopedIdConstraintMigration.ts`:
+The upgrade runs at startup, as part of creating the schema and again after the
+pre-graph rows are attributed (see above), and before any request. It is
+`timeline/src/utils/GraphScopedIdConstraintMigration.ts`, and it is the only code
+that creates these two constraints, so the checks below always come first:
 
 - **Fresh database:** the composite constraints are created; there is nothing to drop.
 - **Database created by an older release** (`event_id` and `arc_id`, unique on `id`):
@@ -210,6 +211,15 @@ are attributed (see above), and before any request. It is
 - **The same `(graphId, id)` twice:** impossible under the old constraint, but if
   a database has it the migration stops with the pair named and leaves the old
   constraints in place.
+
+An index you made yourself on `(graphId, id)` of `Event` or `Arc` (for example
+`CREATE INDEX … FOR (e:Event) ON (e.graphId, e.id)`) stops the startup with
+`IndexAlreadyExists`, because the constraint needs that index for itself. Drop your
+index before upgrading; the constraint is the better one.
+
+A graph copy (`POST /api/graphs/copy`) keeps the ids of what it copies and records
+the copy as its first version, as a branch does, so the copy can be edited, rolled
+back, exported and branched by those ids.
 
 Rolling back to an older release needs the old constraints again, which fail if
 any branch now holds an id its parent holds; take a Neo4j backup before upgrading.

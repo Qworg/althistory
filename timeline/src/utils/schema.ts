@@ -1,6 +1,6 @@
 import { Session } from 'neo4j-driver';
 import { getDatabaseManager } from './database';
-import { GRAPH_SCOPED_ID_CONSTRAINTS, graphScopedIdConstraintStatement } from './GraphScopedIdConstraintMigration';
+import { scopeGraphIdConstraints } from './GraphScopedIdConstraintMigration';
 
 /**
  * Schema creation and management utilities
@@ -41,11 +41,6 @@ export class SchemaManager {
     // enforced by `ValidationService` on the domain objects, so the schema
     // keeps the uniqueness the write path actually relies on.
     const constraints = [
-      // An id is unique within a graph (#35): a branch holds its parent's ids.
-      // `main` made them unique across every graph; the startup migration
-      // (`GraphScopedIdConstraintMigration`) drops those on an existing database.
-      ...GRAPH_SCOPED_ID_CONSTRAINTS.map(({ label, name }) => graphScopedIdConstraintStatement(label, name)),
-
       // InferredPressure node constraints
       'CREATE CONSTRAINT pressure_id IF NOT EXISTS FOR (p:InferredPressure) REQUIRE p.id IS UNIQUE',
     ];
@@ -68,6 +63,11 @@ export class SchemaManager {
         }
       }
     }
+
+    // Event and Arc ids: `(graphId, id)`, created (and the old `id`-only ones dropped) by the
+    // migration alone, so a graph that holds an id twice is named and not left to a driver error.
+    // The unattributed-row warning is the startup migration's, after those rows are adopted.
+    await scopeGraphIdConstraints(this.session, { warn: () => undefined });
   }
 
   /**

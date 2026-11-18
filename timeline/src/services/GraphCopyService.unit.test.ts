@@ -38,6 +38,8 @@ describe('GraphCopyService Unit Tests', () => {
         .mockResolvedValueOnce({
           records: [{ get: vi.fn().mockReturnValue(Integer.fromNumber(3)) }]
         } as any)
+        // Mock the removal of the copy markers
+        .mockResolvedValueOnce({ records: [] } as any)
         // Mock integrity validation queries
         .mockResolvedValueOnce({
           records: [
@@ -202,6 +204,32 @@ describe('GraphCopyService Unit Tests', () => {
         call[1] && call[1].preserveIds === true
       );
       expect(nodeCallArgs).toBeDefined();
+    });
+  });
+
+  describe('a copy keeps the ids of what it copies (#35)', () => {
+    const answer = (count: number) => ({ records: [{ get: vi.fn().mockReturnValue(Integer.fromNumber(count)) }] }) as never;
+
+    it('keeps ids unless told not to, and removes the copy markers once the relationships are copied', async () => {
+      vi.mocked(mockSession.run).mockResolvedValue(answer(1));
+
+      await graphCopyService.copyFullGraph('src', 'dst', { validateIntegrity: false });
+
+      const calls = vi.mocked(mockSession.run).mock.calls;
+      const nodeCopy = calls.find((call) => call[1] && 'preserveIds' in call[1]);
+      expect(nodeCopy?.[1]?.preserveIds).toBe(true);
+      const markerRemoval = calls.findIndex((call) => String(call[0]).includes('REMOVE n._sourceNodeId'));
+      const relationshipCopy = calls.findIndex((call) => String(call[0]).includes('apoc.create.relationship'));
+      expect(relationshipCopy).toBeGreaterThanOrEqual(0);
+      expect(markerRemoval).toBeGreaterThan(relationshipCopy);
+      expect(calls[markerRemoval]?.[1]).toEqual({ targetGraphId: 'dst' });
+    });
+
+    it('still lets a caller drop the ids', async () => {
+      vi.mocked(mockSession.run).mockResolvedValue(answer(1));
+      await graphCopyService.copyFullGraph('src', 'dst', { preserveIds: false, validateIntegrity: false });
+      const nodeCopy = vi.mocked(mockSession.run).mock.calls.find((call) => call[1] && 'preserveIds' in call[1]);
+      expect(nodeCopy?.[1]?.preserveIds).toBe(false);
     });
   });
 
@@ -494,7 +522,8 @@ describe('GraphCopyService Unit Tests', () => {
         } as any) // node batch
         .mockResolvedValueOnce({
           records: [{ get: vi.fn().mockReturnValue(Integer.fromNumber(3)) }]
-        } as any); // relationship batch
+        } as any) // relationship batch
+        .mockResolvedValueOnce({ records: [] } as any); // marker removal
 
       // Act
       const result = await graphCopyService.copyFullGraph(sourceGraphId, targetGraphId, {
@@ -504,7 +533,7 @@ describe('GraphCopyService Unit Tests', () => {
       // Assert
       expect(result.success).toBe(true);
       // Verify that batch operations were called (indicating default batch size was used)
-      expect(mockSession.run).toHaveBeenCalledTimes(4);
+      expect(mockSession.run).toHaveBeenCalledTimes(5);
     });
 
     it('should skip integrity validation when disabled', async () => {
@@ -525,7 +554,8 @@ describe('GraphCopyService Unit Tests', () => {
         } as any) // node batch
         .mockResolvedValueOnce({
           records: [{ get: vi.fn().mockReturnValue(Integer.fromNumber(3)) }]
-        } as any); // relationship batch
+        } as any) // relationship batch
+        .mockResolvedValueOnce({ records: [] } as any); // marker removal
 
       // Act
       const result = await graphCopyService.copyFullGraph(sourceGraphId, targetGraphId, {
@@ -536,7 +566,7 @@ describe('GraphCopyService Unit Tests', () => {
       expect(result.success).toBe(true);
       // Should only have 4 calls (2 for counts, 1 for nodes, 1 for relationships)
       // No additional calls for integrity validation
-      expect(mockSession.run).toHaveBeenCalledTimes(4);
+      expect(mockSession.run).toHaveBeenCalledTimes(5);
     });
   });
 

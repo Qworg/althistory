@@ -106,7 +106,7 @@ export class GraphCopyService {
     const copyConfig: CopyConfig = {
       batchSize: config.batchSize || this.DEFAULT_BATCH_SIZE,
       progressCallback: config.progressCallback,
-      preserveIds: config.preserveIds ?? false,
+      preserveIds: config.preserveIds ?? true,
       validateIntegrity: config.validateIntegrity ?? true
     };
 
@@ -133,6 +133,7 @@ export class GraphCopyService {
       const relationshipResult = await this.copyAllRelationships(sourceGraphId, targetGraphId, copyConfig, totalCounts);
       result.copiedRelationships = relationshipResult.copiedCount;
       result.errors?.push(...(relationshipResult.errors || []));
+      await this.dropSourceMarkers(targetGraphId, result);
 
       result.success = result.errors?.length === 0;
       result.duration = Date.now() - startTime;
@@ -168,7 +169,7 @@ export class GraphCopyService {
     const copyConfig: CopyConfig = {
       batchSize: config.batchSize || this.DEFAULT_BATCH_SIZE,
       progressCallback: config.progressCallback,
-      preserveIds: config.preserveIds ?? false,
+      preserveIds: config.preserveIds ?? true,
       validateIntegrity: config.validateIntegrity ?? true
     };
 
@@ -195,6 +196,7 @@ export class GraphCopyService {
       const relationshipResult = await this.copyFilteredRelationships(sourceGraphId, targetGraphId, nodeIds, copyConfig);
       result.copiedRelationships = relationshipResult.copiedCount;
       result.errors?.push(...(relationshipResult.errors || []));
+      await this.dropSourceMarkers(targetGraphId, result);
 
       result.success = result.errors?.length === 0;
       result.duration = Date.now() - startTime;
@@ -230,7 +232,7 @@ export class GraphCopyService {
     const copyConfig: CopyConfig = {
       batchSize: config.batchSize || this.DEFAULT_BATCH_SIZE,
       progressCallback: config.progressCallback,
-      preserveIds: config.preserveIds ?? false,
+      preserveIds: config.preserveIds ?? true,
       validateIntegrity: config.validateIntegrity ?? true
     };
 
@@ -257,6 +259,7 @@ export class GraphCopyService {
       const relationshipResult = await this.copyFilteredRelationships(sourceGraphId, targetGraphId, nodeIds, copyConfig);
       result.copiedRelationships = relationshipResult.copiedCount;
       result.errors?.push(...(relationshipResult.errors || []));
+      await this.dropSourceMarkers(targetGraphId, result);
 
       result.success = result.errors?.length === 0;
       result.duration = Date.now() - startTime;
@@ -423,6 +426,21 @@ export class GraphCopyService {
   }
 
   /**
+   * Remove the `_sourceNodeId` the node pass leaves on every copied node. It only exists to join the
+   * relationship pass to the nodes it copied; left in place it would be a property of the copy's entities.
+   */
+  private async dropSourceMarkers(targetGraphId: string, result: CopyResult): Promise<void> {
+    try {
+      await this.session.run(
+        'MATCH (n) WHERE n.graphId = $targetGraphId AND n._sourceNodeId IS NOT NULL REMOVE n._sourceNodeId',
+        { targetGraphId }
+      );
+    } catch (error) {
+      result.errors?.push(`Removing the copy markers failed: ${error}`);
+    }
+  }
+
+  /**
    * Copy all relationships in batches
    */
   private async copyAllRelationships(
@@ -482,7 +500,8 @@ export class GraphCopyService {
   }
 
   /**
-   * Copy a batch of nodes
+   * Copy a batch of nodes. Events and arcs keep their ids (they are unique per graph, #35); an
+   * InferredPressure is given a new one, because its id constraint is still database-wide.
    */
   private async copyNodeBatch(
     sourceGraphId: string,
@@ -502,7 +521,9 @@ export class GraphCopyService {
         WITH n
         WITH n, labels(n) as nodeLabels, properties(n) as props
         WITH n, nodeLabels, 
-             CASE WHEN $preserveIds 
+             CASE WHEN 'InferredPressure' IN nodeLabels AND $preserveIds
+                  THEN apoc.map.setKey(props, 'id', randomUUID())
+                  WHEN $preserveIds 
                   THEN props 
                   ELSE apoc.map.removeKey(props, 'id') 
              END as finalProps
@@ -871,7 +892,9 @@ export class GraphCopyService {
         WITH n
         WITH n, labels(n) as nodeLabels, properties(n) as props
         WITH n, nodeLabels, 
-             CASE WHEN $preserveIds 
+             CASE WHEN 'InferredPressure' IN nodeLabels AND $preserveIds
+                  THEN apoc.map.setKey(props, 'id', randomUUID())
+                  WHEN $preserveIds 
                   THEN props 
                   ELSE apoc.map.removeKey(props, 'id') 
              END as finalProps

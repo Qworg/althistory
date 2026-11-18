@@ -150,6 +150,14 @@ describe('the graph-scoped id constraint migration (#35)', () => {
     expect(await neo('MATCH (n {id: $e}) RETURN n.graphId AS graphId', { e: `${TAG}_legacy_e` })).toEqual([{ graphId: null }]);
   });
 
+  it('names the pair at startup, from the schema step too, when a graph already holds an id twice', async () => {
+    await dropIdConstraints();
+    await neo('CREATE (:Event {id: $id, graphId: $a}), (:Event {id: $id, graphId: $a})', { id: `${TAG}_dup2`, a: GRAPH_A });
+    // `initializeSchema` is what the process runs first: the driver's "ConstraintCreationFailed" must not be all it says.
+    await expect(initializeSchema()).rejects.toThrow(new RegExp(`${GRAPH_A}/${TAG}_dup2`));
+    expect((await idConstraints()).includes('Event(graphId,id)')).toBe(false);
+  });
+
   it('refuses, and creates nothing, when a graph already holds an id twice', async () => {
     await dropIdConstraints();
     await neo('CREATE (:Event {id: $id, graphId: $a}), (:Event {id: $id, graphId: $a})', { id: `${TAG}_dup`, a: GRAPH_A });
