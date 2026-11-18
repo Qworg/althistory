@@ -703,10 +703,10 @@ const Timeline = memo(function Timeline({
     // The full name if a plate fits; else the shorter forms the layout uses.
     const measurePlateText = (text: string) => {
       const ink = measureLabelInk(text, LABEL_FONT_SIZE, 600)
-      // The same name at smaller sizes (11.5px down to 10px), for a plate that cannot hold the ink at the usual one: the plate-only row's,
+      // The same name at smaller sizes (11px and 10px: whole pixels, as the browser draws half-pixel sizes as the next whole one), for a plate that cannot hold the ink at the usual one: the plate-only row's,
       // a row where the plate's growth would cover the ink above it, or a plate shortened at the bottom (see pinnedLabel.ts).
       const sizes: PlateSize[] = []
-      for (let fontSize = LABEL_FONT_SIZE - 0.5; fontSize >= PLATE_MIN_FONT_SIZE; fontSize -= 0.5) {
+      for (let fontSize = LABEL_FONT_SIZE - 1; fontSize >= PLATE_MIN_FONT_SIZE; fontSize -= 1) {
         sizes.push({ fontSize, width: measureLabelWidth(text, fontSize, 600), ink: measureLabelInk(text, fontSize, 600) })
       }
       return { text, width: measureLabelWidth(text, LABEL_FONT_SIZE, 600), ink, sizes }

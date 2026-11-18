@@ -223,6 +223,9 @@ export function planPinnedLabel(input: PinnedInput): PinnedPlan | null {
           const clear = (entry: { ink?: PlateInk }) => above.every((label) => label.inkBottom! <= y0 - reach(entry).a)
           k = Math.max(0, ladder.findIndex(clear) === -1 ? ladder.length - 1 : ladder.findIndex(clear))
           ;({ a: drawnAscent, d: drawnDescent } = reach(ladder[k]!))
+          // And it ends at its own ink, no lower, where the ink of a label in the row below reaches up under it.
+          const below = Math.min(...beside.filter((label) => label.inkTop !== undefined && label.top >= plate.bottom - 0.01).map((label) => label.inkTop!))
+          if (below - PLATE_INK_SLACK < y0 + drawnDescent) drawnDescent = Math.max(below - PLATE_INK_SLACK - y0, (ladder[k]!.ink?.descent ?? 0) - PLATE_INK_SLACK)
         } else {
           // The plate-only row's plate ends at its own text's ink where a label's ink in the row below would reach under it, and the text
           // is set smaller and lifted, to meet the plate's top, where that is not enough.
@@ -230,7 +233,8 @@ export function planPinnedLabel(input: PinnedInput): PinnedPlan | null {
           if (limit < plate.bottom) {
             const room = (entry: { ink?: PlateInk }) => {
               const d = entry.ink?.descent ?? 0
-              const need = y0 + d - PLATE_INK_SLACK - limit
+              // The plate's bottom stroke reaches half a pixel under its edge: its outer edge, not the edge, is to clear the label's ink.
+              const need = y0 + d - limit
               const max = entry.ink ? Math.max(0, ascent + PLATE_INK_SLACK - entry.ink.ascent) : 0
               return { need: Math.max(0, need), max }
             }

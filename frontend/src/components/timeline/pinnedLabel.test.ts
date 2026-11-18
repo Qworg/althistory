@@ -309,28 +309,29 @@ describe("a plate holds its text's ink (#42)", () => {
     })
 
     it("ends the plate at its own text's ink bottom (less the stroke's half) where a label's accents reach under it, and lifts the text when that is not enough", () => {
-      // The label's ink reaches -74. The text's ink bottom is -75 + 2 = -73, less 0.5 = -73.5: still 0.5 under the label's ink, so the baseline is lifted 0.5 (the ink's top then meets the plate's top stroke).
-      const found = only(above(-74))
-      expect(found.lift).toBeCloseTo(0.5)
+      // The label's ink reaches -73.2. The text's ink bottom is -75 + 2 = -73; the plate's stroke reaches 0.5 under its edge, so the baseline is lifted 0.2
+      // for the stroke's outer edge to clear the label's ink (the ink's top then still lies inside the plate's top stroke).
+      const found = only(above(-73.2))
+      expect(found.lift).toBeCloseTo(0.2)
       expect(found.fontSize).toBeUndefined()
-      const bottom = Y + PLATE_ONLY + found.descent
-      expect(bottom).toBeLessThanOrEqual(Y - 74 + 1e-9)
-      // The ink still lies inside the plate: its top (baseline - lift - ascent) is no higher than the plate's top, less the stroke's half.
+      expect(Y + PLATE_ONLY + found.descent + PLATE_INK_SLACK).toBeLessThanOrEqual(Y - 73.2 + 1e-9)
       expect(Y + PLATE_ONLY - found.lift! - plain.ascent).toBeGreaterThanOrEqual(Y + PLATE_ONLY - found.ascent - PLATE_INK_SLACK - 1e-9)
     })
 
     it('sets the text smaller where lifting at the usual size is not enough, and the plate narrows with it', () => {
-      const found = only(above(-74.7))
+      // At 12px the lift needed is 1 and the room 0.5; at 11px it is 1.1 and the room 1.4.
+      const found = only(above(-74))
       expect(found.fontSize).toBe(11)
-      expect(found.lift).toBeCloseTo(1.3)
+      expect(found.lift).toBeCloseTo(1.1)
       expect(found.right - found.left).toBe(92)
-      expect(Y + PLATE_ONLY + found.descent).toBeLessThanOrEqual(Y - 74.7 + 1e-9)
+      expect(Y + PLATE_ONLY + found.descent + PLATE_INK_SLACK).toBeLessThanOrEqual(Y - 74 + 1e-9)
     })
 
     it('stays at the smallest size, lifted as far as it goes, where nothing is enough: it still names the selection and hides nothing', () => {
       const found = only(above(-80))
       expect(found).toMatchObject({ offset: PLATE_ONLY, fontSize: 10, hidden: [] })
       expect(found.lift).toBeCloseTo(PLATE_ONLY_ASCENT + PLATE_INK_SLACK - 7.4)
+      expect(found.right - found.left).toBe(84)
     })
 
     it('ignores a label whose ink is not under the plate, or that is hidden by it', () => {
@@ -370,6 +371,90 @@ describe("a plate holds its text's ink (#42)", () => {
       expect(Y - 20 - found.ascent).toBeGreaterThanOrEqual(Y - 34 + 2.6)
       // A label above that is not over the plate does not matter.
       expect(row20([label('away', 500, 650, -34, { inkBottom: Y - 34 + 2.6 })]).fontSize).toBeUndefined()
+    })
+  })
+
+  describe('the edges of the ink rules', () => {
+    const Y = 100
+    const sizes = [
+      { fontSize: 11, width: 90, ink: { ascent: 11, descent: 2.4 } },
+      { fontSize: 10.5, width: 86, ink: { ascent: 9.4, descent: 2.3 } },
+    ]
+    // Row -20 (baseline 80): its plate reaches 10.5 above (69.5) and 3.5 below; grown for the accented ink (12) it reaches 12.5 above (67.5).
+    const row20 = (labels: PlacedLabelBox[], ink = accented) => planPinnedLabel({ x: 300, markY: Y, width: 100, innerWidth: 700, rows: [-20], labels, plateBox, ink, sizes })!
+    const above = (inkBottom: number, extra: Partial<PlacedLabelBox> = {}) => label('above', 250, 350, -34, { inkBottom, ...extra })
+
+    it("grows over a label's ink above exactly to where it ends, not a hair under it", () => {
+      expect(row20([above(Y - 32.5)])).toMatchObject({ ascent: 12.5 })
+      expect(row20([above(Y - 32.5)]).fontSize).toBeUndefined()
+      // The stroke's half counts: ink ending between the ink's top and the stroke's outer edge is covered.
+      expect(row20([above(Y - 32.2)]).fontSize).toBe(11)
+    })
+
+    it("judges the label above by its ink, not its box, and only a label above: not one beside or below the plate", () => {
+      // The box ends at -31 (69, under the grown top at 67.5), the ink at 67: clear.
+      expect(row20([above(Y - 33)]).fontSize).toBeUndefined()
+      // A label in the row below, over the plate, with ink reaching far up: it does not stop the plate growing.
+      expect(row20([label('below', 250, 350, -6, { inkBottom: Y + 20 })]).fontSize).toBeUndefined()
+      // A label above that cannot be cleared at any size: the smallest is used.
+      expect(row20([above(Y - 25)]).fontSize).toBe(10.5)
+    })
+
+    it('keeps the text at the usual width when only the drawn plate grows', () => {
+      const found = row20([])
+      expect(found.right - found.left).toBe(100)
+    })
+
+    it("ends the plate at its own ink where the ink of a label in the row below reaches up under it", () => {
+      // The plate's usual bottom is 83.5; the label below (baseline -6) has accents reaching up to 82.8.
+      const found = row20([label('below', 250, 350, -6, { inkTop: Y - 17.2 })], plain)
+      expect(found.descent).toBeCloseTo(2.3)
+      expect(Y - 20 + found.descent + PLATE_INK_SLACK).toBeLessThanOrEqual(Y - 17.2 + 1e-9)
+      expect(row20([label('below', 250, 350, -6, { inkTop: Y - 5 })], plain).descent).toBe(PLATE_DESCENT)
+      // It does not end above its own ink: the text's descenders (2) less the stroke's half stay in.
+      expect(row20([label('below', 250, 350, -6, { inkTop: Y - 19 })], plain).descent).toBeCloseTo(1.5)
+    })
+
+    // The plate-only row, baseline -75 (25): the plate's top is 16, its usual bottom 28.
+    const only = (labels: PlacedLabelBox[], ink = { ascent: 9, descent: 2 }, extra: Partial<Parameters<typeof planPinnedLabel>[0]> = {}) =>
+      planPinnedLabel({ x: 300, markY: Y, width: 100, innerWidth: 700, rows: [PLATE_ONLY], labels, plateBox, ink, sizes: [{ fontSize: 11, width: 92, ink: { ascent: 8.1, descent: 2.1 } }, { fontSize: 10, width: 84, ink: { ascent: 7.4, descent: 2.2 } }], ...extra })!
+
+    it('does not lift for a label the plate hides, or one above the plate', () => {
+      // A small unprotected label covered whole by the plate (hidden), with ink reaching up to 18.
+      const hidden = label('hidden', 250, 350, -73, { inkTop: Y - 82, length: 5 })
+      const found = only([hidden])
+      expect(found.hidden).toEqual(['hidden'])
+      expect(found.lift).toBeUndefined()
+      // A label up in the arc band: its ink is above the plate, not under it.
+      expect(only([label('arc', 250, 350, -90, { inkTop: Y - 99 })]).lift).toBeUndefined()
+    })
+
+    it("sets the text smaller, not at the usual size, when the usual size's ink did not fit the plate even where nothing reaches under it", () => {
+      // Ink of 12 above: the text starts at 11 (its 8.1 fits), and the room beside a label whose ink ends level with the usual bottom does not send it back to 12.
+      const found = only([label('top', 200, 400, -62, { inkTop: Y - 72.5 })], { ascent: 12, descent: 2 })
+      expect(found.fontSize).toBe(11)
+    })
+
+    it("keeps an end-anchored plate's right edge, and a start-anchored one's left, when the text is set smaller", () => {
+      const sizes2 = [{ fontSize: 10, width: 80, ink: { ascent: 9.2, descent: 2 } }]
+      const end = planPinnedLabel({ x: 698, markY: Y, width: 100, innerWidth: 700, rows: [PLATE_ONLY], labels: [], plateBox, ink: accented, sizes: sizes2 })!
+      expect(end).toMatchObject({ anchor: 'end', fontSize: 10 })
+      expect(end.right).toBeLessThanOrEqual(700)
+      expect(end.right - end.left).toBe(80)
+      const startAt = planPinnedLabel({ x: 4, markY: Y, width: 100, innerWidth: 700, rows: [PLATE_ONLY], labels: [], plateBox, ink: accented, sizes: sizes2 })!
+      expect(startAt).toMatchObject({ anchor: 'start', fontSize: 10 })
+      expect(startAt.left).toBeGreaterThanOrEqual(0)
+      expect(startAt.right - startAt.left).toBe(80)
+      // Where the narrowing happens beside a label's ink, too: the plate narrows about the middle.
+      const mid = only([label('top', 200, 400, -62, { inkTop: Y - 74 })], { ascent: 9, descent: 2 })
+      expect(mid.anchor).toBe('middle')
+      expect((mid.left + mid.right) / 2).toBeCloseTo(300)
+    })
+
+    it('starts from the size that fits, and never goes back to a larger one, for the room beside a label', () => {
+      // 12px ink of 12 above does not fit; at its usual size the room beside a label whose ink ends level with the plate's bottom would "fit" at once.
+      const found = only([label('top', 200, 400, -62, { inkTop: Y - 72.5 })], { ascent: 12, descent: 2 })
+      expect(found.fontSize).toBeDefined()
     })
   })
 })

@@ -316,6 +316,22 @@ describe('planSelectionPlate', () => {
       }
     })
 
+    it('strips an opening bracket, a slash and a full stop left at the cut', () => {
+      for (const name of ['Parliament / the king agrees', 'Parliament ( the king agrees', 'Parliament. The king agrees', 'Parliament, the king agrees', 'Parliament - the king agrees']) {
+        expect(shortenedPlateTexts(name, measure).map((form) => form.text), name).toEqual(['Parliament…'])
+      }
+    })
+
+    it('counts the word end that falls exactly at the length, and not the one just past it', () => {
+      // "Prussia buys" is 12 characters: with its ellipsis 13, the longest form; "Prussia buys a" would be 15.
+      expect(shortenedPlateTexts('Prussia buys a war', measure).map((form) => form.text)).toEqual(['Prussia buys…'])
+      // "Prussia in a" + ellipsis is 13: kept at 13, and "Prussia in…" at 11 follows.
+      expect(shortenedPlateTexts('Prussia in a war that will end', measure).map((form) => form.text)).toEqual(['Prussia in a…', 'Prussia in…'])
+      // A form of exactly the minimum length is allowed; one a character short is not.
+      expect(shortenedPlateTexts('Parliament and the king', measure).map((form) => form.text)).toEqual(['Parliament…'])
+      expect(shortenedPlateTexts('Parliamen and the king', measure)).toEqual([])
+    })
+
     it('leaves out forms already known and names too short to cut', () => {
       expect(shortenedPlateTexts('Manchester clerks hold a meeting', measure, ['Manchester…'])).toEqual([])
       expect(shortenedPlateTexts('Short name', measure)).toEqual([])

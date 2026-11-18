@@ -14,14 +14,19 @@ import { computeRipple } from './timelineLinks'
 import type { Event } from '@/types'
 
 const widthPerChar = { value: 6.72 }
-vi.mock('./labelWidth', async (original) => ({
-  ...(await original<typeof import('./labelWidth')>()),
+const inkOverride: { value: null | ((text: string, size: number, weight: number) => { ascent: number; descent: number }) } = { value: null }
+vi.mock('./labelWidth', async (original) => {
+  const actual = await original<typeof import('./labelWidth')>()
+  return {
+  ...actual,
+  measureLabelInk: (text: string, size: number, weight = 400) => inkOverride.value?.(text, size, weight) ?? actual.measureLabelInk(text, size, weight),
   measureLabelWidth: (text: string) => text.length * widthPerChar.value,
-}))
+}
+})
 const forcedPlan: { value: ReturnType<typeof import('./selectionPlate').planSelectionPlate> } = { value: null }
 const planned: Array<ReadonlyArray<{ text: string; width: number }>> = []
 type PlateFormInput = { text: string; width: number; ink?: { ascent: number; descent: number }; sizes?: ReadonlyArray<{ fontSize: number; width: number; ink: { ascent: number; descent: number } }> }
-const selectionInputs: Array<{ texts: ReadonlyArray<PlateFormInput>; shortTexts?: ReadonlyArray<PlateFormInput>; links: ReadonlyArray<{ id: string; x1: number; x2: number; traced?: boolean }>; belowRows: readonly number[]; plateOnlyRows: readonly number[]; aboveRows: readonly number[]; preferAbove?: boolean; labels: ReadonlyArray<{ id: string; left: number; right: number; top: number; bottom: number; protectedLabel?: boolean; obstacle?: boolean }>; softObstacles?: ReadonlyArray<{ id: string; left: number; right: number; top: number; bottom: number; protectedLabel?: boolean; obstacle?: boolean }> }> = []
+const selectionInputs: Array<{ texts: ReadonlyArray<PlateFormInput>; shortTexts?: ReadonlyArray<PlateFormInput>; links: ReadonlyArray<{ id: string; x1: number; x2: number; traced?: boolean }>; belowRows: readonly number[]; plateOnlyRows: readonly number[]; aboveRows: readonly number[]; preferAbove?: boolean; labels: ReadonlyArray<{ id: string; left: number; right: number; top: number; bottom: number; inkTop?: number; inkBottom?: number; protectedLabel?: boolean; obstacle?: boolean }>; softObstacles?: ReadonlyArray<{ id: string; left: number; right: number; top: number; bottom: number; protectedLabel?: boolean; obstacle?: boolean }> }> = []
 vi.mock('./selectionPlate', async (original) => {
   const actual = await original<typeof import('./selectionPlate')>()
   return {
@@ -60,6 +65,7 @@ beforeEach(() => {
   widthPerChar.value = 6.72
   planned.length = 0
   forcedPlan.value = null
+  inkOverride.value = null
   selectionInputs.length = 0
   Object.defineProperty(SVGSVGElement.prototype, 'width', { configurable: true, get: () => ({ baseVal: { value: 1000 } }) })
   Object.defineProperty(SVGSVGElement.prototype, 'height', { configurable: true, get: () => ({ baseVal: { value: 500 } }) })
@@ -543,15 +549,15 @@ describe('the sizes and short forms the plate is offered (#41, #42)', () => {
   const accented = (count: number): Event[] =>
     Array.from({ length: count }, (_, i) => event(`e${String(i).padStart(2, '0')}`, new Date(Date.UTC(2024, 0, 1, i)).toISOString(), `Ångström reforms the engine office number ${i}`))
 
-  it('offers every form the sizes from 11.5px down to 10px in half-pixel steps, measured at each size', () => {
+  it('offers every form the whole-pixel sizes below 12px, down to 10px, measured at each size', () => {
     selectAll(accented(40), () => selectionInputs.length > 0)
     const form = selectionInputs[0]!.texts[0]!
-    expect(form.sizes!.map((size) => size.fontSize)).toEqual([11.5, 11, 10.5, 10])
+    expect(form.sizes!.map((size) => size.fontSize)).toEqual([11, 10])
     // The usual size's ink is an accented capital's, taller than the plate-only plate's 9 (and half the stroke).
     expect(form.ink!.ascent).toBeGreaterThan(pinned.PLATE_ONLY_ASCENT + pinned.PLATE_INK_SLACK)
     // Each size is measured at that size: narrower as it gets smaller (here by the mocked width per character, so the same: the width is of the text).
     for (const size of form.sizes!) expect(size.width).toBe(form.width)
-    for (const input of selectionInputs) for (const f of input.texts) expect(f.sizes!.map((size) => size.fontSize)).toEqual([11.5, 11, 10.5, 10])
+    for (const input of selectionInputs) for (const f of input.texts) expect(f.sizes!.map((size) => size.fontSize)).toEqual([11, 10])
   })
 
   it('draws the pinned text at the size and baseline the plan gives: smaller, and lifted, with the plate shortened', () => {
@@ -578,5 +584,52 @@ describe('the sizes and short forms the plate is offered (#41, #42)', () => {
     const short = selectionInputs[0]!.shortTexts!
     expect(short.map((form) => form.text)).toEqual(['Prussia in…'])
     expect(selectionInputs[0]!.texts.map((form) => form.text)).not.toContain('Prussia in…')
+  })
+
+  describe('the ink the labels are offered with', () => {
+    const named = (count: number): Event[] =>
+      Array.from({ length: count }, (_, i) =>
+        event(`e${String(i).padStart(2, '0')}`, new Date(Date.UTC(2024, 0, 1, i)).toISOString(), i % 2 === 0 ? `Ångström reforms the engine office number ${i}` : `Typing begins at the engine office number ${i}`)
+      )
+    const firstInput = (events: Event[], highlighted?: Set<string>) => {
+      for (const ev of events) {
+        selectionInputs.length = 0
+        render(<Timeline events={events} arcs={[]} width={1000} height={500} selectedEventId={ev.id} highlightedEventIds={highlighted} />)
+        cleanup()
+        if (selectionInputs.length > 0) return selectionInputs[0]!
+      }
+      return null
+    }
+    // The box's top is 9.6 above its baseline and its bottom 3 below; the ink says where the text really reaches.
+    const reach = (box: { top: number; bottom: number; inkTop?: number; inkBottom?: number }) => ({ ascent: box.top + 9.6 - box.inkTop!, descent: box.inkBottom! - (box.bottom - 3) })
+
+    it('carries each label the measured ink of its own text: accented capitals rise higher than plain ones', () => {
+      const input = firstInput(named(40))!
+      const boxes = input.labels.filter((box) => /^e\d\d$/.test(box.id))
+      expect(boxes.length).toBeGreaterThan(4)
+      for (const box of boxes) {
+        expect(box.inkTop, box.id).toBeDefined()
+        expect(box.inkBottom, box.id).toBeDefined()
+        const index = Number(box.id.slice(1))
+        // The jsdom estimate: 1em above the baseline for an accented capital, 0.75em for the rest; 0.2em below for a descender.
+        expect(reach(box).ascent, box.id).toBeCloseTo(index % 2 === 0 ? 12 : 9)
+        expect(reach(box).descent, box.id).toBeCloseTo(2.4)
+      }
+    })
+
+    it('measures an emphasised label at the semibold weight the plate draws it in, and the rest at regular', () => {
+      inkOverride.value = (_text, _size, weight) => (weight === 600 ? { ascent: 13, descent: 4 } : { ascent: 10, descent: 2 })
+      const events = named(40)
+      const highlighted = new Set(events.filter((_, i) => i % 3 === 0).map((ev) => ev.id))
+      const input = firstInput(events, highlighted)!
+      const boxes = input.labels.filter((box) => /^e\d\d$/.test(box.id))
+      expect(boxes.some((box) => highlighted.has(box.id))).toBe(true)
+      expect(boxes.some((box) => !highlighted.has(box.id))).toBe(true)
+      for (const box of boxes) {
+        const want = highlighted.has(box.id) ? { ascent: 13, descent: 4 } : { ascent: 10, descent: 2 }
+        expect(reach(box).ascent, box.id).toBeCloseTo(want.ascent)
+        expect(reach(box).descent, box.id).toBeCloseTo(want.descent)
+      }
+    })
   })
 })

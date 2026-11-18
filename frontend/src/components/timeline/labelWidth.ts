@@ -79,13 +79,20 @@ export function measureLabelInk(text: string, fontSize: number, weight = 400): {
     descent: /[gjpqy,;]/.test(text) ? fontSize * 0.2 : 0,
   }
   if (ctx) {
-    // Measured at ten times the size and scaled back: at small sizes the canvas hints its glyphs to whole pixels (an accented capital
-    // measures 12px at 11px and at 12px alike), which hides the half pixels a plate's fit depends on.
-    ctx.font = `${weight} ${fontSize * INK_SCALE}px ${family}`
-    const m = ctx.measureText(text)
-    if (Number.isFinite(m.actualBoundingBoxAscent) && Number.isFinite(m.actualBoundingBoxDescent)) {
-      ink = { ascent: Math.max(0, m.actualBoundingBoxAscent / INK_SCALE), descent: Math.max(0, m.actualBoundingBoxDescent / INK_SCALE) }
+    // The larger of two measures. At the page's size the canvas hints glyphs to whole pixels, as the browser does when it draws small text
+    // (an accented capital reads 12px at 11px and at 12px alike, and text at 11.5px is drawn as 12px). At ten times the size it does not,
+    // which is the shape of the glyph. Taking the larger holds the ink whichever the drawing follows.
+    const ink1 = (scale: number) => {
+      ctx.font = `${weight} ${fontSize * scale}px ${family}`
+      const m = ctx.measureText(text)
+      return Number.isFinite(m.actualBoundingBoxAscent) && Number.isFinite(m.actualBoundingBoxDescent)
+        ? { ascent: Math.max(0, m.actualBoundingBoxAscent / scale), descent: Math.max(0, m.actualBoundingBoxDescent / scale) }
+        : null
     }
+    const hinted = ink1(1)
+    const shaped = ink1(INK_SCALE)
+    if (hinted && shaped) ink = { ascent: Math.max(hinted.ascent, shaped.ascent), descent: Math.max(hinted.descent, shaped.descent) }
+    else if (hinted ?? shaped) ink = (hinted ?? shaped)!
   }
   inkCache.set(key, ink)
   return ink
