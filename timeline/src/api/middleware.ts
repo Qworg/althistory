@@ -782,7 +782,7 @@ export function rateLimit(customConfig?: Partial<RateLimitConfig>) {
     // A request that has already been answered 408 (it was still waiting to
     // reach this point) is not counted and does not go on: nothing is left to
     // reply to. One that was counted on arrival stays counted.
-    if (res.headersSent || (res.locals.signal as AbortSignal | undefined)?.aborted) {
+    if (res.headersSent || (res.locals?.signal as AbortSignal | undefined)?.aborted) {
       return;
     }
 

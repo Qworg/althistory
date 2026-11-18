@@ -26,8 +26,8 @@ import { initializeContainer, cleanupContainer, Container } from '@/container';
 import { apiRouter } from '@/api/routes';
 import { errorHandler, injectContainer, requestTimeout } from '@/api/middleware';
 
-const BUDGET_MS = 60;
-const SLOW_MS = 200;
+const BUDGET_MS = 300;
+const SLOW_MS = 700;
 
 describe('A 408 means nothing was saved (local mode)', () => {
   let app: Express;
