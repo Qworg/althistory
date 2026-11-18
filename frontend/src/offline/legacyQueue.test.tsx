@@ -6,6 +6,8 @@ import * as connectivity from './connectivity'
 import { clearMutationQueue, enqueueMutation, readMutationQueue } from './mutationQueue'
 import { replayQueuedMutations, resetReplayNotices, startOfflineSync } from './offlineSync'
 import { OfflineIndicator } from './OfflineIndicator'
+import { UnscopedPrompt } from './UnscopedPrompt'
+import { stampUnscopedMutations } from './mutationQueue'
 
 vi.mock('./connectivity', () => ({
   isOnline: vi.fn(() => true),
@@ -70,7 +72,7 @@ describe('writes queued before graphs were recorded', () => {
     queueLegacyAndNew()
     const user = userEvent.setup()
     const stop = startOfflineSync({ retryBaseDelayMs: 5 })
-    render(<OfflineIndicator />)
+    render(<UnscopedPrompt />)
     await replayQueuedMutations()
 
     expect(screen.getAllByTestId('unscoped-prompt')).toHaveLength(1)
@@ -92,21 +94,105 @@ describe('writes queued before graphs were recorded', () => {
     queueLegacyAndNew()
     const user = userEvent.setup()
     const stop = startOfflineSync({ retryBaseDelayMs: 5 })
-    render(<OfflineIndicator />)
+    render(<UnscopedPrompt />)
     await act(async () => {
       await replayQueuedMutations()
     })
 
     await user.click(screen.getByRole('button', { name: 'Discard' }))
+    // Not undoable, so it asks first.
+    expect(readMutationQueue()).toHaveLength(6)
+    await user.click(screen.getByRole('button', { name: 'Discard 5 changes?' }))
 
-    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining('step=0'), expect.anything())
-    expect(readMutationQueue().map((m) => m.graphId)).toEqual(['graph-new'])
+    // Only the newer write is sent (and so leaves the queue); none of the discarded ones.
+    await vi.waitFor(() => expect(readMutationQueue()).toHaveLength(0))
+    expect(fetchMock.mock.calls.map((c) => String(c[0]))).toEqual([expect.stringContaining('step=new')])
     const messages = useGlobalStore.getState().errors.map((e) => e.message)
     expect(messages).toHaveLength(1)
     expect(messages[0]).toContain('Discarded 5 saved changes')
     stop()
   })
 })
+
+describe('after a decision', () => {
+  beforeEach(() => {
+    clearMutationQueue()
+    resetReplayNotices()
+    mockedIsOnline.mockReturnValue(true)
+    localStorage.setItem('active_graph_id', 'graph-open')
+    useGlobalStore.setState({ errors: [], pendingMutationCount: 0, unscopedMutationCount: 0 })
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    localStorage.clear()
+  })
+
+  it('Discard sends the newer write queued behind the legacy ones', async () => {
+    for (let i = 0; i < 3; i += 1) enqueueMutation({ method: 'PUT', url: `/events/e${i}`, body: {} })
+    enqueueMutation({ method: 'PUT', url: '/events/newer', body: {}, graphId: 'graph-new' })
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const user = userEvent.setup()
+    const stop = startOfflineSync({ retryBaseDelayMs: 5 })
+    render(<UnscopedPrompt />)
+    await act(async () => {
+      await replayQueuedMutations()
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Discard' }))
+    await user.click(screen.getByRole('button', { name: 'Discard 3 changes?' }))
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('/events/newer')
+    stop()
+  })
+
+  it('Cancel on the confirm step keeps everything', async () => {
+    enqueueMutation({ method: 'PUT', url: '/events/e1', body: {} })
+    syncCounts()
+    const user = userEvent.setup()
+    render(<UnscopedPrompt />)
+    await user.click(screen.getByRole('button', { name: 'Discard' }))
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(readMutationQueue()).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Discard' })).toBeInTheDocument()
+  })
+
+  it('with no graph open Send is disabled and says to open one; stamping refuses null', async () => {
+    localStorage.removeItem('active_graph_id')
+    enqueueMutation({ method: 'PUT', url: '/events/e1', body: {} })
+    syncCounts()
+    render(<UnscopedPrompt />)
+    expect(screen.getByRole('button', { name: /^Send to/ })).toBeDisabled()
+    expect(screen.getByTestId('unscoped-prompt')).toHaveTextContent('Open a graph to send them.')
+    expect(() => stampUnscopedMutations(null as unknown as string)).toThrow()
+    expect(readMutationQueue()[0]!.graphId).toBeUndefined()
+  })
+
+  it('says "1 change ... its graph" in the singular, and the pill names the wait', () => {
+    enqueueMutation({ method: 'PUT', url: '/events/e1', body: {} })
+    syncCounts()
+    render(
+      <>
+        <UnscopedPrompt />
+        <OfflineIndicator />
+      </>,
+    )
+    expect(screen.getByTestId('unscoped-prompt')).toHaveTextContent("1 change saved before this update doesn't record its graph.")
+    expect(screen.getByTestId('offline-indicator')).toHaveTextContent('1 change needs a decision before sending')
+    expect(screen.getByTestId('offline-indicator')).not.toHaveTextContent('waiting to sync')
+  })
+})
+
+/** Mirror the queue into the store the way startOfflineSync does. */
+function syncCounts() {
+  const queue = readMutationQueue()
+  useGlobalStore.setState({
+    pendingMutationCount: queue.length,
+    unscopedMutationCount: queue.filter((m) => m.graphId === undefined).length,
+  })
+}
 
 describe('what a replay sends and says', () => {
   beforeEach(() => {
@@ -172,5 +258,31 @@ describe('what a replay sends and says', () => {
     )
     await replayQueuedMutations()
     expect(useGlobalStore.getState().errors[0]!.message).toContain('was rejected by the server (HTTP 404)')
+  })
+
+  it('treats a soft-deleted graph (200 with status deleted) as gone', async () => {
+    enqueueMutation({ method: 'PUT', url: '/events/e9', body: {}, graphId: 'graph-soft' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (url: string) =>
+        String(url).includes('/graphs/')
+          ? new Response(JSON.stringify({ success: true, data: { id: 'graph-soft', status: 'deleted' } }), { status: 200 })
+          : new Response('{}', { status: 404 }),
+      ),
+    )
+    await replayQueuedMutations()
+    expect(useGlobalStore.getState().errors[0]!.message).toContain('graph it was made in no longer exists')
+  })
+
+  it.each([403, 500])('does not call the graph gone when the probe answers %i', async (probeStatus) => {
+    enqueueMutation({ method: 'PUT', url: '/events/e9', body: {}, graphId: 'graph-x' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (url: string) =>
+        String(url).includes('/graphs/') ? new Response('{}', { status: probeStatus }) : new Response('{}', { status: 404 }),
+      ),
+    )
+    await replayQueuedMutations()
+    expect(useGlobalStore.getState().errors[0]!.message).not.toContain('no longer exists')
   })
 })

@@ -380,7 +380,12 @@ export function isUnscoped(mutation: QueuedMutation): boolean {
  * Returns how many were stamped. Throws `QueueStorageError` if one could not be
  * saved; entries already stamped stay stamped.
  */
-export function stampUnscopedMutations(graphId: string | null): number {
+export function stampUnscopedMutations(graphId: string): number {
+  // `null` would send them with no X-Graph-Id, to whatever graph the server
+  // calls active (or to a 404 that discards them): never a guess.
+  if (typeof graphId !== 'string' || graphId === '') {
+    throw new QueueStorageError('enqueue', 'Open a graph before sending changes whose graph was not recorded.')
+  }
   const storage = requireStorage('enqueue')
   let stamped = 0
   for (const mutation of readMutationQueue()) {

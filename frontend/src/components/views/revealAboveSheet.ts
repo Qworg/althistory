@@ -121,7 +121,9 @@ export function revealSelectedMark(eventId: string): boolean {
     'g[data-timeline-mark="event"][data-traced="true"], path.timeline-link[data-ripple]',
   ) ?? []
   for (const node of Array.from(traced)) {
-    const r = node.getBoundingClientRect()
+    // A traced mark counts by its dot, as the selected one does; labels can be
+    // moved aside, and measuring them hid curves that would have fitted.
+    const r = (node.querySelector('.event-hit-area') ?? node).getBoundingClientRect()
     trace = {
       top: trace ? Math.min(trace.top, r.top) : r.top,
       bottom: trace ? Math.max(trace.bottom, r.bottom) : r.bottom,

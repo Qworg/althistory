@@ -496,6 +496,21 @@ describe('GraphSelector', () => {
       expect(button).toHaveFocus()
     })
 
+    it('marks Escape handled, so the view behind does not also clear its selection', async () => {
+      render(<GraphSelector />)
+      await user.click(screen.getByRole('button'))
+      const seenByViews: boolean[] = []
+      const viewHandler = (e: KeyboardEvent) => seenByViews.push(e.defaultPrevented)
+      document.addEventListener('keydown', viewHandler)
+      try {
+        await user.keyboard('{Escape}')
+      } finally {
+        document.removeEventListener('keydown', viewHandler)
+      }
+      // A view handler that begins `if (event.defaultPrevented) return` stands aside.
+      expect(seenByViews).toEqual([true])
+    })
+
     it('leaves Escape to an open modal dialog', async () => {
       render(<GraphSelector />)
       await user.click(screen.getByRole('button'))

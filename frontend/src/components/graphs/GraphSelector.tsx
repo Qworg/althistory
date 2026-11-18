@@ -163,12 +163,15 @@ export const GraphSelector = memo(function GraphSelector({
     if (!isOpen || sheet) return
     function handleEscape(event: KeyboardEvent) {
       if (event.key !== 'Escape' || event.defaultPrevented || shouldIgnoreAppShortcut(event)) return
+      event.preventDefault()
       setIsOpen(false)
       setIsCreating(false)
       dropdownRef.current?.querySelector<HTMLElement>('button[aria-haspopup="listbox"]')?.focus()
     }
-    document.addEventListener('keydown', handleEscape)
-    return () => document.removeEventListener('keydown', handleEscape)
+    // Capture phase, and the key is marked handled, so the view's own Escape
+    // (which clears the selection) does not also fire for the same press.
+    document.addEventListener('keydown', handleEscape, true)
+    return () => document.removeEventListener('keydown', handleEscape, true)
   }, [isOpen, sheet])
 
   // Focus input when creating

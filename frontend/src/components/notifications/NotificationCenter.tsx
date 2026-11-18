@@ -1,6 +1,7 @@
 import { useGlobalStore } from '@/stores/globalStore'
 import { useEffect, useMemo, useState } from 'react'
 import { ErrorState } from '@/types'
+import { UnscopedPrompt } from '@/offline/UnscopedPrompt'
 
 type ErrorType = ErrorState['type']
 
@@ -133,6 +134,8 @@ export function NotificationCenter() {
       // sits above the bottom navigation bar.
       className="pointer-events-none fixed bottom-4 right-4 z-[var(--z-notices)] flex w-full max-w-md flex-col gap-2 max-lg:inset-x-4 max-lg:bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] max-lg:w-auto max-h-[calc(100dvh-var(--app-header-h,7rem)-5rem)] overflow-y-auto max-lg:max-h-[calc(100dvh-var(--app-header-h,7rem)-7rem-env(safe-area-inset-bottom,0px))]"
     >
+      <UnscopedPrompt />
+
       {loadingOperations.size > 0 && (
         <div
           role="status"

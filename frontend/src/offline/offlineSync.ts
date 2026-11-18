@@ -79,6 +79,16 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000
  */
 const MUTATION_REQUEST_TIMEOUT_MS = 30000
 
+/** A soft-deleted graph still answers 200, with `status: 'deleted'`. */
+async function graphIsDeleted(response: Response): Promise<boolean> {
+  try {
+    const body = (await response.json()) as { data?: { status?: string }; status?: string }
+    return (body.data?.status ?? body.status) === 'deleted'
+  } catch {
+    return false
+  }
+}
+
 /** Marks a 404 whose cause is that the write's graph no longer exists. */
 const GRAPH_GONE_PREFIX = 'graph-gone:'
 
@@ -145,7 +155,7 @@ export function createHttpMutationSender(baseURL: string = API_BASE_URL): Mutati
         // A 404 can be the item or the graph. Ask which, so the notice does not
         // blame the wrong one.
         const probe = await fetch(`${baseURL}/graphs/${encodeURIComponent(mutation.graphId)}`, { headers }).catch(() => null)
-        if (probe?.status === 404) {
+        if (probe?.status === 404 || (probe?.ok && (await graphIsDeleted(probe)))) {
           throw new HttpMutationError(404, `${GRAPH_GONE_PREFIX}${mutation.graphId}`)
         }
       }
@@ -339,7 +349,7 @@ function syncQueueCounts(): void {
  * The person chose to send the writes saved before graphs were recorded to the
  * graph that is open now: stamp it on them and replay. Returns how many.
  */
-export function sendUnscopedToGraph(graphId: string | null): number {
+export function sendUnscopedToGraph(graphId: string): number {
   const stamped = stampUnscopedMutations(graphId)
   syncQueueCounts()
   if (stamped > 0) void replayQueuedMutations(activeSyncOptions ?? {})
@@ -351,6 +361,8 @@ export function discardUnscopedMutations(): number {
   const unscoped = getQueuedMutations().filter(isUnscoped)
   for (const mutation of unscoped) removeMutation(mutation.id)
   syncQueueCounts()
+  // Writes queued behind the discarded ones were held with them; send them now.
+  if (unscoped.length > 0 && getQueueSize() > 0) void replayQueuedMutations(activeSyncOptions ?? {})
   if (unscoped.length > 0) {
     const noun = unscoped.length === 1 ? 'change' : 'changes'
     useGlobalStore.getState().addError({

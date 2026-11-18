@@ -62,7 +62,7 @@ async function measure(page: Page, id: string): Promise<Measure | null> {
       'g[data-timeline-mark="event"][data-traced="true"], path.timeline-link[data-ripple]',
     )
     parts.forEach((p) => {
-      const r = p.getBoundingClientRect()
+      const r = (p.querySelector('.event-hit-area') ?? p).getBoundingClientRect()
       traceTop = Math.min(traceTop, r.top)
       traceBottom = Math.max(traceBottom, r.bottom)
     })
@@ -106,22 +106,19 @@ for (const dark of [false, true]) {
         await page.waitForTimeout(250)
         await settled(page)
         const m = await measure(page, id)
-        if (!m) {
-          console.log('NULL', id, await page.evaluate(() => ({ s: document.querySelectorAll('aside[aria-label="Selection"]').length, pos: [...document.querySelectorAll('aside[aria-label="Selection"]')].map((a) => getComputedStyle(a).position + ':' + (a as HTMLElement).offsetHeight) })))
-          continue
-        }
+        if (!m) continue
         const lo = m.headerRest + 12
         const hi = m.sheetTop - 12
         const markVisible = m.markTop >= lo - 1 && m.markBottom <= hi + 1
-        if (!markVisible) { hiddenMarks.push(id); console.log('HIDDEN', id, JSON.stringify(m)) }
+        if (!markVisible) hiddenMarks.push(id)
         if (m.curves > 0) {
           withCurves += 1
           const fits = m.traceBottom - m.traceTop <= hi - lo
-          if (fits && (m.traceTop < lo - 1 || m.traceBottom > hi + 1)) { cutCurves.push(id); console.log('CUT', id, JSON.stringify(m)) }
+          if (fits && (m.traceTop < lo - 1 || m.traceBottom > hi + 1)) cutCurves.push(id)
         }
       }
 
-      console.log(`${viewport.width}x${viewport.height} ${dark ? 'dark' : 'light'}: ${ids.length} selections, hidden marks ${hiddenMarks.length}, with curves ${withCurves}, curves cut though they fit ${cutCurves.length}`)
+      expect({ hiddenMarks, cutCurves, withCurves: withCurves > 0 }).toEqual({ hiddenMarks: [], cutCurves: [], withCurves: true })
       expect(hiddenMarks).toEqual([])
       expect(cutCurves).toEqual([])
       await context.close()

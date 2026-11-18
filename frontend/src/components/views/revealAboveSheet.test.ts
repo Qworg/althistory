@@ -230,3 +230,54 @@ describe('useRevealSelectionAboveSheet', () => {
     expect(document.documentElement.style.getPropertyValue('--inspector-sheet-h')).toBe('')
   })
 })
+
+describe('trace measurement and observer lifetime', () => {
+  const rect = (top: number, bottom: number) => ({ top, bottom, left: 0, right: 0, width: 0, height: bottom - top, x: 0, y: top, toJSON() {} }) as DOMRect
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+    document.documentElement.style.removeProperty('--inspector-sheet-h')
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+  })
+
+  it('measures a traced mark by its dot, not by its label', () => {
+    document.body.innerHTML = `
+      <header></header>
+      <svg data-timeline-canvas>
+        <g data-timeline-mark="event" data-event-id="e1"><circle class="event-hit-area"></circle></g>
+        <g data-timeline-mark="event" data-event-id="e2" data-traced="true"><circle class="event-hit-area"></circle></g>
+      </svg>
+      <aside aria-label="Selection" style="position:fixed"></aside>`
+    vi.spyOn(document.querySelector('header')!, 'getBoundingClientRect').mockReturnValue(rect(0, 100))
+    Object.defineProperty(document.querySelector('header')!, 'offsetHeight', { value: 100, configurable: true })
+    vi.spyOn(document.querySelector('aside')!, 'getBoundingClientRect').mockReturnValue(rect(500, 800))
+    const [g1, g2] = Array.from(document.querySelectorAll('g'))
+    vi.spyOn(g1!.querySelector('circle')!, 'getBoundingClientRect').mockReturnValue(rect(300, 320))
+    // The traced mark's group is tall (a label above it) but its dot is above the sheet.
+    vi.spyOn(g2!, 'getBoundingClientRect').mockReturnValue(rect(200, 520))
+    vi.spyOn(g2!.querySelector('circle')!, 'getBoundingClientRect').mockReturnValue(rect(400, 420))
+    const scrollBy = vi.fn()
+    window.scrollBy = scrollBy as unknown as typeof window.scrollBy
+    expect(revealSelectedMark('e1')).toBe(false)
+    expect(scrollBy).not.toHaveBeenCalled()
+  })
+
+  it('stops watching the canvas for mutations when its window ends', () => {
+    vi.useFakeTimers()
+    document.body.innerHTML = `<header></header><svg data-timeline-canvas><g data-timeline-mark="event" data-event-id="e1"></g></svg><aside aria-label="Selection" style="position:fixed"></aside>`
+    const disconnect = vi.fn()
+    vi.stubGlobal(
+      'MutationObserver',
+      class {
+        observe() {}
+        disconnect = disconnect
+      },
+    )
+    renderHook(() => useRevealSelectionAboveSheet('e1'))
+    expect(disconnect).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1500)
+    expect(disconnect).toHaveBeenCalled()
+  })
+})
