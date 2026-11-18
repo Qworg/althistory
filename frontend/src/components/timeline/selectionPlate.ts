@@ -77,11 +77,6 @@ export interface SelectionPlateInput {
   stemLength: number
   labels: readonly PlacedLabelBox[]
   /**
-   * The same labels with their boxes at the font's usual height, for the last attempt (see planSelectionPlate): `labels` reach as
-   * high as the measured ink of the top row's accented capitals, which closes the plate-only row to them.
-   */
-  labelsWithoutInk?: readonly PlacedLabelBox[]
-  /**
    * Obstacles the first pass respects and the fallback does not (a narrow arc
    * bar a plate would be mistaken for the label of): better a plate over a
    * sliver's edge than an unnamed selection.
@@ -101,17 +96,6 @@ export interface SelectionPlateInput {
 }
 
 export function planSelectionPlate(input: SelectionPlateInput): { text: string; plan: PinnedPlan } | null {
-  const found = planWithinInk(input)
-  if (found) return found
-  // No row holds the name's ink (an accented capital is too tall for the plate-only row, the only one free): a name that pokes a few
-  // pixels out of its plate is better than a selection with none, so the last attempt sets the ink aside.
-  // The labels' own ink is set aside too (the top row's accents), or the plate-only row stays refused for covering them.
-  const bare = (forms: ReadonlyArray<PlateText>) => forms.map(({ text, width }) => ({ text, width }))
-  const inked = [...input.texts, ...(input.shortTexts ?? [])].some((form) => form.ink) || input.labelsWithoutInk !== undefined
-  return inked ? planWithinInk({ ...input, texts: bare(input.texts), shortTexts: bare(input.shortTexts ?? []), labels: input.labelsWithoutInk ?? input.labels }) : null
-}
-
-function planWithinInk(input: SelectionPlateInput): { text: string; plan: PinnedPlan } | null {
   const { x, selectedId, markY, innerWidth, aboveRows, plateOnlyRows, belowRows, linkBandHeight, stemLength, labels, softObstacles = [], marks, links, texts, shortTexts = [], preferAbove = false } = input
   const above = [...aboveRows, ...plateOnlyRows]
   const obstacles = (subset: readonly PlateLink[]): PlacedLabelBox[] => {

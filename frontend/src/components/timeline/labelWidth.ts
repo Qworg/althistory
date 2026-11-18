@@ -7,6 +7,7 @@
  */
 
 const cache = new Map<string, number>()
+const INK_SCALE = 10
 const inkCache = new Map<string, { ascent: number; descent: number }>()
 let epoch = 0
 const listeners = new Set<() => void>()
@@ -78,10 +79,12 @@ export function measureLabelInk(text: string, fontSize: number, weight = 400): {
     descent: /[gjpqy,;]/.test(text) ? fontSize * 0.2 : 0,
   }
   if (ctx) {
-    ctx.font = `${weight} ${fontSize}px ${family}`
+    // Measured at ten times the size and scaled back: at small sizes the canvas hints its glyphs to whole pixels (an accented capital
+    // measures 12px at 11px and at 12px alike), which hides the half pixels a plate's fit depends on.
+    ctx.font = `${weight} ${fontSize * INK_SCALE}px ${family}`
     const m = ctx.measureText(text)
     if (Number.isFinite(m.actualBoundingBoxAscent) && Number.isFinite(m.actualBoundingBoxDescent)) {
-      ink = { ascent: Math.max(0, m.actualBoundingBoxAscent), descent: Math.max(0, m.actualBoundingBoxDescent) }
+      ink = { ascent: Math.max(0, m.actualBoundingBoxAscent / INK_SCALE), descent: Math.max(0, m.actualBoundingBoxDescent / INK_SCALE) }
     }
   }
   inkCache.set(key, ink)

@@ -21,7 +21,7 @@ import {
 import { formatHistoricalTimestamp, formatEventDate, formatHistoricalEnd } from '@/utils/historicalTime'
 import { measureLabelInk, measureLabelWidth } from './labelWidth'
 import { useFontEpoch } from './useFontEpoch'
-import { PLATE_ONLY_ASCENT, PLATE_PAD, type PlacedLabelBox } from './pinnedLabel'
+import { PLATE_INK_SLACK, PLATE_MIN_FONT_SIZE, PLATE_ONLY_ASCENT, PLATE_ONLY_DESCENT, PLATE_PAD, type PlacedLabelBox, type PlateSize } from './pinnedLabel'
 import { planSelectionPlate, shortenedPlateTexts, type PlateLink } from './selectionPlate'
 import { layoutEventLabels, truncateLabel, PRIORITY_LABEL_MAX_CHARS, BESIDE_PX, LABEL_FONT_SIZE, TIMELINE_BELOW_ROW_OFFSETS, TIMELINE_LABEL_CONFIG } from './eventLabelLayout'
 import { tooltipPlacement } from './tooltipPlacement'
@@ -624,8 +624,6 @@ const Timeline = memo(function Timeline({
     if (!selected || eventLabels.has(selected.id)) return null
     const x = xScale(toInstant(selected.timestamp))
     if (!(x >= 0 && x <= innerWidth)) return null
-    const topLabelRow = Math.min(...TIMELINE_LABEL_CONFIG.rowOffsets)
-    const usualTop = new Map<string, number>()
     const labels: PlacedLabelBox[] = []
     for (const ev of visibleEvents) {
       const placement = eventLabels.get(ev.id)
@@ -633,16 +631,13 @@ const Timeline = memo(function Timeline({
       const markX = xScale(toInstant(ev.timestamp))
       const emphasised = highlightedEventIds?.has(ev.id) ?? false
       const labelWidth = measureLabelWidth(placement.text, LABEL_FONT_SIZE, emphasised ? 600 : 400)
-      const ink = measureLabelInk(placement.text, LABEL_FONT_SIZE, emphasised ? 600 : 400)
       const anchorX = markX + (placement.dx ?? 0)
       const left = placement.anchor === 'start' ? anchorX : placement.anchor === 'end' ? anchorX - labelWidth : anchorX - labelWidth / 2
-      usualTop.set(ev.id, eventY + placement.offset - LABEL_FONT_SIZE * 0.8)
       labels.push({
         id: ev.id,
         left,
         right: left + labelWidth,
-        // The top row's text reaches its real height: the plate-only row's plate lies just above it, and an accented capital rises into it.
-        top: eventY + placement.offset - (placement.offset <= topLabelRow ? Math.max(LABEL_FONT_SIZE * 0.8, ink.ascent) : LABEL_FONT_SIZE * 0.8),
+        top: eventY + placement.offset - LABEL_FONT_SIZE * 0.8,
         bottom: eventY + placement.offset + 3,
         length: placement.text.length,
         // The traced and highlighted labels, and the point of divergence event's (named by the ghost): the one a branch view turns on.
@@ -702,7 +697,17 @@ const Timeline = memo(function Timeline({
       }
     }
     // The full name if a plate fits; else the shorter forms the layout uses.
-    const measurePlateText = (text: string) => ({ text, width: measureLabelWidth(text, LABEL_FONT_SIZE, 600), ink: measureLabelInk(text, LABEL_FONT_SIZE, 600) })
+    const measurePlateText = (text: string) => {
+      const ink = measureLabelInk(text, LABEL_FONT_SIZE, 600)
+      // The plate-only row's plate cannot grow: ink that does not fit it is drawn smaller (11.5px down to 10px), where the plate is that row's.
+      const sizes: PlateSize[] = []
+      if (ink.ascent > PLATE_ONLY_ASCENT + PLATE_INK_SLACK || ink.descent > PLATE_ONLY_DESCENT + PLATE_INK_SLACK) {
+        for (let fontSize = LABEL_FONT_SIZE - 0.5; fontSize >= PLATE_MIN_FONT_SIZE; fontSize -= 0.5) {
+          sizes.push({ fontSize, width: measureLabelWidth(text, fontSize, 600), ink: measureLabelInk(text, fontSize, 600) })
+        }
+      }
+      return { text, width: measureLabelWidth(text, LABEL_FONT_SIZE, 600), ink, sizes }
+    }
     const plateTexts = [PRIORITY_LABEL_MAX_CHARS, 24, 18, 14].map((chars) => measurePlateText(truncateLabel(selected.description, chars)))
     const found = planSelectionPlate({
       x,
@@ -716,7 +721,6 @@ const Timeline = memo(function Timeline({
       linkBandHeight: layout.linkBand ? layout.linkBand.height : null,
       stemLength: EVENT_STEM_LENGTH,
       labels: [...labels, ...bandObstacles],
-      labelsWithoutInk: [...labels.map((box) => ({ ...box, top: usualTop.get(box.id) ?? box.top })), ...bandObstacles],
       softObstacles,
       marks: visibleEvents.map((other) => ({ id: other.id, x: xScale(toInstant(other.timestamp)) })),
       links,
@@ -1897,7 +1901,7 @@ const Timeline = memo(function Timeline({
                     x={pinned.plan.anchor === 'start' ? pinned.plan.left : pinned.plan.anchor === 'end' ? pinned.plan.right : pinned.x}
                     y={eventY + pinned.plan.offset}
                     textAnchor={pinned.plan.anchor}
-                    fontSize={LABEL_FONT_SIZE}
+                    fontSize={pinned.plan.fontSize ?? LABEL_FONT_SIZE}
                     fontWeight={600}
                     style={{ fill: 'var(--accent-selected)' }}
                   >

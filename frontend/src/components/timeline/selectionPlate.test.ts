@@ -305,32 +305,22 @@ describe('accented capitals (#42)', () => {
   // The label rows are blocked by things that are not labels, so the plate-only row and the first row under the track compete.
   const rowsBlocked = ABOVE.map((offset) => box(`o${offset}`, 0, 700, offset, { protectedLabel: true, obstacle: true }))
 
-  it('puts ordinary text in the plate-only row and accented capitals under the track: the 12px plate cannot hold them', () => {
-    expect(planSelectionPlate(input({ labels: rowsBlocked, texts: [plain] }))?.plan.offset).toBe(-75)
-    const found = planSelectionPlate(input({ labels: rowsBlocked, texts: [accented] }))
-    expect(found?.plan.offset).toBe(34)
+  const accentedSizes = [{ fontSize: 10.5, width: 86, ink: { ascent: 9.4, descent: 2.3 } }, { fontSize: 10, width: 82, ink: { ascent: 9.2, descent: 2.2 } }]
+  const accentedSmall = { ...accented, sizes: accentedSizes }
+
+  it('keeps accented capitals in the plate-only row, drawn smaller, rather than taking a row under the track', () => {
+    expect(planSelectionPlate(input({ labels: rowsBlocked, texts: [plain] }))).toMatchObject({ plan: { offset: -75 } })
+    const found = planSelectionPlate(input({ labels: rowsBlocked, texts: [accentedSmall] }))
+    expect(found).toMatchObject({ text: accented.text, plan: { offset: -75, fontSize: 10.5 } })
   })
 
-  it('where only the plate-only row is free, accented capitals are named there all the same: poking out is better than no name', () => {
-    expect(planSelectionPlate(input({ labels: rowsBlocked, texts: [accented], belowRows: [] }))).toMatchObject({ text: accented.text, plan: { offset: -75 } })
+  it('keeps the row at the smallest size when the ink fits at none, and still hides nothing', () => {
+    const tall = { ...accented, sizes: accentedSizes.map((size) => ({ ...size, ink: { ascent: 10.2, descent: 2 } })) }
+    expect(planSelectionPlate(input({ labels: rowsBlocked, texts: [tall] }))).toMatchObject({ plan: { offset: -75, fontSize: 10, hidden: [] } })
   })
 
   it('still names nothing where no row is free at all', () => {
-    expect(planSelectionPlate(input({ labels: wall, texts: [accented], belowRows: [] }))).toBeNull()
-  })
-
-  it("does not cover the top label row's accents: a plate in the plate-only row would cover 2px of their tops", () => {
-    // The top row's label (baseline -62) has an accented capital rising 12px: its box reaches -74, past the plate-only plate's bottom (-72).
-    const topAccent = box('topAccent', 0, 700, -62, { top: Y - 62 - 12, protectedLabel: true })
-    const rows3 = ABOVE.slice(0, 3).map((offset) => box(`o${offset}`, 0, 700, offset, { protectedLabel: true, obstacle: true }))
-    expect(planSelectionPlate(input({ labels: [...rows3, topAccent], texts: [plain], belowRows: [] }))).toBeNull()
-    // A row under the track is taken instead, when there is one.
-    expect(planSelectionPlate(input({ labels: [...rows3, topAccent], texts: [plain] }))?.plan.offset).toBe(34)
-    // Where there is none, the last attempt sets the accents aside rather than leave the selection unnamed.
-    const usual = box('topAccent', 0, 700, -62, { protectedLabel: true })
-    expect(planSelectionPlate(input({ labels: [...rows3, topAccent], labelsWithoutInk: [...rows3, usual], texts: [plain], belowRows: [] }))?.plan.offset).toBe(-75)
-    // With its ordinary box the plate sits clear of it (the case before the label's ink was measured).
-    expect(planSelectionPlate(input({ labels: [...rows3, box('top', 0, 700, -62, { protectedLabel: true })], texts: [plain], belowRows: [] }))?.plan.offset).toBe(-75)
+    expect(planSelectionPlate(input({ labels: wall, texts: [accentedSmall], belowRows: [] }))).toBeNull()
   })
 })
 })

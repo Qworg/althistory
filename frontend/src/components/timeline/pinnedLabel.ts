@@ -57,6 +57,8 @@ export interface PinnedPlan {
   crossings: number
   /** How many pieces of the selection's own trace the plate's leader runs through. */
   tracedHits: number
+  /** The size the text is drawn at where it is not the usual one (an accented name in the plate-only row is drawn smaller to fit). */
+  fontSize?: number
 }
 
 /** The plate reaches this far above its baseline and below it (14px in all, the pitch of the label rows, so it never touches the rows beside it), and past the text on each side. */
@@ -66,6 +68,8 @@ export const PLATE_DESCENT = 3.5
 export const PLATE_ONLY_ASCENT = 9
 export const PLATE_ONLY_DESCENT = 3
 export const PLATE_PAD = 3
+/** The smallest the text of a plate is drawn, to fit the plate-only row's 12px plate: below 10px it stops being easy to read. */
+export const PLATE_MIN_FONT_SIZE = 10
 /**
  * How far a glyph may reach past a plate's edge and still count as inside it:
  * the plate's 1px stroke is centred on its edge, so its inner half is under the ink.
@@ -80,11 +84,26 @@ function overlapArea(a: { left: number; right: number; top: number; bottom: numb
   return w > 0 && h > 0 ? w * h : 0
 }
 
+/** The ink a text reaches above and below its baseline. */
+export interface PlateInk {
+  ascent: number
+  descent: number
+}
+
+/** A name set at a size: its measured width and ink. */
+export interface PlateSize {
+  fontSize: number
+  width: number
+  ink: PlateInk
+}
+
 /** A name the plate may carry: its measured width, and the ink it reaches above and below its baseline. */
 export interface PlateText {
   text: string
   width: number
-  ink?: { ascent: number; descent: number }
+  ink?: PlateInk
+  /** The same name at smaller sizes, largest first, for a row whose plate cannot hold the ink at the usual size (see `plateBox`). */
+  sizes?: ReadonlyArray<PlateSize>
 }
 
 export interface PinnedInput {
@@ -99,11 +118,14 @@ export interface PinnedInput {
   /**
    * The plate's reach above and below its baseline in a row (default: PLATE_ASCENT and PLATE_DESCENT). A `fixed` row cannot
    * grow (the plate-only row is squeezed between an arc bar and the top label row): text whose measured ink does not fit
-   * it is not placed there. In any other row the plate is drawn taller to hold the ink.
+   * it is drawn at the largest of its `sizes` that does (the smallest if none), and is never moved to another row for it.
+   * In any other row the plate is drawn taller to hold the ink.
    */
   plateBox?: (offset: number) => { ascent: number; descent: number; fixed?: boolean }
   /** The text's measured ink above and below its baseline (a capital with an accent rises above the font's ascenders). */
-  ink?: { ascent: number; descent: number }
+  ink?: PlateInk
+  /** The text at smaller sizes (see `plateBox`). */
+  sizes?: ReadonlyArray<PlateSize>
   /**
    * The last resort: a label the plate touches, or whose leader runs through
    * it, is hidden whole (with its leader) however little the plate covers it,
@@ -113,18 +135,21 @@ export interface PinnedInput {
 }
 
 export function planPinnedLabel(input: PinnedInput): PinnedPlan | null {
-  const { x, markY, width, innerWidth, rows, labels, relaxed = false, plateBox, ink } = input
+  const { x, markY, width, innerWidth, rows, labels, relaxed = false, plateBox, ink, sizes } = input
   let best: { plan: PinnedPlan; hidden: number; text: number } | null = null
   for (const offset of rows) {
     const row = plateBox?.(offset) ?? { ascent: PLATE_ASCENT, descent: PLATE_DESCENT }
-    if (row.fixed && ink && (ink.ascent > row.ascent + PLATE_INK_SLACK || ink.descent > row.descent + PLATE_INK_SLACK)) continue
+    // In a row that cannot grow, the text is set smaller until its ink fits (it stays at the smallest size if none does).
+    const fits = (i: PlateInk) => i.ascent <= row.ascent + PLATE_INK_SLACK && i.descent <= row.descent + PLATE_INK_SLACK
+    const size = row.fixed && ink && !fits(ink) && sizes?.length ? (sizes.find((candidate) => fits(candidate.ink)) ?? sizes[sizes.length - 1]!) : undefined
+    const textWidth = size?.width ?? width
     const { ascent, descent } = row
     // What is drawn holds the ink; where the plate is placed is judged by the row's own box. An ordinary row's plate grows a pixel or
     // two upward for an accented capital, into the clear gap under the row above's text (its descenders reach 2px, the plate's top
     // stops short of them), so the growth is not counted as covering that row's labels.
     const drawnAscent = !row.fixed && ink ? Math.max(ascent, ink.ascent + PLATE_INK_SLACK) : ascent
     const drawnDescent = !row.fixed && ink ? Math.max(descent, ink.descent + PLATE_INK_SLACK) : descent
-    for (const extent of extentsFor(x, width, innerWidth)) {
+    for (const extent of extentsFor(x, textWidth, innerWidth)) {
       const plate = {
         left: extent.left - PLATE_PAD,
         right: extent.right + PLATE_PAD,
@@ -182,7 +207,7 @@ export function planPinnedLabel(input: PinnedInput): PinnedPlan | null {
         best = {
           hidden: hidden.length,
           text,
-          plan: { offset, anchor: extent.anchor, left: extent.left, right: extent.right, ascent: drawnAscent, descent: drawnDescent, hidden: hidden.map((label) => label.id), crossings, tracedHits },
+          plan: { offset, anchor: extent.anchor, left: extent.left, right: extent.right, ascent: drawnAscent, descent: drawnDescent, ...(size ? { fontSize: size.fontSize } : {}), hidden: hidden.map((label) => label.id), crossings, tracedHits },
         }
       }
     }
@@ -201,7 +226,7 @@ export function planPinnedLabel(input: PinnedInput): PinnedPlan | null {
  * selection that can be named is.
  */
 export function planPinnedText(
-  input: Omit<PinnedInput, 'width' | 'relaxed' | 'ink'>,
+  input: Omit<PinnedInput, 'width' | 'relaxed' | 'ink' | 'sizes'>,
   texts: ReadonlyArray<PlateText>,
   /** Whether the last resort may run (default: it may). Without it, only the ordinary rules are tried. */
   allowHide = true
@@ -209,8 +234,8 @@ export function planPinnedText(
   const lengthOf = (ids: string[]) => ids.reduce((sum, id) => sum + (input.labels.find((label) => label.id === id)?.length ?? 0), 0)
   const rank = (relaxed: boolean) => {
     let best: { text: string; plan: PinnedPlan; width: number } | null = null
-    for (const { text, width, ink } of texts) {
-      const plan = planPinnedLabel({ ...input, width, ink, relaxed })
+    for (const { text, width, ink, sizes } of texts) {
+      const plan = planPinnedLabel({ ...input, width, ink, sizes, relaxed })
       if (!plan) continue
       const better =
         !best ||

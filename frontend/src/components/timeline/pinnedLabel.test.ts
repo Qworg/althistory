@@ -232,15 +232,36 @@ describe("a plate holds its text's ink (#42)", () => {
     expect(place(plain)).toMatchObject({ offset: PLATE_ONLY, ascent: PLATE_ONLY_ASCENT, descent: PLATE_ONLY_DESCENT })
   })
 
-  it('does not put accented capitals there: the fixed plate cannot hold them, and does not grow', () => {
-    // The ink rises 12 above the baseline; the plate reaches 9 (and the stroke's outer half, 0.5): 3px would poke out.
+  // The accented name at smaller sizes, as measured: ink shrinks with the size (11.5px: 11.5 above the baseline ... 9.3px at 9.7).
+  const sizes = [
+    { fontSize: 11, width: 90, ink: { ascent: 11, descent: 2.4 } },
+    { fontSize: 10.5, width: 86, ink: { ascent: 9.4, descent: 2.3 } },
+    { fontSize: 10, width: 82, ink: { ascent: 9.2, descent: 2.2 } },
+  ]
+
+  it('keeps accented capitals in the fixed plate-only row, drawn at the largest size whose ink fits, with the width of that size', () => {
     expect(12).toBeGreaterThan(PLATE_ONLY_ASCENT + PLATE_INK_SLACK)
-    expect(place(accented)).toBeNull()
+    const found = planPinnedLabel({ x: 300, markY: 100, width: 100, innerWidth: 700, rows, labels: wall, plateBox, ink: accented, sizes })!
+    expect(found).toMatchObject({ offset: PLATE_ONLY, fontSize: 10.5, ascent: PLATE_ONLY_ASCENT, descent: PLATE_ONLY_DESCENT })
+    expect(found.right - found.left).toBe(86)
+    // The ink at the chosen size is inside the plate (and its stroke).
+    expect(sizes[1]!.ink.ascent).toBeLessThanOrEqual(found.ascent + PLATE_INK_SLACK)
+    // Ordinary text is drawn at the usual size.
+    expect(planPinnedLabel({ x: 300, markY: 100, width: 100, innerWidth: 700, rows, labels: wall, plateBox, ink: plain, sizes: [] })!.fontSize).toBeUndefined()
   })
 
-  it('holds the ink of a descender too: a text that dips below the fixed plate is refused there', () => {
-    expect(place({ ascent: 9, descent: 4 })).toBeNull()
-    expect(place({ ascent: 9, descent: PLATE_ONLY_DESCENT + PLATE_INK_SLACK })).not.toBeNull()
+  it('keeps the row, at the smallest size, when the ink fits at none: it never moves to another row or hides a neighbour for it', () => {
+    const tall = sizes.map((size) => ({ ...size, ink: { ascent: 10.4, descent: 2 } }))
+    // Row -20 is free here: the plate-only row is still the one taken when it is the nearest the rows offer it; offered alone it is kept.
+    const found = planPinnedLabel({ x: 300, markY: 100, width: 100, innerWidth: 700, rows: [PLATE_ONLY], labels: [], plateBox, ink: accented, sizes: tall })!
+    expect(found).toMatchObject({ offset: PLATE_ONLY, fontSize: 10, hidden: [] })
+    const withWall = planPinnedLabel({ x: 300, markY: 100, width: 100, innerWidth: 700, rows, labels: wall, plateBox, ink: accented, sizes: tall })!
+    expect(withWall).toMatchObject({ offset: PLATE_ONLY, fontSize: 10, hidden: [] })
+  })
+
+  it('a descender that dips below the plate is set smaller too', () => {
+    const deep = [{ fontSize: 11, width: 90, ink: { ascent: 8, descent: 4.2 } }, { fontSize: 10, width: 82, ink: { ascent: 7.5, descent: 3.4 } }]
+    expect(planPinnedLabel({ x: 300, markY: 100, width: 100, innerWidth: 700, rows, labels: wall, plateBox, ink: { ascent: 9, descent: 4.5 }, sizes: deep })).toMatchObject({ offset: PLATE_ONLY, fontSize: 10 })
   })
 
   it("draws an ordinary row's plate tall enough for accented capitals, without counting the growth as covering the row above", () => {
@@ -257,20 +278,15 @@ describe("a plate holds its text's ink (#42)", () => {
   it('always gives a plate-only box that contains the measured ink', () => {
     for (const ink of [plain, accented, { ascent: 12, descent: 4 }, { ascent: 5, descent: 0 }, { ascent: 9.5, descent: 3.5 }]) {
       for (const labels of [[], wall]) {
-        const found = planPinnedLabel({ x: 300, markY: 100, width: 100, innerWidth: 700, rows: [PLATE_ONLY], labels, plateBox, ink })
+        const found = planPinnedLabel({ x: 300, markY: 100, width: 100, innerWidth: 700, rows: [PLATE_ONLY], labels, plateBox, ink, sizes })
         if (!found) continue
-        expect(found.ascent + PLATE_INK_SLACK).toBeGreaterThanOrEqual(ink.ascent)
-        expect(found.descent + PLATE_INK_SLACK).toBeGreaterThanOrEqual(ink.descent)
+        // At whatever size it was drawn at, the ink fits, unless even the smallest does not.
+        const drawn = found.fontSize === undefined ? ink : sizes.find((size) => size.fontSize === found.fontSize)!.ink
+        if (found.fontSize !== 10) {
+          expect(found.ascent + PLATE_INK_SLACK).toBeGreaterThanOrEqual(drawn.ascent)
+          expect(found.descent + PLATE_INK_SLACK).toBeGreaterThanOrEqual(drawn.descent)
+        }
       }
     }
-  })
-
-  it('names the text it can: planPinnedText skips a form whose ink does not fit the only free row', () => {
-    // Only the fixed row is free. The accented full name does not fit it; a form with no accent does.
-    const found = planPinnedText({ x: 300, markY: 100, innerWidth: 700, rows, labels: wall, plateBox }, [
-      { text: 'Émile Ångström…', width: 100, ink: accented },
-      { text: 'The mill…', width: 60, ink: plain },
-    ])
-    expect(found?.text).toBe('The mill…')
   })
 })
