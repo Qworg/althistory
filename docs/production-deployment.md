@@ -182,6 +182,38 @@ person to look at it.
 Reverting is not supported — once rows are attributed, they stay. Take a Neo4j
 backup before the first start on an upgraded database.
 
+### Event and arc ids are unique within a graph
+
+Until this change `Event.id` and `Arc.id` were unique across the whole Neo4j
+database. A branch holds its parent's ids, so in cloud mode every event, arc and
+link of a branch was refused ("Node(…) already exists with label `Event`") and the
+branch looked empty in the live store. The constraints are now `(graphId, id)`
+(`event_graph_id`, `arc_graph_id`), and a query that names an event or arc by id
+also names its graph.
+
+The upgrade runs at startup, after the schema is created and the pre-graph rows
+are attributed (see above), and before any request. It is
+`timeline/src/utils/GraphScopedIdConstraintMigration.ts`:
+
+- **Fresh database:** the composite constraints are created; there is nothing to drop.
+- **Database created by an older release** (`event_id` and `arc_id`, unique on `id`):
+  the composite constraints are created first, then the old ones are dropped,
+  found by what they constrain rather than by name, so a label is never without a
+  constraint.
+- **Stopped part-way, or already migrated:** each step checks first, so the
+  remaining step is done and a repeat does nothing.
+- **Nodes with no `graphId`:** a uniqueness constraint ignores them, and no graph
+  reads them. The migration does not touch them; it logs how many there are and
+  the command that attributes them (`npm run migrate:attribute-graph`). Attributing
+  such a node to a graph that already holds its id fails on the constraint, and
+  names it.
+- **The same `(graphId, id)` twice:** impossible under the old constraint, but if
+  a database has it the migration stops with the pair named and leaves the old
+  constraints in place.
+
+Rolling back to an older release needs the old constraints again, which fail if
+any branch now holds an id its parent holds; take a Neo4j backup before upgrading.
+
 ### Single replica, persistent volume — enforced
 
 Because that state is per process, cloud mode is **one replica with a volume
@@ -308,7 +340,8 @@ real deployment; they are fixed here:
   property-range constraints (`REQUIRE x >= 0 AND x <= 1`) that are not valid
   Cypher on Neo4j 5, and nothing called `initializeSchema()` outside tests, so
   cloud mode ran without its constraints or indexes. The list now holds the
-  three uniqueness constraints Community edition supports, and
+  uniqueness constraints Community edition supports (an `InferredPressure` id,
+  and the `(graphId, id)` pair of an event and of an arc, see above), and
   `Application.initialize()` creates the schema in cloud mode before accepting
   requests. The 0..1 bounds stay enforced by `ValidationService` on the domain
   objects.

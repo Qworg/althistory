@@ -1,5 +1,6 @@
 import { Session } from 'neo4j-driver';
 import { getDatabaseManager } from './database';
+import { GRAPH_SCOPED_ID_CONSTRAINTS, graphScopedIdConstraintStatement } from './GraphScopedIdConstraintMigration';
 
 /**
  * Schema creation and management utilities
@@ -40,23 +41,19 @@ export class SchemaManager {
     // enforced by `ValidationService` on the domain objects, so the schema
     // keeps the uniqueness the write path actually relies on.
     const constraints = [
-      // Event node constraints
-      'CREATE CONSTRAINT event_id IF NOT EXISTS FOR (e:Event) REQUIRE e.id IS UNIQUE',
-
-      // Arc node constraints
-      'CREATE CONSTRAINT arc_id IF NOT EXISTS FOR (a:Arc) REQUIRE a.id IS UNIQUE',
+      // An id is unique within a graph (#35): a branch holds its parent's ids.
+      // `main` made them unique across every graph; the startup migration
+      // (`GraphScopedIdConstraintMigration`) drops those on an existing database.
+      ...GRAPH_SCOPED_ID_CONSTRAINTS.map(({ label, name }) => graphScopedIdConstraintStatement(label, name)),
 
       // InferredPressure node constraints
       'CREATE CONSTRAINT pressure_id IF NOT EXISTS FOR (p:InferredPressure) REQUIRE p.id IS UNIQUE',
     ];
 
-    // The id constraints stay global, not `(id, graphId)`. Ids are generated
-    // UUIDs, so a global uniqueness is not what keeps graphs apart, and a
-    // composite constraint would stop applying to unattributed legacy rows
-    // (a uniqueness constraint ignores null properties) for the window in which
-    // `attributeUnattributedCloudData` has not run yet. What keeps graphs apart
-    // is the `graphId` filter on every query, and what keeps those queries usable
-    // is the `*_graph_*` indexes below.
+    // Event and Arc ids are scoped to `(graphId, id)`. A uniqueness constraint
+    // ignores a node whose property is null, so an unattributed legacy row is not
+    // covered by it; those rows are read by no graph, and the migration reports
+    // them. The `*_graph_*` indexes below keep the graph filter cheap.
 
     for (const constraint of constraints) {
       try {
@@ -190,7 +187,7 @@ export class SchemaManager {
       const existingConstraints = constraintsResult.records.map(record => record.get('name'));
       
       const expectedConstraints = [
-        'event_id', 'arc_id', 'pressure_id'
+        'event_graph_id', 'arc_graph_id', 'pressure_id'
       ];
       
       result.constraints.expected = expectedConstraints.length;

@@ -6,6 +6,7 @@ import type { Server } from 'http';
 import { loadConfig, initializeDatabaseManager, getDatabaseManager } from '@/utils';
 import { initializeSchema } from '@/utils/schema';
 import { adoptUnattributedCloudData } from '@/utils/graphAttribution';
+import { migrateGraphScopedIdConstraints } from '@/utils/GraphScopedIdConstraintMigration';
 import { runCausalLinkIdMigration } from '@/services/CausalLinkIdMigration';
 import { initializeContainer, cleanupContainer, getContainer } from '@/container';
 import { apiRouter } from '@/api/routes';
@@ -174,6 +175,8 @@ class Application {
       if (!this.config.localExecution.enabled) {
         await initializeSchema();
         await this.adoptLegacyCloudData(container);
+        // Scope the Event and Arc id constraints to a graph, once (#35), so a branch can hold its parent's ids.
+        await migrateGraphScopedIdConstraints({ openSession: () => getDatabaseManager().getNeo4jSession() });
         // Name the links that predate link ids, once, before any request.
         await runCausalLinkIdMigration(container);
       }
