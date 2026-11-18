@@ -22,7 +22,7 @@ import { Application } from '@/index';
 import { getContainer, type Container } from '@/container';
 import { getDatabaseManager } from '@/utils/database';
 import type { Permission } from '@/models/ApiKey';
-import { RequestBudget, runWithBudget } from '@/utils/requestBudget';
+import { RequestBudget, currentBudget, runWithBudget } from '@/utils/requestBudget';
 
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -52,7 +52,6 @@ describe('a 408 saves nothing, in Neo4j', () => {
   let key: string;
   let slow = false;
   let slowReads = false;
-  let slowCommit = false;
   const exits: number[] = [];
   const saved: Record<string, string | undefined> = {};
   const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -94,6 +93,7 @@ describe('a 408 saves nothing, in Neo4j', () => {
       const session = open(...args) as {
         run: (q: string, p?: unknown, c?: unknown) => unknown;
         beginTransaction: (...a: unknown[]) => { run: (q: string, p?: unknown) => unknown; commit: () => Promise<unknown> };
+        executeWrite: (work: (tx: { run: (q: string, p?: unknown) => unknown }) => Promise<unknown>, config?: unknown) => Promise<unknown>;
       };
       const isWrite = (query: string): boolean => /\b(CREATE|MERGE|SET|DELETE|REMOVE)\b/.test(query);
       const slowed = (query: string): string =>
@@ -101,16 +101,19 @@ describe('a 408 saves nothing, in Neo4j', () => {
       // Auto-commit statements too, so the same slowness applies before and after the transactional path.
       const runPlain = session.run.bind(session);
       session.run = (query: string, p?: unknown, c?: unknown) => runPlain(slowed(query), p, c);
+      // The managed transaction the proxy runs its writes in.
+      const execute = session.executeWrite.bind(session);
+      session.executeWrite = (work, config) =>
+        execute((tx) => {
+          const runTx = tx.run.bind(tx);
+          tx.run = (query: string, params?: unknown) => runTx(slowed(query), params);
+          return work(tx);
+        }, config);
       const begin = session.beginTransaction.bind(session);
       session.beginTransaction = (...a: unknown[]) => {
         const tx = begin(...a);
         const run = tx.run.bind(tx);
         tx.run = (query: string, params?: unknown) => run(slowed(query), params);
-        const commit = tx.commit.bind(tx);
-        tx.commit = async () => {
-          if (slowCommit) await wait(SLOW_MS);
-          return commit();
-        };
         return tx;
       };
       return session;
@@ -297,18 +300,6 @@ describe('a 408 saves nothing, in Neo4j', () => {
     vi.restoreAllMocks();
   });
 
-  it('lets a write that is committing when the budget runs out finish, in both stores', async () => {
-    quiet();
-    // The statement is quick; the COMMIT is on the wire past the budget.
-    slowCommit = true;
-    const res = await http('POST', '/api/events', event('Committing'));
-    slowCommit = false;
-    expect(res.status).toBe(201);
-    const id = (res.body.data as { id: string }).id;
-    expect(await eventOf(id)).toEqual({ neo4j: 'Committing', version: 'Committing' });
-    vi.restoreAllMocks();
-  });
-
   it('a copy that is cancelled does not break the next copy', async () => {
     quiet();
     const source = (await container.graphService.createGraph({ name: 'Copy source' })).id;
@@ -359,5 +350,79 @@ describe('a 408 saves nothing, in Neo4j', () => {
       budget.dispose();
     }
     expect(await count('MATCH (e:Event {graphId: $graph}) WHERE e.id STARTS WITH "Overlap" RETURN count(e) AS n', { graph })).toBe(2);
+  });
+
+  /** The version is recorded after the budget has run out: the live write is already committed. */
+  const expireBeforeVersion = (): void => {
+    const commit = container.graphRepository.commitChanges.bind(container.graphRepository);
+    vi.spyOn(container.graphRepository, 'commitChanges').mockImplementation(async (...args) => {
+      currentBudget()?.expireNow();
+      return commit(...args);
+    });
+  };
+  const send = (method: 'PUT' | 'DELETE', url: string, body?: unknown): Promise<Response> =>
+    fetch(`${base}${url}`, {
+      method,
+      headers: { 'X-API-Key': key, 'X-Graph-Id': graph, 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+
+  it('an event POST whose version is recorded after the budget lands in both stores with its 201', async () => {
+    quiet();
+    expireBeforeVersion();
+    const res = await http('POST', '/api/events', event('late version'));
+    vi.restoreAllMocks();
+    expect(res.status).toBe(201);
+    expect(await eventOf((res.body.data as { id: string }).id)).toEqual({ neo4j: 'late version', version: 'late version' });
+  });
+
+  it('an event DELETE whose version is recorded after the budget leaves the stores agreeing', async () => {
+    quiet();
+    const id = ((await http('POST', '/api/events', event('to delete'))).body.data as { id: string }).id;
+    expireBeforeVersion();
+    const res = await send('DELETE', `/api/events/${id}`);
+    vi.restoreAllMocks();
+    expect(res.status).toBe(200);
+    expect(await eventOf(id)).toEqual({ neo4j: null, version: null });
+  });
+
+  it('an event PUT whose version is recorded after the budget leaves the stores agreeing', async () => {
+    quiet();
+    const id = ((await http('POST', '/api/events', event('before put'))).body.data as { id: string }).id;
+    expireBeforeVersion();
+    const res = await send('PUT', `/api/events/${id}`, { description: 'after put' });
+    vi.restoreAllMocks();
+    expect(res.status).toBe(200);
+    expect(await eventOf(id)).toEqual({ neo4j: 'after put', version: 'after put' });
+  });
+
+  it('closes the session a copy opened', async () => {
+    quiet();
+    const source = (await container.graphService.createGraph({ name: 'Close source' })).id;
+    const target = (await container.graphService.createGraph({ name: 'Close target' })).id;
+    const opened: string[] = [];
+    const manager = getDatabaseManager();
+    const open = manager.getNeo4jSession.bind(manager);
+    vi.spyOn(manager, 'getNeo4jSession').mockImplementation((...args) => {
+      const session = open(...args);
+      const id = `session-${opened.length}`;
+      opened.push(id);
+      return new Proxy(session, {
+        get(target, property) {
+          const value = Reflect.get(target, property, target);
+          if (property === 'close') {
+            return async (...a: unknown[]) => {
+              opened.splice(opened.indexOf(id), 1);
+              return (value as (...x: unknown[]) => Promise<void>).apply(target, a);
+            };
+          }
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      });
+    });
+    await container.graphCopyService.copyFullGraph(source, target);
+    vi.restoreAllMocks();
+    // Every session the copy opened is closed again.
+    expect(opened).toEqual([]);
   });
 });

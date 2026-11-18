@@ -65,6 +65,11 @@ export class RequestBudget {
     private readonly onOverrun: (budgets: number) => void = () => undefined
   ) {}
 
+  /** Whether the request has passed its point of no return. */
+  get isCommitted(): boolean {
+    return this.committed;
+  }
+
   get signal(): AbortSignal {
     return this.controller.signal;
   }
@@ -82,6 +87,11 @@ export class RequestBudget {
   /** A durable step begins: the request is past the point of no return. */
   markCommitted(): void {
     this.committed = true;
+  }
+
+  /** Run out the budget now, as the timer would. For tests, so a timeout lands at an exact point. */
+  expireNow(): void {
+    this.expire();
   }
 
   private arm(): void {
@@ -123,6 +133,15 @@ export function isCancellation(error: unknown): boolean {
     error = (error as { cause?: unknown }).cause;
   }
   return false;
+}
+
+/**
+ * For a `catch` that wraps errors (`new Error(\`Failed ...: ${error}\`)`): the
+ * cancellation of a timed-out request passes through unwrapped, so the error
+ * handler can tell it from a failure and the 408 does not log as one.
+ */
+export function rethrowCancellation(error: unknown): void {
+  if (isCancellation(error)) throw error;
 }
 
 export function currentBudget(): RequestBudget | null {

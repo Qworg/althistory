@@ -6,10 +6,7 @@ import { LocalGraphStore, LocalQueryResult, LocalQueryRecord, GraphParameters } 
 import { getCacheManager, CacheManager } from './cache';
 import { loadConfig } from './config';
 import { checkpoint, commitSection, currentBudget, raceAbort } from './requestBudget';
-
-/** Whether a statement can change data. Over-matching is safe: it only picks the transactional path. */
-export const isWriteQuery = (query: string): boolean => WRITES.test(query);
-const WRITES = /\b(CREATE|MERGE|SET|DELETE|REMOVE|DROP|LOAD\s+CSV|FOREACH)\b|apoc\.(create|merge|refactor|periodic|do|cypher\.(doIt|run))/i;
+import { isWriteQuery } from './cypherWrites';
 
 /**
  * Make a session honour the budget of the request it runs under
@@ -43,16 +40,19 @@ export function cancellableSession(session: Session): Session {
         // break a session that outlives the request.
         return raceAbort(plainRun(query, parameters as never, config as never) as unknown as Promise<unknown>, signal);
       }
-      const tx = session.beginTransaction(config as never);
-      try {
+      // `executeWrite` retries a transient failure (a deadlock between two
+      // writers that share a node) in a new transaction, as the driver does
+      // for any managed transaction. The work function is the whole unit: it is
+      // checked against the signal each time it starts, so a request past its
+      // deadline is not retried, and it marks the request committed only when
+      // it has finished, just before the driver commits.
+      return session.executeWrite(async (tx) => {
+        checkpoint();
         const result = await raceAbort(tx.run(query, parameters as never) as unknown as Promise<unknown>, signal);
         checkpoint();
-        await commitSection(() => tx.commit());
+        budget.markCommitted();
         return result;
-      } catch (error) {
-        await tx.rollback().catch(() => undefined);
-        throw error;
-      }
+      });
     });
     previous = work;
     return work as unknown as ReturnType<Session['run']>;
@@ -596,4 +596,4 @@ export class LocalDatabaseManager {
   getGraphStore(): LocalGraphStore {
     return this.graphStore;
   }
-}
+}

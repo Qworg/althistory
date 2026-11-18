@@ -1,4 +1,5 @@
 import { beginCommit } from './requestBudget';
+import { isWriteQuery } from './cypherWrites';
 import { inDateRange, isoOfAxisTime, toAxisTime } from '@althistory/calendar';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -1443,6 +1444,9 @@ export class LocalGraphStore {
    * Execute a Cypher query
    */
   async executeQuery(query: string, parameters: GraphParameters = {}): Promise<LocalQueryResult> {
+    // A parsed write mutates `graphData` below without going through the
+    // mutators above: it is the point of no return too, whichever path wrote.
+    if (isWriteQuery(query)) beginCommit();
     try {
       const read = readEpochMillis(query, parameters);
       return CypherQueryParser.execute(read.query, read.parameters, this.graphData);
