@@ -45,3 +45,19 @@ export function arcPlacementsOfCopy(
   }
   return changed;
 }
+
+/**
+ * An arc's data with its new place: the level, the parent (null: none), and `metadata.parentArcId`
+ * removed when there is no parent and set when there is one. The one function both the head path and
+ * the live-node path of `CopyVersioning` use, so they cannot drift apart, and the same rule the live
+ * copy applies to its nodes.
+ */
+export function placedArcData<T extends { level?: unknown; metadata?: unknown; parent_arc_id?: unknown }>(
+  data: T,
+  placement: ArcPlacement
+): T {
+  const metadata: Record<string, unknown> = { ...((data.metadata as Record<string, unknown> | undefined) ?? {}) };
+  if (placement.parent === null) delete metadata.parentArcId;
+  else metadata.parentArcId = placement.parent;
+  return { ...data, level: placement.level, parent_arc_id: placement.parent, metadata };
+}

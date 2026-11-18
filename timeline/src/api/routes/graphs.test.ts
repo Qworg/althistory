@@ -649,7 +649,9 @@ describe('Graph routes (request-level)', () => {
       });
       const failed = await request(app).post('/api/graphs/copy').set('X-API-Key', writeKey).send({ targetName: 'Failing Copy' }).expect(500);
       expect(failed.body.data).toBeUndefined();
-      expect(JSON.stringify(failed.body)).toContain('Node batch copy failed');
+      // A plain reason: the store's own words are for the server log.
+      expect(JSON.stringify(failed.body)).not.toContain('Node batch copy failed');
+      expect(JSON.stringify(failed.body)).toContain('removed');
       vi.spyOn(container.graphCopyService, 'copyFullGraph').mockRejectedValueOnce(new Error('the store is down'));
       await request(app).post('/api/graphs/copy').set('X-API-Key', writeKey).send({ targetName: 'Throwing Copy' }).expect(500);
       const after = (await container.graphService.listGraphs({ limit: 1000 })).graphs;

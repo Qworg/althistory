@@ -230,15 +230,19 @@ link to another graph's event). Two cases differ:
   from its selected live nodes, so a later edit and rollback of the copy keep them. A
   live store that has drifted from a head it does have is the source's own
   inconsistency: the copy follows the head, as a branch does.
+- A source whose head holds entities its live store does not (the live store was never
+  rebuilt) is copied by building the copy's live store from the copy's version, as a
+  branch's is.
 - A partial copy may leave an arc without its parent. Such an arc becomes a top-level
   arc (no parent, level 0, and the arcs copied beneath it follow), in the version and
-  in the live copy, so the copy's own export imports.
+  in the live copy, so the copy's own export imports. Selection is by label and id
+  together, so an event and an arc that share an id are two entities.
 
 A copy is checked when it ends: a full copy against the whole source, a partial one
 against the nodes and relationships it selected. An empty source is a successful empty
 copy. A copy that fails the check, or fails, or cannot be versioned, is removed (its
-graph and its live nodes) and the request answers `500` with the reasons and no graph
-id; no empty graph is left. An `InferredPressure` is the one entity given a new id (its
+graph and its live nodes) and the request answers `500` with a plain reason and no graph
+id (the store's own message goes to the server log); no empty graph is left. An `InferredPressure` is the one entity given a new id (its
 constraint is still database-wide); the inference recomputes pressures.
 
 A copy walks every node and relationship, so `/api/graphs/copy` has its own request

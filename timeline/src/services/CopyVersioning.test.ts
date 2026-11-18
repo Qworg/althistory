@@ -70,7 +70,7 @@ describe('versionCopyFromHead (#35)', () => {
   it('takes only the ids a partial copy copied, and a link only when both its events were', async () => {
     const { container, commitChanges } = deps();
 
-    await versionCopyFromHead(container, 'source', 'target', 'Source', new Set(['e1', 'e2', 'a2']));
+    await versionCopyFromHead(container, 'source', 'target', 'Source', new Set(['Event:e1', 'Event:e2', 'Arc:a2']));
 
     expect(committed(commitChanges).map((e) => `${e.type}:${e.id}`).sort()).toEqual(['arc:a2', 'event:e1', 'event:e2', 'relationship:l1']);
   });
@@ -94,10 +94,12 @@ describe('versionCopyFromHead (#35)', () => {
     };
     const { container, commitChanges } = deps(source);
 
-    const plan = await versionCopyFromHead(container, 'source', 'target', 'Source', new Set(['mid', 'low', 'keep']));
+    const plan = await versionCopyFromHead(container, 'source', 'target', 'Source', new Set(['Arc:mid', 'Arc:low', 'Arc:keep']));
 
     const arcs = Object.fromEntries(committed(commitChanges).filter((e) => e.type === 'arc').map((e) => [e.id, e.data]));
-    expect(arcs.mid).toMatchObject({ parent_arc_id: null, level: 0, metadata: { parentArcId: null } });
+    expect(arcs.mid).toMatchObject({ parent_arc_id: null, level: 0 });
+    // The key is removed, not set to null, so the live copy and the version agree.
+    expect(arcs.mid.metadata).not.toHaveProperty('parentArcId');
     expect(arcs.low).toMatchObject({ parent_arc_id: 'mid', level: 1 });
     expect(arcs.keep).toBe(source.arcs.keep);
     expect([...plan.arcs!]).toEqual([
@@ -114,7 +116,7 @@ describe('versionCopyFromHead (#35)', () => {
     };
     const { container, commitChanges, recordBatch } = deps({ events: {}, arcs: {}, relationships: {}, pressures: {} }, live);
 
-    await versionCopyFromHead(container, 'source', 'target', 'Source', new Set(['e1', 'e2', 'a1']));
+    await versionCopyFromHead(container, 'source', 'target', 'Source', new Set(['Event:e1', 'Event:e2', 'Arc:a1']));
 
     expect(commitChanges).not.toHaveBeenCalled();
     const [graphId, state] = recordBatch.mock.calls[0] as [string, { events: Map<string, unknown>; arcs: Map<string, unknown>; links: Array<{ live: Array<{ id: string }> }> }];

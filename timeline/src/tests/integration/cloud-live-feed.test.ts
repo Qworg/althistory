@@ -604,6 +604,122 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
       expect((await eventRepository.findAll()).map((e) => e.id).sort()).toEqual([first.id, second.id].sort());
     });
 
+    it('makes the version and the live copy agree on a re-placed arc when the source was never versioned, so the export imports and a rollback leaves no dangling parent (#35)', async () => {
+      const source = (await container.graphService.createGraph({ name: 'Unversioned hierarchy source' })).id;
+      graphsMade.push(source);
+      const { arcRepository, eventRepository } = await container.graphScopedRepositories(source);
+      const arc = (id: string, level: number, parent: string | null, from: number, to: number) =>
+        arcRepository.create(
+          { id, name: id, description: id, start_time: new Date(Date.UTC(from, 0, 1)), end_time: new Date(Date.UTC(to, 0, 1)), level, metadata: parent ? { parentArcId: parent } : {} },
+          { validated: true }
+        );
+      await arc('hier-r', 0, null, 1700, 1900);
+      await arc('hier-a', 1, 'hier-r', 1710, 1890);
+      await arc('hier-b', 2, 'hier-a', 1720, 1880);
+      await arc('hier-c', 3, 'hier-b', 1730, 1870);
+      await eventRepository.create({ id: 'hier-w1', description: 'W1', actor: 'A', target: 'B', timestamp: new Date(Date.UTC(1800, 0, 1)) });
+      expect(await container.graphRepository.getLatestVersion(source)).toBeNull();
+
+      // Levels 2 and 3 only: B's parent A was left out.
+      const copy = await copyOf(source, 'Unversioned hierarchy copy', { copyType: 'filtered', filter: { arcLevels: [2, 3] } });
+
+      const danglingIn = async (): Promise<string[]> => {
+        const { arcRepository: arcs } = await container.graphScopedRepositories(copy);
+        const live = await arcs.findAll();
+        const ids = new Set(live.map((a) => a.id));
+        return live.filter((a) => typeof a.metadata?.parentArcId === 'string' && !ids.has(a.metadata.parentArcId as string)).map((a) => a.id);
+      };
+      const head = await container.graphRepository.checkout(copy);
+      expect(head.arcs['hier-b']?.level).toBe(0);
+      expect(head.arcs['hier-b']?.parent_arc_id ?? null).toBeNull();
+      expect(head.arcs['hier-b']?.metadata).not.toHaveProperty('parentArcId');
+      expect(head.arcs['hier-c']).toMatchObject({ parent_arc_id: 'hier-b', level: 1 });
+      expect(await danglingIn()).toEqual([]);
+
+      const { export: doc } = await container.exportService.exportGraph({ graphId: copy, scope: 'full', includeProvenance: false });
+      const imported = await new ImportService({ dataDir }).executeImport(doc, { mode: 'create-new', conflictResolution: 'skip' });
+      graphsMade.push(imported.graphId);
+      expect(imported.errors).toEqual([]);
+      expect(imported.success).toBe(true);
+
+      const version = (await container.graphRepository.getLatestVersion(copy))?.version as number;
+      expect((await http('POST', `/api/graphs/${copy}/rollback/${version}`, agentKey, copy)).status).toBe(200);
+      expect(await danglingIn()).toEqual([]);
+      const { arcRepository: after } = await container.graphScopedRepositories(copy);
+      expect((await after.findById('hier-b'))?.metadata?.parentArcId).toBeUndefined();
+    });
+
+    it('builds the copy’s live store from its version when the source’s head holds entities its live store does not (#35)', async () => {
+      const source = (await container.graphService.createGraph({ name: 'Head-only source' })).id;
+      graphsMade.push(source);
+      await container.graphRepository.commitChanges(
+        source,
+        {
+          added: [
+            { type: 'event', id: 'head-ev-1', data: { id: 'head-ev-1', description: 'Only in the head', actor: 'A', target: 'B', timestamp: '1800-01-01T00:00:00.000Z', metadata: {} } },
+            { type: 'event', id: 'head-ev-2', data: { id: 'head-ev-2', description: 'Also only there', actor: 'A', target: 'B', timestamp: '1801-01-01T00:00:00.000Z', metadata: {} } },
+          ],
+          modified: [],
+          deleted: [],
+        },
+        'import',
+        'Imported'
+      );
+      // Its live store was never built.
+      expect(await (await container.graphScopedRepositories(source)).eventRepository.findAll()).toEqual([]);
+
+      const copy = await copyOf(source, 'Head-only copy');
+
+      const { eventRepository } = await container.graphScopedRepositories(copy);
+      expect((await eventRepository.findAll()).map((e) => e.id).sort()).toEqual(['head-ev-1', 'head-ev-2']);
+      expect(Object.keys((await container.graphRepository.checkout(copy)).events).sort()).toEqual(['head-ev-1', 'head-ev-2']);
+    });
+
+    it('copies an event and an arc that share an id, in a time range and by a filter (#35)', async () => {
+      const source = (await container.graphService.createGraph({ name: 'Shared id source' })).id;
+      graphsMade.push(source);
+      await container.graphRepository.commitChanges(
+        source,
+        {
+          added: [
+            { type: 'event', id: 'W2', data: { id: 'W2', description: 'An event named W2', actor: 'A', target: 'B', timestamp: '1760-01-01T00:00:00.000Z', metadata: {} } },
+            { type: 'arc', id: 'W2', data: { id: 'W2', name: 'An arc named W2', description: 'W2', start_time: '1750-01-01T00:00:00.000Z', end_time: '1850-01-01T00:00:00.000Z', level: 1, parent_arc_id: null, metadata: {} } },
+          ],
+          modified: [],
+          deleted: [],
+        },
+        'import',
+        'Imported'
+      );
+      await container.liveStoreSyncService.materialize(source, 'import');
+
+      for (const body of [
+        { copyType: 'time_range', timeRange: { start: '1755-01-01T00:00:00.000Z', end: '1775-01-01T00:00:00.000Z' } },
+        { copyType: 'filtered', filter: { actors: ['A'], arcLevels: [1] } },
+      ]) {
+        const copy = await copyOf(source, `Shared id copy ${body.copyType}`, body);
+        const { eventRepository, arcRepository } = await container.graphScopedRepositories(copy);
+        expect((await eventRepository.findAll()).map((e) => e.id)).toEqual(['W2']);
+        expect((await arcRepository.findAll()).map((a) => a.id)).toEqual(['W2']);
+        const head = await container.graphRepository.checkout(copy);
+        expect(Object.keys(head.events)).toEqual(['W2']);
+        expect(Object.keys(head.arcs)).toEqual(['W2']);
+      }
+    });
+
+    it('re-places an arc whose live metadata is stored as an empty string (#35)', async () => {
+      const source = await importedSource('Empty metadata source');
+      const session = getDatabaseManager().getNeo4jSession();
+      try {
+        await session.run("MATCH (a:Arc {graphId: $source, id: 'imp-arc-inner'}) SET a.metadata = ''", { source });
+      } finally {
+        await session.close();
+      }
+      const copy = await copyOf(source, 'Empty metadata copy', { copyType: 'filtered', filter: { actors: ['A'], arcLevels: [1] } });
+      const placed = await (await container.graphScopedRepositories(copy)).arcRepository.findById('imp-arc-inner');
+      expect(placed?.level).toBe(0);
+    });
+
     it('versions a batch of links under the id a single link gets in Neo4j, and a transaction that removes it', async () => {
       const add = async (description: string, timestamp: string): Promise<string> => {
         const res = await http('POST', '/api/events', agentKey, graphA, { description, actor: 'A', target: 'B', timestamp });

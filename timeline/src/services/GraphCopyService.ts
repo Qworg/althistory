@@ -63,6 +63,8 @@ export interface CopyProgress {
  */
 export interface CopyPlan {
   arcs?: ReadonlyMap<string, { parent: string | null; level: number }>;
+  /** How many entities the copy's first version holds. */
+  versioned?: number;
 }
 
 /**
@@ -74,8 +76,8 @@ export interface CopyConfig {
   preserveIds: boolean;
   validateIntegrity: boolean;
   /**
-   * Called once the nodes to copy are known and before the live store is written: with the ids
-   * they carry (null: every node of the source). The route records the copy's first version here,
+   * Called once the nodes to copy are known and before the live store is written: with the keys
+   * (`Label:id`, because an event and an arc may share an id) they carry (null: every node of the source). The route records the copy's first version here,
    * so a copy that fails to be versioned writes nothing, as a branch records its version first.
    */
   beforeCopy?: (selected: ReadonlySet<string> | null) => Promise<CopyPlan | void>;
@@ -466,7 +468,7 @@ export class GraphCopyService {
       await this.session.run(
         `UNWIND $rows AS row
          MATCH (a:Arc {graphId: $targetGraphId, id: row.id})
-         WITH a, row, apoc.convert.fromJsonMap(coalesce(a.metadata, '{}')) AS meta
+         WITH a, row, coalesce(apoc.convert.fromJsonMap(CASE WHEN a.metadata IS NULL OR a.metadata = '' THEN '{}' ELSE a.metadata END), {}) AS meta
          SET a.level = row.level,
              a.metadata = apoc.convert.toJson(
                CASE WHEN row.parent IS NULL
@@ -806,7 +808,8 @@ export class GraphCopyService {
   }
 
   /**
-   * Get node IDs that intersect with the given time range
+   * Get the keys (`Label:id`) of the nodes that intersect with the given time range. An event and an arc may
+   * hold the same id, so a node is named by its label and its id together.
    */
   private async getNodesInTimeRange(graphId: string, timeRange: TimeRange): Promise<string[]> {
     const query = `
@@ -822,7 +825,7 @@ export class GraphCopyService {
         // InferredPressures (include all for now, could be filtered by related arcs)
         (n:InferredPressure)
       )
-      RETURN n.id as nodeId
+      RETURN head([l IN labels(n) WHERE l IN ['Event', 'Arc', 'InferredPressure']]) + ':' + n.id AS nodeKey
     `;
 
     const parameters = {
@@ -833,14 +836,14 @@ export class GraphCopyService {
 
     try {
       const result = await runTemporal(this.session, query, parameters);
-      return result.records.map(record => record.get('nodeId'));
+      return result.records.map(record => record.get('nodeKey'));
     } catch (error) {
       throw new Error(`Failed to get nodes in time range: ${error}`);
     }
   }
 
   /**
-   * Get node IDs that match the entity filter
+   * Get the keys (`Label:id`) of the nodes that match the entity filter
    */
   private async getNodesMatchingFilter(graphId: string, filter: EntityFilter): Promise<string[]> {
     const conditions: string[] = [];
@@ -871,12 +874,12 @@ export class GraphCopyService {
       MATCH (n)
       WHERE (n.graphId = $graphId OR $graphId = 'default')
       AND (${conditions.join(' OR ')})
-      RETURN n.id as nodeId
+      RETURN head([l IN labels(n) WHERE l IN ['Event', 'Arc', 'InferredPressure']]) + ':' + n.id AS nodeKey
     `;
 
     try {
       const result = await runTemporal(this.session, query, parameters);
-      return result.records.map(record => record.get('nodeId'));
+      return result.records.map(record => record.get('nodeKey'));
     } catch (error) {
       throw new Error(`Failed to get nodes matching filter: ${error}`);
     }
@@ -1005,7 +1008,7 @@ export class GraphCopyService {
     const query = `
       MATCH (n)
       WHERE (n.graphId = $sourceGraphId OR $sourceGraphId = 'default')
-        AND n.id IN $nodeIds
+        AND any(l IN labels(n) WHERE (l + ':' + n.id) IN $nodeIds)
       
       CALL {
         WITH n
@@ -1053,8 +1056,8 @@ export class GraphCopyService {
       MATCH (source)-[r]->(target)
       WHERE (source.graphId = $graphId OR $graphId = 'default')
         AND (target.graphId = $graphId OR $graphId = 'default')
-        AND source.id IN $nodeIds
-        AND target.id IN $nodeIds
+        AND any(l IN labels(source) WHERE (l + ':' + source.id) IN $nodeIds)
+        AND any(l IN labels(target) WHERE (l + ':' + target.id) IN $nodeIds)
       RETURN id(r) as relId
     `;
 

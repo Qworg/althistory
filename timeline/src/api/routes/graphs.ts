@@ -285,8 +285,12 @@ graphRoutes.post(
 
       // The copy's first version is the source's head (what a branch records), made before the live
       // store is written: a copy that cannot be versioned has written nothing.
-      const beforeCopy = (selected: ReadonlySet<string> | null): Promise<CopyPlan> =>
-        versionCopyFromHead(req.container, sourceGraphId, targetGraph.id, sourceGraph.name, selected);
+      let versioned = 0;
+      const beforeCopy = async (selected: ReadonlySet<string> | null): Promise<CopyPlan> => {
+        const plan = await versionCopyFromHead(req.container, sourceGraphId, targetGraph.id, sourceGraph.name, selected);
+        versioned = plan.versioned ?? 0;
+        return plan;
+      };
 
       let result: GraphCopyResult;
       try {
@@ -304,11 +308,23 @@ graphRoutes.post(
         await discardCopy(req.container, targetGraph.id);
         throw error;
       }
-      // A failed copy leaves no graph behind, empty or half-filled, and answers with the error, not with
-      // the id of a graph that is gone.
+      // A source whose version holds entities its live store does not (it was never rebuilt) has nothing
+      // to copy node by node: the copy's live store is built from the version just recorded, as a
+      // branch's is.
+      if (result.success && result.copiedNodes === 0 && versioned > 0) {
+        try {
+          const built = await req.container.liveStoreSyncService.materialize(targetGraph.id, 'branch');
+          result = { ...result, copiedNodes: built.events + built.arcs, copiedRelationships: built.relationships };
+        } catch (error) {
+          result = { ...result, success: false, errors: [...(result.errors ?? []), `Building the copy from its version failed: ${error}`] };
+        }
+      }
+      // A failed copy leaves no graph behind, empty or half-filled, and answers with a plain reason, not
+      // with the id of a graph that is gone. The store's own words stay in the server log.
       if (!result.success) {
+        console.error(`Graph copy ${sourceGraphId} -> ${targetGraph.id} failed and was removed:`, result.errors);
         await discardCopy(req.container, targetGraph.id);
-        throw new DatabaseError(`The copy failed and was removed: ${(result.errors ?? []).join('; ') || 'no reason given'}`, 'copyGraph');
+        throw new DatabaseError('The copy failed and was removed; nothing of it was kept. The reason is in the server log.', 'copyGraph');
       }
 
       res.status(201).json({

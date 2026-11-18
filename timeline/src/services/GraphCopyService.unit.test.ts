@@ -341,6 +341,42 @@ describe('GraphCopyService Unit Tests', () => {
       expect((placement?.[1] as { rows: Array<{ id: string; parent: string | null }> }).rows).toMatchObject([{ id: 'mid', parent: null }]);
     });
 
+    it('fails a partial copy that holds a relationship without an endpoint', async () => {
+      (mockSession.run as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (query: unknown) => {
+        const q = String(query);
+        if (q.includes('datetime($startTime)')) return { records: [{ get: () => 'Event:e1' }, { get: () => 'Event:e2' }] } as never;
+        if (q.includes('RETURN id(r) as relId')) return { records: [{ get: () => Integer.fromNumber(7) }] } as never;
+        if (q.includes('count(r) AS total')) return count(1);
+        if (q.includes('count(n) AS total')) return count(2);
+        if (q.includes('orphan')) return { records: [{ get: () => 'rel-9' }] } as never;
+        return count(1);
+      });
+      const result = await graphCopyService.copyByTimeRange('src', range, 'dst');
+      expect(result.success).toBe(false);
+      expect(result.errors?.join(' ')).toContain('Orphaned relationship: rel-9');
+    });
+
+    it('names a selected node by its label and id, so an event and an arc with one id are two nodes', async () => {
+      vi.mocked(mockSession.run).mockResolvedValue(count(1));
+      await graphCopyService.copyByEntityFilter('src', { actors: ['A'] }, 'dst', { validateIntegrity: false });
+      const selection = queries().find((q) => q.includes('n.actor IN'));
+      expect(selection).toContain("AS nodeKey");
+      const copy = queries().find((q) => q.includes('apoc.create.node'));
+      expect(copy).toContain("(l + ':' + n.id) IN $nodeIds");
+      const relationships = queries().find((q) => q.includes('RETURN id(r) as relId'));
+      expect(relationships).toContain("(l + ':' + source.id) IN $nodeIds");
+      expect(relationships).toContain("(l + ':' + target.id) IN $nodeIds");
+    });
+
+    it('places an arc by removing its parent key, and reads metadata stored as nothing or as an empty string', async () => {
+      vi.mocked(mockSession.run).mockResolvedValue(count(1));
+      const plan = { arcs: new Map([['mid', { parent: null, level: 0 }]]) };
+      await graphCopyService.copyByEntityFilter('src', { actors: ['A'] }, 'dst', { beforeCopy: async () => plan, validateIntegrity: false });
+      const placement = queries().find((q) => q.includes('apoc.convert.fromJsonMap'));
+      expect(placement).toContain("apoc.map.removeKey(meta, 'parentArcId')");
+      expect(placement).toContain("a.metadata IS NULL OR a.metadata = ''");
+    });
+
     it('copies a source with no nodes as a graph with no nodes, not as a failure', async () => {
       (mockSession.run as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (query: unknown) => {
         const q = String(query);
