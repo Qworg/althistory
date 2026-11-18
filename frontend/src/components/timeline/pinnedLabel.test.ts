@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PLATE_ASCENT, PLATE_DESCENT, PLATE_PAD, planPinnedLabel, planPinnedText, type PlacedLabelBox } from './pinnedLabel'
+import { PLATE_ASCENT, PLATE_DESCENT, PLATE_INK_SLACK, PLATE_ONLY_ASCENT, PLATE_ONLY_DESCENT, PLATE_PAD, planPinnedLabel, planPinnedText, type PlacedLabelBox } from './pinnedLabel'
 
 const ROWS = [-20, -34, -48, -62]
 const label = (id: string, left: number, right: number, offset: number, extra: Partial<PlacedLabelBox> = {}): PlacedLabelBox => ({
@@ -215,5 +215,62 @@ describe('planPinnedText', () => {
     // The only row would cover the wide label by less than half: refused by the ordinary rules, hidden by the last resort.
     expect(planPinnedText({ x: 300, markY: 100, innerWidth: 700, rows: [-20], labels: [wide] }, [{ text: 'Selected', width: 60 }], false)).toBeNull()
     expect(planPinnedText({ x: 300, markY: 100, innerWidth: 700, rows: [-20], labels: [wide] }, [{ text: 'Selected', width: 60 }])?.plan.hidden).toEqual(['wide'])
+  })
+})
+
+describe("a plate holds its text's ink (#42)", () => {
+  // The measurement as the canvas gives it for IBM Plex Sans bold at 12px: ascenders 9 above the baseline, descenders 2 below, an accented capital 12.
+  const plain = { ascent: 9, descent: 2 }
+  const accented = { ascent: 12, descent: 2 }
+  const PLATE_ONLY = -75
+  const plateBox = (offset: number) => (offset === PLATE_ONLY ? { ascent: PLATE_ONLY_ASCENT, descent: PLATE_ONLY_DESCENT, fixed: true } : { ascent: PLATE_ASCENT, descent: PLATE_DESCENT })
+  const rows = [-20, PLATE_ONLY]
+  const wall = [label('w', 0, 700, -20, { protectedLabel: true })]
+  const place = (ink: { ascent: number; descent: number }, labels = wall) => planPinnedLabel({ x: 300, markY: 100, width: 100, innerWidth: 700, rows, labels, plateBox, ink })
+
+  it('puts ordinary text, whose ink fits, in the fixed plate-only row', () => {
+    expect(place(plain)).toMatchObject({ offset: PLATE_ONLY, ascent: PLATE_ONLY_ASCENT, descent: PLATE_ONLY_DESCENT })
+  })
+
+  it('does not put accented capitals there: the fixed plate cannot hold them, and does not grow', () => {
+    // The ink rises 12 above the baseline; the plate reaches 9 (and the stroke's outer half, 0.5): 3px would poke out.
+    expect(12).toBeGreaterThan(PLATE_ONLY_ASCENT + PLATE_INK_SLACK)
+    expect(place(accented)).toBeNull()
+  })
+
+  it('holds the ink of a descender too: a text that dips below the fixed plate is refused there', () => {
+    expect(place({ ascent: 9, descent: 4 })).toBeNull()
+    expect(place({ ascent: 9, descent: PLATE_ONLY_DESCENT + PLATE_INK_SLACK })).not.toBeNull()
+  })
+
+  it("draws an ordinary row's plate tall enough for accented capitals, without counting the growth as covering the row above", () => {
+    const found = planPinnedLabel({ x: 300, markY: 100, width: 100, innerWidth: 700, rows: [-20], labels: [], plateBox, ink: accented })!
+    expect(found.ascent).toBeGreaterThanOrEqual(accented.ascent)
+    expect(found.descent).toBeGreaterThanOrEqual(accented.descent)
+    // A label in the row above (baseline -34, its box ending 3 under it) is not covered by the usual 14px box, so the grown plate still goes here.
+    const above = label('above', 250, 350, -34, { protectedLabel: true })
+    expect(planPinnedLabel({ x: 300, markY: 100, width: 100, innerWidth: 700, rows: [-20], labels: [above], plateBox, ink: accented })).toMatchObject({ offset: -20 })
+    // Ordinary text keeps the usual plate.
+    expect(planPinnedLabel({ x: 300, markY: 100, width: 100, innerWidth: 700, rows: [-20], labels: [], plateBox, ink: plain })).toMatchObject({ ascent: PLATE_ASCENT, descent: PLATE_DESCENT })
+  })
+
+  it('always gives a plate-only box that contains the measured ink', () => {
+    for (const ink of [plain, accented, { ascent: 12, descent: 4 }, { ascent: 5, descent: 0 }, { ascent: 9.5, descent: 3.5 }]) {
+      for (const labels of [[], wall]) {
+        const found = planPinnedLabel({ x: 300, markY: 100, width: 100, innerWidth: 700, rows: [PLATE_ONLY], labels, plateBox, ink })
+        if (!found) continue
+        expect(found.ascent + PLATE_INK_SLACK).toBeGreaterThanOrEqual(ink.ascent)
+        expect(found.descent + PLATE_INK_SLACK).toBeGreaterThanOrEqual(ink.descent)
+      }
+    }
+  })
+
+  it('names the text it can: planPinnedText skips a form whose ink does not fit the only free row', () => {
+    // Only the fixed row is free. The accented full name does not fit it; a form with no accent does.
+    const found = planPinnedText({ x: 300, markY: 100, innerWidth: 700, rows, labels: wall, plateBox }, [
+      { text: 'Émile Ångström…', width: 100, ink: accented },
+      { text: 'The mill…', width: 60, ink: plain },
+    ])
+    expect(found?.text).toBe('The mill…')
   })
 })

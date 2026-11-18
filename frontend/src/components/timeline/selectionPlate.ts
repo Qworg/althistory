@@ -20,14 +20,9 @@
  * dimmed curves of other links. Cutting the name to eight characters finds a spot only by hiding a neighbour's name, which is worse.
  */
 
-import { PLATE_ASCENT, PLATE_DESCENT, PLATE_ONLY_ASCENT, PLATE_ONLY_DESCENT, planPinnedText, type PinnedPlan, type PlacedLabelBox } from './pinnedLabel'
+import { PLATE_ASCENT, PLATE_DESCENT, PLATE_ONLY_ASCENT, PLATE_ONLY_DESCENT, planPinnedText, type PinnedPlan, type PlacedLabelBox, type PlateText } from './pinnedLabel'
 import { truncateLabel } from './eventLabelLayout'
 import { linkSpansInBands } from './timelineLinks'
-
-export interface PlateText {
-  text: string
-  width: number
-}
 
 /**
  * The shortest a plate's text may be made to find a clear spot: eleven characters, the ellipsis included, so at least ten
@@ -82,6 +77,11 @@ export interface SelectionPlateInput {
   stemLength: number
   labels: readonly PlacedLabelBox[]
   /**
+   * The same labels with their boxes at the font's usual height, for the last attempt (see planSelectionPlate): `labels` reach as
+   * high as the measured ink of the top row's accented capitals, which closes the plate-only row to them.
+   */
+  labelsWithoutInk?: readonly PlacedLabelBox[]
+  /**
    * Obstacles the first pass respects and the fallback does not (a narrow arc
    * bar a plate would be mistaken for the label of): better a plate over a
    * sliver's edge than an unnamed selection.
@@ -101,6 +101,17 @@ export interface SelectionPlateInput {
 }
 
 export function planSelectionPlate(input: SelectionPlateInput): { text: string; plan: PinnedPlan } | null {
+  const found = planWithinInk(input)
+  if (found) return found
+  // No row holds the name's ink (an accented capital is too tall for the plate-only row, the only one free): a name that pokes a few
+  // pixels out of its plate is better than a selection with none, so the last attempt sets the ink aside.
+  // The labels' own ink is set aside too (the top row's accents), or the plate-only row stays refused for covering them.
+  const bare = (forms: ReadonlyArray<PlateText>) => forms.map(({ text, width }) => ({ text, width }))
+  const inked = [...input.texts, ...(input.shortTexts ?? [])].some((form) => form.ink) || input.labelsWithoutInk !== undefined
+  return inked ? planWithinInk({ ...input, texts: bare(input.texts), shortTexts: bare(input.shortTexts ?? []), labels: input.labelsWithoutInk ?? input.labels }) : null
+}
+
+function planWithinInk(input: SelectionPlateInput): { text: string; plan: PinnedPlan } | null {
   const { x, selectedId, markY, innerWidth, aboveRows, plateOnlyRows, belowRows, linkBandHeight, stemLength, labels, softObstacles = [], marks, links, texts, shortTexts = [], preferAbove = false } = input
   const above = [...aboveRows, ...plateOnlyRows]
   const obstacles = (subset: readonly PlateLink[]): PlacedLabelBox[] => {
@@ -133,7 +144,8 @@ export function planSelectionPlate(input: SelectionPlateInput): { text: string; 
     }
     return boxes
   }
-  const plateBox = (offset: number) => (plateOnlyRows.includes(offset) ? { ascent: PLATE_ONLY_ASCENT, descent: PLATE_ONLY_DESCENT } : { ascent: PLATE_ASCENT, descent: PLATE_DESCENT })
+  // The plate-only row's plate cannot grow (an arc bar's foot above it, the top label row's text below): text whose measured ink does not fit it goes in another row.
+  const plateBox = (offset: number) => (plateOnlyRows.includes(offset) ? { ascent: PLATE_ONLY_ASCENT, descent: PLATE_ONLY_DESCENT, fixed: true } : { ascent: PLATE_ASCENT, descent: PLATE_DESCENT })
   const attempt = (rows: readonly number[]) => {
     // Every pass that hides no label comes before any that may: covering a sliver arc's edge, or an untraced link, is better than hiding a neighbour.
     const passes = [

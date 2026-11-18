@@ -7,12 +7,14 @@
  */
 
 const cache = new Map<string, number>()
+const inkCache = new Map<string, { ascent: number; descent: number }>()
 let epoch = 0
 const listeners = new Set<() => void>()
 
 /** The page's fonts have loaded: every cached width is stale, and whatever measured them measures again. */
 export function fontsLoaded(): void {
   cache.clear()
+  inkCache.clear()
   epoch++
   listeners.forEach((listener) => listener())
 }
@@ -55,4 +57,33 @@ export function measureLabelWidth(text: string, fontSize: number, weight = 400):
   }
   cache.set(key, width)
   return width
+}
+
+/**
+ * How far the text's ink reaches above its baseline and below it, in px: the
+ * browser's `actualBoundingBoxAscent` and `actualBoundingBoxDescent` for the
+ * string in the page's font. A capital with an accent (É, Å) rises about a
+ * quarter of an em above an ordinary capital, so a plate sized for the font's
+ * usual ascenders does not hold it. Where there is no canvas (jsdom) it is
+ * estimated: 0.75 em for ascenders, 1 em where there is an accented capital,
+ * and 0.2 em for a descender (g j p q y , ;).
+ */
+export function measureLabelInk(text: string, fontSize: number, weight = 400): { ascent: number; descent: number } {
+  const key = `${weight}|${fontSize}|${text}`
+  const known = inkCache.get(key)
+  if (known) return known
+  const ctx = canvas()
+  let ink = {
+    ascent: fontSize * (/[À-ÞĀ-ſ]/.test(text) ? 1 : 0.75),
+    descent: /[gjpqy,;]/.test(text) ? fontSize * 0.2 : 0,
+  }
+  if (ctx) {
+    ctx.font = `${weight} ${fontSize}px ${family}`
+    const m = ctx.measureText(text)
+    if (Number.isFinite(m.actualBoundingBoxAscent) && Number.isFinite(m.actualBoundingBoxDescent)) {
+      ink = { ascent: Math.max(0, m.actualBoundingBoxAscent), descent: Math.max(0, m.actualBoundingBoxDescent) }
+    }
+  }
+  inkCache.set(key, ink)
+  return ink
 }
