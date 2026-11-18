@@ -27,7 +27,7 @@ import {
 } from '../../models/Graph';
 import type { CopyResult as GraphCopyResult, EntityFilter } from '../../services/GraphCopyService';
 import { ValidationError } from '../../utils/errors';
-import { versionCopiedGraph } from '../../services/CopyVersioning';
+import { versionCopyFromHead } from '../../services/CopyVersioning';
 
 export const graphRoutes = Router();
 
@@ -124,6 +124,23 @@ function toCopyResponse(targetGraph: IGraph, result: GraphCopyResult) {
     copiedRelationships: result.copiedRelationships,
     duration: result.duration,
   };
+}
+
+/**
+ * Remove the graph a copy was made into, and every live node it holds. Best effort: what cannot be
+ * removed is logged, and the copy's own error is the one the caller sees.
+ */
+async function discardCopy(container: RequestWithContainer['container'], graphId: string): Promise<void> {
+  try {
+    await container.clearLiveStore(graphId);
+  } catch (error) {
+    console.error(`Could not remove the live data of the failed copy ${graphId}:`, error);
+  }
+  try {
+    await container.graphRepository.hardDelete(graphId);
+  } catch (error) {
+    console.error(`Could not remove the failed copy ${graphId}:`, error);
+  }
 }
 
 /**
@@ -266,20 +283,29 @@ graphRoutes.post(
         calendar: sourceGraph.calendar,
       });
 
-      let result: GraphCopyResult;
-      if (copyType === 'time_range' && range) {
-        result = await copyService.copyByTimeRange(sourceGraphId, range, targetGraph.id);
-      } else if (copyType === 'filtered') {
-        if (!request.filter) {
-          throw new ValidationError('filter is required for a filtered copy', 'filter');
-        }
-        result = await copyService.copyByEntityFilter(sourceGraphId, request.filter, targetGraph.id);
-      } else {
-        result = await copyService.copyFullGraph(sourceGraphId, targetGraph.id);
-      }
+      // The copy's first version is the source's head (what a branch records), made before the live
+      // store is written: a copy that cannot be versioned has written nothing.
+      const beforeCopy = (selected: ReadonlySet<string> | null): Promise<void> =>
+        versionCopyFromHead(req.container, sourceGraphId, targetGraph.id, sourceGraph.name, selected);
 
-      // The copy is a graph of its own: it gets the version a branch gets, so rollback, export and branching see it.
-      await versionCopiedGraph(req.container, targetGraph.id, sourceGraph.name);
+      let result: GraphCopyResult;
+      try {
+        if (copyType === 'time_range' && range) {
+          result = await copyService.copyByTimeRange(sourceGraphId, range, targetGraph.id, { beforeCopy });
+        } else if (copyType === 'filtered') {
+          if (!request.filter) {
+            throw new ValidationError('filter is required for a filtered copy', 'filter');
+          }
+          result = await copyService.copyByEntityFilter(sourceGraphId, request.filter, targetGraph.id, { beforeCopy });
+        } else {
+          result = await copyService.copyFullGraph(sourceGraphId, targetGraph.id, { beforeCopy });
+        }
+      } catch (error) {
+        await discardCopy(req.container, targetGraph.id);
+        throw error;
+      }
+      // A failed copy leaves no graph behind, empty or half-filled.
+      if (!result.success) await discardCopy(req.container, targetGraph.id);
 
       res.status(201).json({
         success: true,

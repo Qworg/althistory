@@ -396,6 +396,161 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
       expect((await http('GET', `/api/arcs/${arc.id}`, agentKey, source)).status).toBe(200);
     });
 
+    /**
+     * A graph written the way an import writes one: the version head first, with the fields only the
+     * version store keeps (`sourceRef`, `parent_arc_id`, a link at 0/0, a link to another graph's
+     * event), then the live store rebuilt from it.
+     */
+    async function importedSource(name: string): Promise<string> {
+      const graphId = (await container.graphService.createGraph({ name })).id;
+      graphsMade.push(graphId);
+      const event = (id: string, description: string, year: number, extra: Record<string, unknown> = {}) => ({
+        type: 'event' as const, id, data: { id, description, actor: 'A', target: 'B', timestamp: `${year}-01-01T00:00:00.000Z`, metadata: {}, ...extra },
+      });
+      const arc = (id: string, label: string, level: number, parent: string | null, from: number, to: number) => ({
+        type: 'arc' as const, id, data: { id, name: label, description: label, start_time: `${from}-01-01T00:00:00.000Z`, end_time: `${to}-01-01T00:00:00.000Z`, level, parent_arc_id: parent, metadata: {}, sourceRef: `doc:${id}` },
+      });
+      const link = (id: string, cause: string, effect: string, weight: number, extra: Record<string, unknown> = {}) => ({
+        type: 'relationship' as const, id, data: { id, cause_event_id: cause, effect_event_id: effect, weight, confidence: weight, evidence: 'Seen', relationship_type: 'direct', ...extra },
+      });
+      await container.graphRepository.commitChanges(
+        graphId,
+        {
+          added: [
+            arc('imp-arc-outer', 'Outer', 0, null, 1700, 1900),
+            arc('imp-arc-inner', 'Inner', 1, 'imp-arc-outer', 1750, 1850),
+            event('imp-ev-1', 'First', 1760, { sourceRef: 'wiki:First' }),
+            event('imp-ev-2', 'Second', 1770),
+            event('imp-ev-3', 'Third', 1880),
+            link('imp-link-zero', 'imp-ev-1', 'imp-ev-2', 0, { sourceRef: 'wiki:Link' }),
+            link('imp-link-plain', 'imp-ev-2', 'imp-ev-3', 0.6),
+            link('imp-link-cross', 'elsewhere-ev', 'imp-ev-1', 0.5, { causeGraphId: 'some-other-graph' }),
+          ],
+          modified: [],
+          deleted: [],
+        },
+        'import',
+        'Imported'
+      );
+      await container.liveStoreSyncService.materialize(graphId, 'import');
+      return graphId;
+    }
+
+    /** What an export holds of a graph, in a fixed order. */
+    async function exportedContents(graphId: string): Promise<{ events: Array<Record<string, unknown>>; arcs: Array<Record<string, unknown>>; links: Array<Record<string, unknown>> }> {
+      const { export: doc } = await container.exportService.exportGraph({ graphId, scope: 'full', includeProvenance: false });
+      const byId = <T extends { id: string }>(rows: T[]): T[] => [...rows].sort((a, b) => a.id.localeCompare(b.id));
+      return {
+        events: byId(doc.data.events) as unknown as Array<Record<string, unknown>>,
+        arcs: byId(doc.data.arcs) as unknown as Array<Record<string, unknown>>,
+        links: byId(doc.data.causalRelationships) as unknown as Array<Record<string, unknown>>,
+      };
+    }
+
+    async function liveContents(graphId: string): Promise<unknown> {
+      const { eventRepository, arcRepository, causalService } = await container.graphScopedRepositories(graphId);
+      const byId = <T extends { id: string }>(rows: T[]): T[] => [...rows].sort((a, b) => a.id.localeCompare(b.id));
+      return JSON.parse(JSON.stringify({ events: byId(await eventRepository.findAll()), arcs: byId(await arcRepository.findAll()), links: byId(await causalService.getAllRelationships()) }));
+    }
+
+    async function markersIn(graphId: string): Promise<number> {
+      const session = getDatabaseManager().getNeo4jSession();
+      try {
+        const rows = await session.run('MATCH (n) WHERE n.graphId = $graphId AND n._sourceNodeId IS NOT NULL RETURN count(n) AS marked', { graphId });
+        return Number(rows.records[0]?.get('marked'));
+      } finally {
+        await session.close();
+      }
+    }
+
+    async function copyOf(source: string, name: string, body: Record<string, unknown> = {}): Promise<string> {
+      const res = await http('POST', '/api/graphs/copy', agentKey, undefined, { sourceGraphId: source, targetName: name, ...body });
+      expect(res.status).toBe(201);
+      const data = res.body.data as { id: string; status: string };
+      expect((data as { status: string; error_message?: string }).error_message ?? data.status).toBe('completed');
+      graphsMade.push(data.id);
+      return data.id;
+    }
+
+    it('records a copy as the source’s head, so it exports as a branch does, rolls back unchanged and merges without conflicts (#35)', async () => {
+      const source = await importedSource('Imported source');
+      const copy = await copyOf(source, 'Imported copy');
+      const branch = (await container.graphService.branchGraph(source, { name: 'Imported branch' } as never)).id;
+      graphsMade.push(branch);
+
+      const fromCopy = await exportedContents(copy);
+      expect(fromCopy).toEqual(await exportedContents(branch));
+      expect(fromCopy.events.find((e) => e.id === 'imp-ev-1')).toMatchObject({ sourceRef: 'wiki:First' });
+      expect(fromCopy.links.find((l) => l.id === 'imp-link-zero')).toMatchObject({ weight: 0, confidence: 0, sourceRef: 'wiki:Link' });
+      expect(fromCopy.links.find((l) => l.id === 'imp-link-cross')?.causeGraphId).toBe('some-other-graph');
+      expect(fromCopy.arcs.find((a) => a.id === 'imp-arc-inner')?.parent_arc_id).toBe('imp-arc-outer');
+
+      // Rolling back an unedited copy changes nothing of what it holds.
+      const liveBefore = await liveContents(copy);
+      const version = (await container.graphRepository.getLatestVersion(copy))?.version as number;
+      expect((await http('POST', `/api/graphs/${copy}/rollback/${version}`, agentKey, copy)).status).toBe(200);
+      expect(await liveContents(copy)).toEqual(liveBefore);
+      expect(await exportedContents(copy)).toEqual(fromCopy);
+
+      // And an unedited copy has nothing to conflict with.
+      const merged = await http('POST', `/api/graphs/${source}/merge`, agentKey, source, { sourceGraphId: copy, conflictResolution: 'manual', dryRun: true });
+      expect(merged.status).toBe(200);
+      expect(merged.body.conflicts).toEqual([]);
+    });
+
+    it('copies only the time range it names, keeps ids, and leaves no marker (#35)', async () => {
+      const source = await importedSource('Range source');
+      const copy = await copyOf(source, 'Range copy', { copyType: 'time_range', timeRange: { start: '1755-01-01T00:00:00.000Z', end: '1775-01-01T00:00:00.000Z' } });
+      const { eventRepository, arcRepository } = await container.graphScopedRepositories(copy);
+      expect((await eventRepository.findAll()).map((e) => e.id).sort()).toEqual(['imp-ev-1', 'imp-ev-2']);
+      // The arcs that overlap the range: the outer and the inner arc both do.
+      expect((await arcRepository.findAll()).map((a) => a.id).sort()).toEqual(['imp-arc-inner', 'imp-arc-outer']);
+      const head = await container.graphRepository.checkout(copy);
+      expect(Object.keys(head.events).sort()).toEqual(['imp-ev-1', 'imp-ev-2']);
+      expect(Object.keys(head.relationships)).toEqual(['imp-link-zero']);
+      expect(head.events['imp-ev-1']).toMatchObject({ sourceRef: 'wiki:First' });
+      expect(await markersIn(copy)).toBe(0);
+      // The source still holds all three.
+      const sourceEvents = (await container.graphScopedRepositories(source)).eventRepository;
+      expect((await sourceEvents.findAll()).map((e) => e.id).sort()).toEqual(['imp-ev-1', 'imp-ev-2', 'imp-ev-3']);
+    });
+
+    it('copies only the events a filter names, keeps ids, and leaves no marker (#35)', async () => {
+      const source = await importedSource('Filter source');
+      await (await container.graphScopedRepositories(source)).eventRepository.update('imp-ev-3', { actor: 'Someone else' });
+      const copy = await copyOf(source, 'Filter copy', { copyType: 'filtered', filter: { actors: ['A'] } });
+      const { eventRepository, arcRepository } = await container.graphScopedRepositories(copy);
+      expect((await eventRepository.findAll()).map((e) => e.id).sort()).toEqual(['imp-ev-1', 'imp-ev-2']);
+      expect(await arcRepository.findAll()).toEqual([]);
+      const head = await container.graphRepository.checkout(copy);
+      expect(Object.keys(head.events).sort()).toEqual(['imp-ev-1', 'imp-ev-2']);
+      expect(Object.keys(head.arcs)).toEqual([]);
+      expect(Object.keys(head.relationships)).toEqual(['imp-link-zero']);
+      expect(await markersIn(copy)).toBe(0);
+    });
+
+    it('leaves no graph behind when the copy cannot be versioned, and writes nothing to the live store (#35)', async () => {
+      const source = await importedSource('Unversionable source');
+      const spy = vi.spyOn(container.graphRepository, 'commitChanges').mockRejectedValueOnce(new Error('the version store is down'));
+      const before = (await container.graphService.listGraphs({ limit: 1000 })).graphs.map((g) => g.id).sort();
+      const holding = async (): Promise<string[]> => {
+        const session = getDatabaseManager().getNeo4jSession();
+        try {
+          const rows = await session.run('MATCH (n) WHERE n.graphId IS NOT NULL RETURN DISTINCT n.graphId AS graphId');
+          return rows.records.map((r) => String(r.get('graphId'))).sort();
+        } finally {
+          await session.close();
+        }
+      };
+      const holdingBefore = await holding();
+      const res = await http('POST', '/api/graphs/copy', agentKey, undefined, { sourceGraphId: source, targetName: 'Unversionable copy' });
+      spy.mockRestore();
+      expect((res.body.data as { status: string }).status).toBe('failed');
+      expect((await container.graphService.listGraphs({ limit: 1000 })).graphs.map((g) => g.id).sort()).toEqual(before);
+      // No node of the refused copy was written: the same graphs hold nodes as before.
+      expect(await holding()).toEqual(holdingBefore);
+    });
+
     it('versions a batch of links under the id a single link gets in Neo4j, and a transaction that removes it', async () => {
       const add = async (description: string, timestamp: string): Promise<string> => {
         const res = await http('POST', '/api/events', agentKey, graphA, { description, actor: 'A', target: 'B', timestamp });

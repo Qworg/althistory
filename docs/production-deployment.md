@@ -191,8 +191,7 @@ branch looked empty in the live store. The constraints are now `(graphId, id)`
 (`event_graph_id`, `arc_graph_id`), and a query that names an event or arc by id
 also names its graph.
 
-The upgrade runs at startup, as part of creating the schema and again after the
-pre-graph rows are attributed (see above), and before any request. It is
+The upgrade runs at startup, as part of creating the schema and before any request. It is
 `timeline/src/utils/GraphScopedIdConstraintMigration.ts`, and it is the only code
 that creates these two constraints, so the checks below always come first:
 
@@ -204,8 +203,10 @@ that creates these two constraints, so the checks below always come first:
 - **Stopped part-way, or already migrated:** each step checks first, so the
   remaining step is done and a repeat does nothing.
 - **Nodes with no `graphId`:** a uniqueness constraint ignores them, and no graph
-  reads them. The migration does not touch them; it logs how many there are and
-  the command that attributes them (`npm run migrate:attribute-graph`). Attributing
+  reads them. The migration does not touch them. The startup that attributes
+  pre-graph rows (see above) reports how many there are and the command that
+  attributes them (`npm run migrate:attribute-graph`); the migration only warns
+  when it is run on its own. Attributing
   such a node to a graph that already holds its id fails on the constraint, and
   names it.
 - **The same `(graphId, id)` twice:** impossible under the old constraint, but if
@@ -217,9 +218,19 @@ An index you made yourself on `(graphId, id)` of `Event` or `Arc` (for example
 `IndexAlreadyExists`, because the constraint needs that index for itself. Drop your
 index before upgrading; the constraint is the better one.
 
-A graph copy (`POST /api/graphs/copy`) keeps the ids of what it copies and records
-the copy as its first version, as a branch does, so the copy can be edited, rolled
-back, exported and branched by those ids.
+A graph copy (`POST /api/graphs/copy`) keeps the ids of what it copies. Its first
+version is the source's version head (a time-range or filtered copy: the head limited
+to the ids copied, and a link only when both its events were), recorded before the
+live store is written, exactly as a branch records its version. So the copy can be
+edited, rolled back, exported, branched and merged by those ids, and it carries every
+field the source's history does (`sourceRef`, `parent_arc_id`, a link at weight 0, a
+link to another graph's event). A copy that fails, or cannot be versioned, is removed:
+no empty graph is left. An `InferredPressure` is the one entity given a new id (its
+constraint is still database-wide); the inference recomputes pressures.
+
+A copy walks every node and relationship, so `/api/graphs/copy` has its own request
+budget, `COPY_TIMEOUT_MS` (default `120000`), where the rest of the API keeps
+`QUERY_TIMEOUT_MS` (2 s).
 
 Rolling back to an older release needs the old constraints again, which fail if
 any branch now holds an id its parent holds; take a Neo4j backup before upgrading.

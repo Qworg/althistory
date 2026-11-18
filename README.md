@@ -234,6 +234,7 @@ Frequently used variables; the full set with defaults and validation lives in
 | `LOCAL_MAX_MEMORY_MB` | `512` | Local store memory ceiling (minimum 64) |
 | `WIKIMEDIA_CONTACT` | — | Your email or `User:Name`, added to the User-Agent sent to Wikipedia and Wikidata (Wikimedia asks for a contact) |
 | `INGEST_TIMEOUT_MS` | `300000` | Request budget for `/api/ingest`; everything else keeps `QUERY_TIMEOUT_MS` (2 s) |
+| `COPY_TIMEOUT_MS` | `120000` | Request budget for `/api/graphs/copy`; everything else keeps `QUERY_TIMEOUT_MS` (2 s) |
 | `LOCAL_EXPORT_ASYNC_ENTITY_THRESHOLD` | `10000` | Entity count above which an export becomes an async job |
 
 ## API description

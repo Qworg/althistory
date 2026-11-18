@@ -145,6 +145,17 @@ describe('graph-scoped causal queries (#59)', () => {
     expect(recorded[0]!.parameters.graphId).toBe(GRAPH_ID);
   });
 
+  it('reads a link at weight 0 and confidence 0 as 0, not as the defaults (#35)', async () => {
+    const row: Record<string, unknown> = { id: 'l0', cause_event_id: 'a', effect_event_id: 'b', weight: 0, confidence: 0, evidence: 'x', relationship_type: 'direct' };
+    vi.mocked(getDatabaseManager).mockReturnValue({
+      getNeo4jSession: () => ({ run: async () => ({ records: [{ get: (key: string) => row[key] }] }), close: async () => undefined }),
+    } as unknown as ReturnType<typeof getDatabaseManager>);
+
+    const [link] = await new CausalService({ graphId: GRAPH_ID }).getAllRelationships();
+
+    expect(link).toMatchObject({ weight: 0, confidence: 0 });
+  });
+
   it('finds cycles only in its own graph', async () => {
     const service = new CausalService({ graphId: GRAPH_ID });
 

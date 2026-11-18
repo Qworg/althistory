@@ -760,8 +760,8 @@ export class CausalService {
           id: typeof record.get('id') === 'string' ? (record.get('id') as string) : `${record.get('cause_event_id')}->${record.get('effect_event_id')}`,
           cause_event_id: record.get('cause_event_id'),
           effect_event_id: record.get('effect_event_id'),
-          weight: record.get('weight') || 0.5,
-          confidence: record.get('confidence') || 0.7,
+          weight: record.get('weight') ?? 0.5,
+          confidence: record.get('confidence') ?? 0.7,
           evidence: record.get('evidence') || '',
           relationship_type: record.get('relationship_type') || 'direct'
         }));

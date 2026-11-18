@@ -64,6 +64,12 @@ export interface CopyConfig {
   progressCallback?: (progress: CopyProgress) => void;
   preserveIds: boolean;
   validateIntegrity: boolean;
+  /**
+   * Called once the nodes to copy are known and before the live store is written: with the ids
+   * they carry (null: every node of the source). The route records the copy's first version here,
+   * so a copy that fails to be versioned writes nothing, as a branch records its version first.
+   */
+  beforeCopy?: (selected: ReadonlySet<string> | null) => Promise<void>;
 }
 
 function toNumericCount(val: unknown): number {
@@ -107,7 +113,8 @@ export class GraphCopyService {
       batchSize: config.batchSize || this.DEFAULT_BATCH_SIZE,
       progressCallback: config.progressCallback,
       preserveIds: config.preserveIds ?? true,
-      validateIntegrity: config.validateIntegrity ?? true
+      validateIntegrity: config.validateIntegrity ?? true,
+      beforeCopy: config.beforeCopy
     };
 
     const result: CopyResult = {
@@ -123,6 +130,7 @@ export class GraphCopyService {
     try {
       // Get total counts for progress tracking
       const totalCounts = await this.getTotalCounts(sourceGraphId);
+      await copyConfig.beforeCopy?.(null);
       
       // Copy nodes in batches
       const nodeResult = await this.copyAllNodes(sourceGraphId, targetGraphId, copyConfig, totalCounts);
@@ -170,7 +178,10 @@ export class GraphCopyService {
       batchSize: config.batchSize || this.DEFAULT_BATCH_SIZE,
       progressCallback: config.progressCallback,
       preserveIds: config.preserveIds ?? true,
-      validateIntegrity: config.validateIntegrity ?? true
+      // A partial copy is checked against the nodes it selected, not against the whole source: the
+      // count comparison is only meaningful for a full copy, so a partial one validates only when asked.
+      validateIntegrity: config.validateIntegrity ?? false,
+      beforeCopy: config.beforeCopy
     };
 
     const result: CopyResult = {
@@ -186,6 +197,7 @@ export class GraphCopyService {
     try {
       // Get nodes that intersect with the time range
       const nodeIds = await this.getNodesInTimeRange(sourceGraphId, timeRange);
+      await copyConfig.beforeCopy?.(new Set(nodeIds.filter((id): id is string => typeof id === 'string')));
       
       // Copy filtered nodes in batches
       const nodeResult = await this.copyFilteredNodes(sourceGraphId, targetGraphId, nodeIds, copyConfig);
@@ -233,7 +245,10 @@ export class GraphCopyService {
       batchSize: config.batchSize || this.DEFAULT_BATCH_SIZE,
       progressCallback: config.progressCallback,
       preserveIds: config.preserveIds ?? true,
-      validateIntegrity: config.validateIntegrity ?? true
+      // A partial copy is checked against the nodes it selected, not against the whole source: the
+      // count comparison is only meaningful for a full copy, so a partial one validates only when asked.
+      validateIntegrity: config.validateIntegrity ?? false,
+      beforeCopy: config.beforeCopy
     };
 
     const result: CopyResult = {
@@ -249,6 +264,7 @@ export class GraphCopyService {
     try {
       // Get nodes that match the entity filter
       const nodeIds = await this.getNodesMatchingFilter(sourceGraphId, filter);
+      await copyConfig.beforeCopy?.(new Set(nodeIds.filter((id): id is string => typeof id === 'string')));
       
       // Copy filtered nodes in batches
       const nodeResult = await this.copyFilteredNodes(sourceGraphId, targetGraphId, nodeIds, copyConfig);
@@ -468,7 +484,7 @@ export class GraphCopyService {
 
     while (offset < totalCounts.relationships) {
       try {
-        const batchResult = await this.copyRelationshipBatch(sourceGraphId, targetGraphId, config.batchSize, offset);
+        const batchResult = await this.copyRelationshipBatch(sourceGraphId, targetGraphId, config.batchSize, offset, config.preserveIds);
         copiedCount += batchResult.copiedCount;
         
         if (batchResult.errors.length > 0) {
@@ -557,13 +573,43 @@ export class GraphCopyService {
   }
 
   /**
+   * Cypher that finds, in the target graph, the node a source node was copied to (`newSource` or `newTarget`).
+   *
+   * By the node's label and its kept `(graphId, id)`, so the composite constraint's index answers
+   * it: a join of two unlabelled `MATCH`es on `_sourceNodeId` was a cartesian product of two
+   * all-node scans per relationship, and a copy of a hundred linked events ran out of its time.
+   * Only an InferredPressure (it gets a new id) and a copy that drops ids are found by the marker,
+   * and then within one label of the target graph.
+   */
+  private targetNodeJoin(variable: 'source' | 'target', preserveIds: boolean): string {
+    const byId = (label: string): string => `
+        WITH ${variable}
+        WITH ${variable} WHERE '${label}' IN labels(${variable})
+        MATCH (n:${label} {graphId: $targetGraphId, id: ${variable}.id})
+        RETURN n`;
+    const byMarker = (label: string): string => `
+        WITH ${variable}
+        WITH ${variable} WHERE '${label}' IN labels(${variable})
+        MATCH (n:${label} {graphId: $targetGraphId})
+        WHERE n._sourceNodeId = id(${variable})
+        RETURN n`;
+    const branches = preserveIds
+      ? [byId('Event'), byId('Arc'), byMarker('InferredPressure')]
+      : [byMarker('Event'), byMarker('Arc'), byMarker('InferredPressure')];
+    return `CALL {${branches.join('\n        UNION')}
+      }
+      WITH r, ${variable === 'source' ? 'source, target, n AS newSource' : 'source, target, newSource, n AS newTarget'}`;
+  }
+
+  /**
    * Copy a batch of relationships
    */
   private async copyRelationshipBatch(
     sourceGraphId: string,
     targetGraphId: string,
     batchSize: number,
-    offset: number
+    offset: number,
+    preserveIds = true
   ): Promise<{ copiedCount: number; errors: string[] }> {
     // The edge is stamped with the target graph, not the source's: copying the
     // source properties verbatim would carry the source graph id onto an edge in
@@ -576,14 +622,9 @@ export class GraphCopyService {
       ORDER BY id(r)
       SKIP $offset LIMIT $batchSize
       
-      MATCH (newSource), (newTarget)
-      WHERE newSource.graphId = $targetGraphId 
-        AND newTarget.graphId = $targetGraphId
-        AND (
-          (newSource._sourceNodeId = id(source) AND newTarget._sourceNodeId = id(target)) OR
-          (newSource.id = source.id AND newTarget.id = target.id)
-        )
-      
+      ${this.targetNodeJoin('source', preserveIds)}
+      ${this.targetNodeJoin('target', preserveIds)}
+
       CALL apoc.create.relationship(
         newSource,
         type(r),
@@ -692,7 +733,7 @@ export class GraphCopyService {
   private async getNodesInTimeRange(graphId: string, timeRange: TimeRange): Promise<string[]> {
     const query = `
       MATCH (n)
-      WHERE n.graphId = $graphId OR $graphId = 'default'
+      WHERE (n.graphId = $graphId OR $graphId = 'default')
       AND (
         // Events within time range
         (n:Event AND n.timestamp >= datetime($startTime) AND n.timestamp <= datetime($endTime))
@@ -843,7 +884,7 @@ export class GraphCopyService {
     while (offset < relationshipIds.length) {
       try {
         const batchRelIds = relationshipIds.slice(offset, offset + config.batchSize);
-        const batchResult = await this.copyRelationshipBatchByIds(sourceGraphId, targetGraphId, batchRelIds);
+        const batchResult = await this.copyRelationshipBatchByIds(sourceGraphId, targetGraphId, batchRelIds, config.preserveIds);
         copiedCount += batchResult.copiedCount;
         
         if (batchResult.errors.length > 0) {
@@ -953,7 +994,8 @@ export class GraphCopyService {
   private async copyRelationshipBatchByIds(
     sourceGraphId: string,
     targetGraphId: string,
-    relationshipIds: string[]
+    relationshipIds: string[],
+    preserveIds = true
   ): Promise<{ copiedCount: number; errors: string[] }> {
     const query = `
       MATCH (source)-[r]->(target)
@@ -961,14 +1003,9 @@ export class GraphCopyService {
         AND (target.graphId = $sourceGraphId OR $sourceGraphId = 'default')
         AND id(r) IN $relationshipIds
       
-      MATCH (newSource), (newTarget)
-      WHERE newSource.graphId = $targetGraphId 
-        AND newTarget.graphId = $targetGraphId
-        AND (
-          (newSource._sourceNodeId = id(source) AND newTarget._sourceNodeId = id(target)) OR
-          (newSource.id = source.id AND newTarget.id = target.id)
-        )
-      
+      ${this.targetNodeJoin('source', preserveIds)}
+      ${this.targetNodeJoin('target', preserveIds)}
+
       CALL apoc.create.relationship(
         newSource,
         type(r),
