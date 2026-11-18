@@ -248,7 +248,49 @@ describe('recording a batch', () => {
     }, 120000);
   });
 
+  describe('reconciling pairs', () => {
+    const link = (cause: string, effect: string) => ({ cause_event_id: cause, effect_event_id: effect, weight: 0.5, confidence: 0.5, evidence: 'because', relationship_type: 'direct' });
+    async function graphWithOneLink(): Promise<string> {
+      graphCount += 1;
+      const id = (await container.graphService.createGraph({ name: `Reconcile ${graphCount}` })).id;
+      await run({ metadata: {}, data: { arcs: [], events: [event('p'), event('q')], causalRelationships: [link('p', 'q')] } }, id);
+      return id;
+    }
+
+    it('drops the head links of a pair the store holds none for, when asked to (the link-id migration)', async () => {
+      const graphId = await graphWithOneLink();
+      const step = { cause_event_id: 'p', effect_event_id: 'q', live: [] };
+      // A batch that only writes does not reconcile its pairs...
+      await container.graphWriteVersioningService.recordBatch(graphId, { links: [step] }, []);
+      expect(Object.keys((await container.graphRepository.checkout(graphId)).relationships)).toHaveLength(1);
+      // ...one that asks to does.
+      await container.graphWriteVersioningService.recordBatch(graphId, { links: [step] }, [], { reconcilePairs: true });
+      expect(Object.keys((await container.graphRepository.checkout(graphId)).relationships)).toHaveLength(0);
+    });
+
+    it('drops the link an overwrite import replaced', async () => {
+      const graphId = await graphWithOneLink();
+      const [old] = Object.keys((await container.graphRepository.checkout(graphId)).relationships);
+      await run({ metadata: {}, data: { arcs: [], events: [], causalRelationships: [{ ...link('p', 'q'), evidence: 'replaced' }] } }, graphId, 'overwrite');
+      const head = await container.graphRepository.checkout(graphId);
+      expect(Object.keys(head.relationships)).toHaveLength(1);
+      expect(Object.keys(head.relationships)).not.toContain(old);
+      expect(Object.values(head.relationships)[0].evidence).toBe('replaced');
+    });
+  });
+
   describe('the kept trees', () => {
+    it('keeps the tree a read used last: a hit counts as recent', async () => {
+      const versions = (container.graphRepository as unknown as { versionRepository: { keepsTree(id: string): boolean } }).versionRepository;
+      const ids: string[] = [];
+      for (let i = 0; i < 8; i++) ids.push(await graphOf(1, 1));
+      expect(versions.keepsTree(ids[0])).toBe(true);
+      await container.graphRepository.getHeadIds(ids[0], 'event'); // a hit on the oldest
+      await graphOf(1, 1); // the ninth evicts the least recently used
+      expect(versions.keepsTree(ids[0])).toBe(true);
+      expect(versions.keepsTree(ids[1])).toBe(false);
+    });
+
     it('are bounded, and a soft-deleted graph is let go', async () => {
       const versions = (container.graphRepository as unknown as { versionRepository: { keptTreeCount(): number } }).versionRepository;
       const ids: string[] = [];

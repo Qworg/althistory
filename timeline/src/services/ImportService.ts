@@ -1806,6 +1806,25 @@ export class ImportService {
         }
       });
 
+      // An id the graph uses for the other kind of entity: refused by the import whatever the resolution.
+      for (const error of await this.otherKindIdErrors(importData, targetGraphId, mode)) {
+        const hit = /^\$\.data\.(events|arcs)\[(\d+)\]\.id$/.exec(error.path);
+        if (!hit) continue;
+        const entityType = hit[1] === 'events' ? 'event' : 'arc';
+        const incoming = (hit[1] === 'events' ? exportData.events : exportData.arcs)?.[Number(hit[2])];
+        if (!incoming) continue;
+        addConflict({
+          id: `conflict-other-kind-${entityType}-${incoming.id}`,
+          type: 'duplicate-id',
+          severity: 'error',
+          entityType,
+          entityId: incoming.id,
+          incomingEntity: incoming as unknown as Record<string, unknown>,
+          suggestedResolution: 'skip',
+          message: error.message,
+        });
+      }
+
       // Check for duplicate relationship IDs
       const existingRelIds = new Set(graphData.relationships.map((r) => r.id));
       (exportData.causalRelationships || []).forEach((rel) => {

@@ -78,7 +78,7 @@ export interface CausalLinkIdMigrationOptions {
   /** Reads the links of a graph's version head; null when the graph has no versions. Without it (and `versioning`) edges are only named. */
   headLinks?: (graphId: string) => Promise<Record<string, HeadLink> | null>;
   /** Records the reconciling version of a graph. */
-  versioning?: { recordBatch(graphId: string, state: BatchLiveState, steps: BatchStep[], options?: { announceIfNotVersioned?: boolean; summary?: string; userId?: string }): Promise<void> };
+  versioning?: { recordBatch(graphId: string, state: BatchLiveState, steps: BatchStep[], options?: { announceIfNotVersioned?: boolean; summary?: string; userId?: string; reconcilePairs?: boolean }): Promise<void> };
   /** Edges per naming statement (a pair is never split). Default 5,000. */
   chunkSize?: number;
   log?: (message: string) => void;
@@ -426,6 +426,7 @@ async function migrateGraph(
       (stale > 0 ? `, removed ${stale} ${stale === 1 ? 'link' : 'links'} the graph no longer holds` : '');
     await (options.versioning as NonNullable<typeof options.versioning>).recordBatch(graphId as string, { links: changed }, [], {
       announceIfNotVersioned: false,
+      reconcilePairs: true,
       summary,
       userId: LINK_ID_UPGRADE_USER,
     });

@@ -191,7 +191,20 @@ describe('the CLI importer', () => {
       const service = new ImportService({ dataDir: testDataDir });
       await service.initialize();
       const result = await service.executeImport(incoming as never, { graphId, mode: 'merge', conflictResolution: 'overwrite' } as never);
+      const arcIntoEvent = {
+        ...incoming,
+        data: { ...incoming.data, events: [], arcs: [{ id: 'E9', name: 'n', description: 'd', start_time: '1800-01-01T00:00:00.000Z', end_time: '1900-01-01T00:00:00.000Z', level: 0 }] },
+      };
+      await run(document([], [event('E9', 'an event')]), graphId, 'skip');
+      const arcSide = await service.executeImport(arcIntoEvent as never, { graphId, mode: 'merge', conflictResolution: 'overwrite' } as never);
+      // The preview and the conflict list say the same.
+      const conflicts = await service.detectConflicts(incoming as never, graphId, 'merge');
+      const arcConflicts = await service.detectConflicts(arcIntoEvent as never, graphId, 'merge');
       await service.destroy();
+      expect(arcSide.success).toBe(false);
+      expect(arcSide.errors.map((e) => e.message).join(' ')).toMatch(/ID 'E9' is used by an event in the target graph/);
+      expect(conflicts.map((c) => `${c.severity} ${c.entityType} ${c.entityId}`)).toContain('error event A1');
+      expect(arcConflicts.map((c) => `${c.severity} ${c.entityType} ${c.entityId}`)).toContain('error arc E9');
       expect(result.success).toBe(false);
       expect(result.errors.map((e) => e.message).join(' ')).toMatch(/ID 'A1' is used by an arc in the target graph/);
       const { eventRepository } = await container.graphScopedRepositories(graphId);

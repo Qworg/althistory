@@ -139,6 +139,11 @@ export class VersionRepository {
     this.headTrees.delete(graphId);
   }
 
+  /** Whether a graph's tree is kept in memory. */
+  keepsTree(graphId: string): boolean {
+    return this.headTrees.has(graphId);
+  }
+
   /** How many graphs' trees are kept in memory. */
   keptTreeCount(): number {
     return this.headTrees.size;
