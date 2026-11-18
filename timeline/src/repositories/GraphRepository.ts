@@ -17,7 +17,7 @@ import {
   MergeParent,
   EntityType,
 } from '../models/Graph';
-import { VersionRepository, EntityChanges, ResolvedGraphData, ResolveOptions } from './VersionRepository';
+import { VersionRepository, EntityChanges, ResolvedGraphData, ResolveOptions, TreeSelection } from './VersionRepository';
 
 export interface GraphRepositoryConfig {
   dataDir: string;
@@ -358,11 +358,72 @@ export class GraphRepository {
     // Update graph metadata
     const graph = await this.findById(graphId);
     if (graph) {
-      const metadata = await this.calculateMetadata(graphId);
+      const metadata = (await this.extendMetadata(graphId, graph.metadata, changes)) ?? (await this.calculateMetadata(graphId));
       await this.update(graphId, { metadata });
     }
 
     return versionRef;
+  }
+
+  /**
+   * The graph's metadata after a commit that only added events (or touched
+   * other kinds), from the metadata it had and the entities added: the counts
+   * come from the tree and the temporal range and actors from the added events
+   * alone, so the cost follows the commit, not the graph. Undefined (the
+   * caller recalculates from the whole head) when the commit edited or removed
+   * an event, or when the metadata kept does not describe the head before it
+   * (its counts plus the commit's changes are not the head's counts), so a
+   * stale record is recomputed, never extended.
+   */
+  private async extendMetadata(graphId: string, previous: GraphMetadata | undefined, changes: EntityChanges): Promise<GraphMetadata | undefined> {
+    if (!previous || !Array.isArray(previous.actors)) return undefined;
+    if (changes.modified.some((e) => e.type === 'event') || changes.deleted.some((e) => e.type === 'event')) return undefined;
+    const net = (type: 'event' | 'arc' | 'relationship' | 'pressure'): number =>
+      changes.added.filter((e) => e.type === type).length - changes.deleted.filter((e) => e.type === type).length;
+    const now = await this.versionRepository.getHeadCounts(graphId);
+    if (
+      previous.eventCount + net('event') !== now.events ||
+      previous.arcCount + net('arc') !== now.arcs ||
+      previous.relationshipCount + net('relationship') !== now.relationships ||
+      previous.pressureCount + net('pressure') !== now.pressures
+    ) {
+      return undefined;
+    }
+    const added = changes.added.filter((e) => e.type === 'event');
+    let temporalRange = previous.temporalRange;
+    if (added.length > 0) {
+      const times = added
+        .map((e) => e.data.timestamp as string)
+        .filter((t) => t)
+        .map((t) => toAxisTime(t))
+        .filter((t): t is bigint => t !== null);
+      if (times.length > 0) {
+        if (previous.eventCount > 0 && !previous.temporalRange) return undefined;
+        let earliest = times.reduce((a, b) => (b < a ? b : a));
+        let latest = times.reduce((a, b) => (b > a ? b : a));
+        if (previous.temporalRange) {
+          const start = toAxisTime(previous.temporalRange.start);
+          const end = toAxisTime(previous.temporalRange.end);
+          if (start === null || end === null) return undefined;
+          if (start < earliest) earliest = start;
+          if (end > latest) latest = end;
+        }
+        temporalRange = { start: isoOfAxisTime(earliest), end: isoOfAxisTime(latest) };
+      }
+    }
+    const actors = new Set<string>(previous.actors);
+    for (const event of added) {
+      const actor = event.data.actor as string;
+      if (actor) actors.add(actor);
+    }
+    return {
+      eventCount: now.events,
+      arcCount: now.arcs,
+      relationshipCount: now.relationships,
+      pressureCount: now.pressures,
+      temporalRange,
+      actors: Array.from(actors),
+    };
   }
 
   /**
@@ -393,6 +454,22 @@ export class GraphRepository {
     }
 
     return read(latest.version);
+  }
+
+  /**
+   * The head's entities that `selection` names, resolved as `checkout`
+   * resolves them (same `strict` and `missing` rules) and nothing else: the
+   * objects read, and the time taken, follow the selection, not the graph.
+   */
+  async checkoutSelected(graphId: string, selection: TreeSelection, options: ResolveOptions = {}): Promise<ResolvedGraphData> {
+    const latest = await this.versionRepository.getLatestVersion(graphId);
+    if (!latest) return { events: {}, arcs: {}, relationships: {}, pressures: {} };
+    return this.versionRepository.checkoutSelected(graphId, latest.version, selection, options);
+  }
+
+  /** How many entities of each kind the head names (no objects are read). */
+  async getHeadCounts(graphId: string): Promise<{ events: number; arcs: number; relationships: number; pressures: number }> {
+    return this.versionRepository.getHeadCounts(graphId);
   }
 
   /**

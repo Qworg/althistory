@@ -29,7 +29,7 @@
 
 import { toAxisTime } from '@althistory/calendar';
 import { GraphRepository } from '@/repositories/GraphRepository';
-import { EntityChanges } from '@/repositories/VersionRepository';
+import { EntityChanges, TreeSelection } from '@/repositories/VersionRepository';
 import { EntityType } from '@/models/Graph';
 import { Event } from '@/models/Event';
 import { Arc } from '@/models/Arc';
@@ -637,7 +637,23 @@ export class GraphWriteVersioningService {
           : type === 'relationship' ? state.deletesLinks === true || liveLinks.has(id)
             : false;
     const missing: Array<{ type: EntityType; id: string }> = [];
-    const head = await this.graphRepository.checkout(graphId, undefined, { strict: mustResolve, missing });
+    // Only what the batch can touch is read from the head, so the cost follows
+    // the batch and not the graph: the entities it names; every link when it
+    // writes a link or deletes an event or a link (the scans below look for the
+    // head's links by their two events); every pressure when it deletes an arc
+    // (`releasePressures`).
+    const deletesEvent = [...(state.events ?? [])].some(([, event]) => !event);
+    const deletesArc = [...(state.arcs ?? [])].some(([, arc]) => !arc);
+    const selection: TreeSelection = {
+      events: [...(state.events?.keys() ?? [])],
+      arcs: [...(state.arcs?.keys() ?? [])],
+      relationships: (state.links ?? []).length > 0 || state.deletesLinks === true || deletesEvent ? 'all' : [],
+      pressures: deletesArc ? 'all' : [],
+    };
+    const options = { strict: mustResolve, missing };
+    const head = this.graphRepository.checkoutSelected
+      ? await this.graphRepository.checkoutSelected(graphId, selection, options)
+      : await this.graphRepository.checkout(graphId, undefined, options);
     // In the tree, though its object could not be read.
     const lost = new Set(missing.map((entry) => `${entry.type}:${entry.id}`));
     const inHead = (type: EntityType, entities: Record<string, unknown>, id: string): boolean =>

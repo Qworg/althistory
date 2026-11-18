@@ -225,7 +225,10 @@ Only `json` is this format. The others are renderings of the same data.
 
 `POST /api/import`, or `althistory import <file>`. The importer:
 
-1. Validates the document — `version` must be `"1.0"` or `"1.1"`; ids must be unique;
+1. Validates the document — `version` must be `"1.0"` or `"1.1"`; ids must be unique
+   (an arc or event id listed twice is refused under every conflict strategy, by
+   the API as `DUPLICATE_ID` and by the CLI with a message naming both entries'
+   positions, before anything is written);
    every reference (`parent_arc_id`, `cause_event_id`, `effect_event_id`,
    `evidence_event_ids`, `affected_arc_ids`) must resolve within the document
    unless it names another graph; causal order must hold.

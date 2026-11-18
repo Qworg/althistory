@@ -35,7 +35,7 @@ through the app, so `--direct` is never needed beside one.
 | `generate timeline\|branch\|expand\|simulate` | Generates an alternate history or an invented world, a branch, an expansion or a simulation. |
 | `validate` | Validates a graph, and with `--auto-repair` repairs what it can. |
 | `export` | Exports a graph as `json`, `markdown`, `dot` or `graphml`. |
-| `import` | Imports a graph from a JSON document. |
+| `import` | Imports a graph from a JSON document, with `--strategy skip\|overwrite\|rename` for ids the graph already holds. An arc or event id listed twice in the document is refused under every strategy, before anything is written ("arc id \"X\" appears twice in the document, at arcs[0] and arcs[2]"): one entry would have to win, and the importer does not guess which. Each import is recorded as one version holding only the entities it wrote, at a cost that follows the import, not the size of the graph. |
 | `schema` | The JSON Schema of every command, with the required options and arguments marked required (`--mcp` for the MCP tool dictionary, `--tool` for one tool). The default output used to be the MCP tool dictionary; it is now the command schema, which is what the flag list has always described. |
 | `mcp` | The stdio MCP server: the tools, and the prompts below. |
 | `prompt [name] [key=value…]` | Prints an agent prompt (`worldbuild`, `alternate_history`, `grow_history`) with its arguments filled in; without a name, lists them. `--plain` prints the bare text, for an agent without MCP. |

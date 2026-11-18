@@ -382,6 +382,7 @@ describe('the arc hierarchy', () => {
           // A commit also recounts the graph (`calculateMetadata`, a plain checkout), which main does too;
           // what a write must not do is resolve the whole head to judge or version an arc (a call with options).
           const checkout = vi.spyOn(container.graphRepository, 'checkout');
+          const selected = vi.spyOn(container.graphRepository, 'checkoutSelected');
           const wholeHeadReads = (): number => checkout.mock.calls.filter((call) => call[2] !== undefined).length;
           for (let i = 0; i < 5; i += 1) {
             await put(graphId, `a${i}`, { level: 1, metadata: { parentArcId: 'R', note: i } }).expect(200);
@@ -389,8 +390,9 @@ describe('the arc hierarchy', () => {
           await put(graphId, 'a0', { level: 2, metadata: { parentArcId: 'a1' } }).expect(200);
           expect(wholeHeadReads()).toBe(0);
           await transaction(graphId, Array.from({ length: 35 }, (_, i) => ({ type: 'update_arc', data: { id: `a${i + 5}`, level: i + 2, metadata: { parentArcId: `a${i + 4}` } } }))).expect(200);
-          // The batch's one version reads the head once, as it does on main.
-          expect(wholeHeadReads()).toBe(1);
+          // The batch's one version reads only the entities it names (`checkoutSelected`, issue 40), never the whole head.
+          expect(wholeHeadReads()).toBe(0);
+          expect(selected).toHaveBeenCalledTimes(1);
           expect((await exported(graphId)).valid).toBe(true);
         });
       });
