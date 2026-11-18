@@ -425,4 +425,46 @@ describe('a 408 saves nothing, in Neo4j', () => {
     // Every session the copy opened is closed again.
     expect(opened).toEqual([]);
   });
+
+  it('a link create whose commit is acknowledged too late is retried without making a second link', async () => {
+    quiet();
+    const cause = ((await http('POST', '/api/events', event('Ack cause'))).body.data as { id: string }).id;
+    const effect = ((await http('POST', '/api/events', event('Ack effect'))).body.data as { id: string }).id;
+    // The commit lands, then the driver is told it failed with a transient error: it runs the work again.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const TransactionClass = require('neo4j-driver-core/lib/transaction.js').default;
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { newError } = require('neo4j-driver-core/lib/error.js');
+    const commit = TransactionClass.prototype.commit;
+    let lost = 0;
+    TransactionClass.prototype.commit = async function (this: unknown, ...args: unknown[]) {
+      const out = await commit.apply(this, args);
+      if (lost === 0) {
+        lost++;
+        throw newError('injected after commit', 'Neo.TransientError.General.DatabaseUnavailable');
+      }
+      return out;
+    };
+    try {
+      const res = await http('POST', '/api/causal/link', {
+        causeEventId: cause,
+        effectEventId: effect,
+        relationship: { type: 'direct', strength: 0.8, confidence: 0.9, evidence: 'ack' },
+      });
+      expect(res.status).toBe(201);
+    } finally {
+      TransactionClass.prototype.commit = commit;
+    }
+    expect(lost).toBe(1);
+    expect(await count('MATCH (:Event {id: $cause})-[r:CAUSES]->(:Event {id: $effect}) RETURN count(r) AS n', { cause, effect })).toBe(1);
+    // Two separate links between the same events are still two, with their own ids.
+    const again = await http('POST', '/api/causal/link', {
+      causeEventId: cause,
+      effectEventId: effect,
+      relationship: { type: 'direct', strength: 0.5, confidence: 0.5, evidence: 'ack again' },
+    });
+    expect(again.status).toBe(201);
+    expect(await count('MATCH (:Event {id: $cause})-[r:CAUSES]->(:Event {id: $effect}) RETURN count(r) AS n', { cause, effect })).toBe(2);
+    vi.restoreAllMocks();
+  });
 });

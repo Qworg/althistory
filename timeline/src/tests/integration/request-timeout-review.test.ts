@@ -32,6 +32,10 @@ describe('the first review of #44, local mode', () => {
   let dir: string;
   let graphId: string;
   let key: string;
+  let routeEnded: Promise<void> = Promise.resolve();
+  let endRoute: () => void = () => undefined;
+  /** The 408 comes back while the route is still running: wait for the route to end before looking at what it logged. */
+  const afterRoute = (): Promise<unknown> => Promise.race([routeEnded, new Promise((resolve) => setTimeout(resolve, 3000))]);
 
   beforeAll(async () => {
     dir = path.join(os.tmpdir(), `request-timeout-review-${process.pid}-${Date.now()}`);
@@ -50,11 +54,18 @@ describe('the first review of #44, local mode', () => {
     app.use(requestTimeout(BUDGET));
     // `X-Expire: before` runs the budget out at this exact point, ahead of the route.
     app.use((req: Request, _res: Response, next: NextFunction) => {
+      // The route runs on after its 408; `routeEnded` resolves when it has failed (see the error handler below).
+      routeEnded = new Promise<void>((resolve) => {
+        endRoute = resolve;
+      });
       if (req.get('X-Expire') === 'before') currentBudget()?.expireNow();
       next();
     });
     app.use('/api', apiRouter);
-    app.use(errorHandler);
+    app.use((error: Error, req: Request, res: Response, next: NextFunction) => {
+      errorHandler(error, req, res, next);
+      endRoute();
+    });
     graphId = (await container.graphService.createGraph({ name: 'Review' })).id;
     await container.graphService.setActiveGraph(graphId);
     const rateLimit = { requestsPerMinute: 1000, requestsPerHour: 10000, requestsPerDay: 100000, concurrentStreams: 8 };
@@ -213,8 +224,10 @@ describe('the first review of #44, local mode', () => {
     for (const route of [`/api/events/${id}`, '/api/events', '/api/arcs', '/api/causal/relationships']) {
       const res = await request(app).get(route).set('X-Expire', 'before');
       expect(res.status).toBe(408);
+      await afterRoute();
     }
     await request(app).post('/api/events').set('X-Expire', 'before').send({ description: 'x', actor: 'A', target: 'B', timestamp: '1200-01-01T00:00:00.000Z' });
+    await afterRoute();
     expect(errors).toEqual([]);
   });
 });

@@ -1153,14 +1153,19 @@ export class CausalService {
           MATCH (cause:Event)
           MATCH (effect:Event)
           ${whereClause(conditions)}
-          CREATE (cause)-[r:CAUSES {
-            id: $linkId,
-            weight: $weight,
-            evidence: $evidence,
-            confidence: $confidence,
-            relationship_type: $relationshipType,
-            created_at: datetime()${graphEntry}
+          // Keyed on the link's id (and graph): a create the driver retries
+          // after a lost commit acknowledgement finds the link it already
+          // made instead of making a second. Two links between the same events
+          // have different ids, so they stay two.
+          MERGE (cause)-[r:CAUSES {
+            id: $linkId${graphEntry}
           }]->(effect)
+          ON CREATE SET
+            r.weight = $weight,
+            r.evidence = $evidence,
+            r.confidence = $confidence,
+            r.relationship_type = $relationshipType,
+            r.created_at = datetime()
           RETURN r
         `;
 
