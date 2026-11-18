@@ -378,6 +378,16 @@ describe('Graph routes (request-level)', () => {
       const branch = await container.graphService.branchGraph(world.id, { name: 'World Branch' });
       expect(branch.calendar).toEqual(legacyCalendarSet(calendar));
 
+      // The Cypher copy needs Neo4j; a copy that failed would leave no graph, so the copy step is answered here.
+      vi.spyOn(container.graphCopyService, 'copyFullGraph').mockResolvedValue({
+        sourceGraphId: world.id,
+        targetGraphId: 'resolved-by-route',
+        copiedNodes: 0,
+        copiedRelationships: 0,
+        duration: 1,
+        success: true,
+        errors: [],
+      });
       const copy = await request(app)
         .post('/api/graphs/copy')
         .set('X-API-Key', writeKey)
@@ -552,7 +562,8 @@ describe('Graph routes (request-level)', () => {
       const targetId = response.body.data.id;
       expect(response.body.data.status).toBe('completed');
       expect(response.body.data.progress).toBe(100);
-      expect(copySpy).toHaveBeenCalledWith(sourceGraph.id, targetId);
+      // The route hands the service the step that records the copy's first version.
+      expect(copySpy).toHaveBeenCalledWith(sourceGraph.id, targetId, { beforeCopy: expect.any(Function) });
       // The target graph really exists, so GET /graphs/copy/:id can resolve it.
       const target = await container.graphService.getGraph(targetId);
       expect(target.name).toBe('Route Test Copy');
@@ -588,7 +599,8 @@ describe('Graph routes (request-level)', () => {
           start: new Date('1914-01-01T00:00:00.000Z'),
           end: new Date('1919-01-01T00:00:00.000Z'),
         },
-        response.body.data.id
+        response.body.data.id,
+        { beforeCopy: expect.any(Function) }
       );
     });
 
@@ -619,8 +631,31 @@ describe('Graph routes (request-level)', () => {
       expect(filterSpy).toHaveBeenCalledWith(
         sourceGraph.id,
         { actors: ['Actor A'], targets: ['Target B'], eventTypes: ['battle'] },
-        response.body.data.id
+        response.body.data.id,
+        { beforeCopy: expect.any(Function) }
       );
+    });
+
+    it('POST /api/graphs/copy leaves no graph behind when the copy fails, or throws, and answers with an error and no id (#35)', async () => {
+      const before = (await container.graphService.listGraphs({ limit: 1000 })).graphs.map((g) => g.id).sort();
+      vi.spyOn(container.graphCopyService, 'copyFullGraph').mockResolvedValueOnce({
+        sourceGraphId: sourceGraph.id,
+        targetGraphId: 'x',
+        copiedNodes: 0,
+        copiedRelationships: 0,
+        duration: 1,
+        success: false,
+        errors: ['Node batch copy failed'],
+      });
+      const failed = await request(app).post('/api/graphs/copy').set('X-API-Key', writeKey).send({ targetName: 'Failing Copy' }).expect(500);
+      expect(failed.body.data).toBeUndefined();
+      // A plain reason: the store's own words are for the server log.
+      expect(JSON.stringify(failed.body)).not.toContain('Node batch copy failed');
+      expect(JSON.stringify(failed.body)).toContain('removed');
+      vi.spyOn(container.graphCopyService, 'copyFullGraph').mockRejectedValueOnce(new Error('the store is down'));
+      await request(app).post('/api/graphs/copy').set('X-API-Key', writeKey).send({ targetName: 'Throwing Copy' }).expect(500);
+      const after = (await container.graphService.listGraphs({ limit: 1000 })).graphs;
+      expect(after.map((g) => g.id).sort()).toEqual(before);
     });
 
     it('POST /api/graphs/copy rejects a copy without a target name', async () => {

@@ -25,8 +25,9 @@ import {
   IGraph,
   findInvalidManualResolutions,
 } from '../../models/Graph';
-import type { CopyResult as GraphCopyResult, EntityFilter } from '../../services/GraphCopyService';
-import { ValidationError } from '../../utils/errors';
+import type { CopyPlan, CopyResult as GraphCopyResult, EntityFilter } from '../../services/GraphCopyService';
+import { DatabaseError, ValidationError } from '../../utils/errors';
+import { versionCopyFromHead } from '../../services/CopyVersioning';
 
 export const graphRoutes = Router();
 
@@ -123,6 +124,23 @@ function toCopyResponse(targetGraph: IGraph, result: GraphCopyResult) {
     copiedRelationships: result.copiedRelationships,
     duration: result.duration,
   };
+}
+
+/**
+ * Remove the graph a copy was made into, and every live node it holds. Best effort: what cannot be
+ * removed is logged, and the copy's own error is the one the caller sees.
+ */
+async function discardCopy(container: RequestWithContainer['container'], graphId: string): Promise<void> {
+  try {
+    await container.clearLiveStore(graphId);
+  } catch (error) {
+    console.error(`Could not remove the live data of the failed copy ${graphId}:`, error);
+  }
+  try {
+    await container.graphRepository.hardDelete(graphId);
+  } catch (error) {
+    console.error(`Could not remove the failed copy ${graphId}:`, error);
+  }
 }
 
 /**
@@ -265,16 +283,53 @@ graphRoutes.post(
         calendar: sourceGraph.calendar,
       });
 
+      // The copy's first version is the source's head (what a branch records), made before the live
+      // store is written: a copy that cannot be versioned has written nothing.
+      let versionedNodes = 0;
+      const beforeCopy = async (selected: ReadonlySet<string> | null): Promise<CopyPlan> => {
+        const plan = await versionCopyFromHead(req.container, sourceGraphId, targetGraph.id, sourceGraph.name, selected);
+        versionedNodes = plan.versionedNodes ?? 0;
+        return plan;
+      };
+
       let result: GraphCopyResult;
-      if (copyType === 'time_range' && range) {
-        result = await copyService.copyByTimeRange(sourceGraphId, range, targetGraph.id);
-      } else if (copyType === 'filtered') {
-        if (!request.filter) {
-          throw new ValidationError('filter is required for a filtered copy', 'filter');
+      try {
+        if (copyType === 'time_range' && range) {
+          result = await copyService.copyByTimeRange(sourceGraphId, range, targetGraph.id, { beforeCopy });
+        } else if (copyType === 'filtered') {
+          if (!request.filter) {
+            throw new ValidationError('filter is required for a filtered copy', 'filter');
+          }
+          result = await copyService.copyByEntityFilter(sourceGraphId, request.filter, targetGraph.id, { beforeCopy });
+        } else {
+          result = await copyService.copyFullGraph(sourceGraphId, targetGraph.id, { beforeCopy });
         }
-        result = await copyService.copyByEntityFilter(sourceGraphId, request.filter, targetGraph.id);
-      } else {
-        result = await copyService.copyFullGraph(sourceGraphId, targetGraph.id);
+      } catch (error) {
+        await discardCopy(req.container, targetGraph.id);
+        throw error;
+      }
+      // A source whose version holds events or arcs its live store does not (it was never rebuilt, or only
+      // in part) cannot be copied node by node into a copy that matches: when the copy wrote fewer events
+      // and arcs than its version holds (pressures do not count), its live store is built from the version
+      // just recorded, as a branch's is. `materialize` clears the target first, so nothing is written twice.
+      if (result.success && versionedNodes > 0) {
+        try {
+          const { eventRepository, arcRepository } = await req.container.graphScopedRepositories(targetGraph.id);
+          const written = (await eventRepository.count()) + (await arcRepository.count());
+          if (written < versionedNodes) {
+            const built = await req.container.liveStoreSyncService.materialize(targetGraph.id, 'branch');
+            result = { ...result, copiedNodes: built.events + built.arcs, copiedRelationships: built.relationships };
+          }
+        } catch (error) {
+          result = { ...result, success: false, errors: [...(result.errors ?? []), `Building the copy from its version failed: ${error}`] };
+        }
+      }
+      // A failed copy leaves no graph behind, empty or half-filled, and answers with a plain reason, not
+      // with the id of a graph that is gone. The store's own words stay in the server log.
+      if (!result.success) {
+        console.error(`Graph copy ${sourceGraphId} -> ${targetGraph.id} failed and was removed:`, result.errors);
+        await discardCopy(req.container, targetGraph.id);
+        throw new DatabaseError('The copy failed and was removed; nothing of it was kept. The reason is in the server log.', 'copyGraph');
       }
 
       res.status(201).json({

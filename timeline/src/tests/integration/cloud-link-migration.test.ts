@@ -431,7 +431,7 @@ describe('the cloud link id migration (#30)', () => {
 
   describe('at scale (Neo4j on a 1 GB heap, as docker-compose runs it)', () => {
     const seed = async (graphId: string, tag: string, pairs: number, twins: number): Promise<void> => {
-      // Event ids are unique across the whole database, so each test names its own.
+      // A test names its own ids so it never meets another's (they are unique per graph, and its graph is its own).
       // ... and starts from none of its own left by an interrupted run.
       await neo("MATCH (n:Event) WHERE n.id STARTS WITH $t CALL { WITH n DETACH DELETE n } IN TRANSACTIONS OF 5000 ROWS", { t: tag });
       await neo(

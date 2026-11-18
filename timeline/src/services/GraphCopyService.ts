@@ -57,6 +57,17 @@ export interface CopyProgress {
 }
 
 /**
+ * What the `beforeCopy` hook can ask of the live copy. A partial copy can leave an arc without its
+ * parent; the version it recorded gives that arc no parent and a level of its own, and the live copy
+ * is made to say the same.
+ */
+export interface CopyPlan {
+  arcs?: ReadonlyMap<string, { parent: string | null; level: number }>;
+  /** How many events and arcs the copy's first version holds (pressures are not versioned). */
+  versionedNodes?: number;
+}
+
+/**
  * Copy operation configuration
  */
 export interface CopyConfig {
@@ -64,6 +75,12 @@ export interface CopyConfig {
   progressCallback?: (progress: CopyProgress) => void;
   preserveIds: boolean;
   validateIntegrity: boolean;
+  /**
+   * Called once the nodes to copy are known and before the live store is written: with the keys
+   * (`Label:id`, because an event and an arc may share an id) they carry (null: every node of the source). The route records the copy's first version here,
+   * so a copy that fails to be versioned writes nothing, as a branch records its version first.
+   */
+  beforeCopy?: (selected: ReadonlySet<string> | null) => Promise<CopyPlan | void>;
 }
 
 function toNumericCount(val: unknown): number {
@@ -106,8 +123,9 @@ export class GraphCopyService {
     const copyConfig: CopyConfig = {
       batchSize: config.batchSize || this.DEFAULT_BATCH_SIZE,
       progressCallback: config.progressCallback,
-      preserveIds: config.preserveIds ?? false,
-      validateIntegrity: config.validateIntegrity ?? true
+      preserveIds: config.preserveIds ?? true,
+      validateIntegrity: config.validateIntegrity ?? true,
+      beforeCopy: config.beforeCopy
     };
 
     const result: CopyResult = {
@@ -123,6 +141,7 @@ export class GraphCopyService {
     try {
       // Get total counts for progress tracking
       const totalCounts = await this.getTotalCounts(sourceGraphId);
+      await copyConfig.beforeCopy?.(null);
       
       // Copy nodes in batches
       const nodeResult = await this.copyAllNodes(sourceGraphId, targetGraphId, copyConfig, totalCounts);
@@ -133,6 +152,7 @@ export class GraphCopyService {
       const relationshipResult = await this.copyAllRelationships(sourceGraphId, targetGraphId, copyConfig, totalCounts);
       result.copiedRelationships = relationshipResult.copiedCount;
       result.errors?.push(...(relationshipResult.errors || []));
+      await this.dropSourceMarkers(targetGraphId, result);
 
       result.success = result.errors?.length === 0;
       result.duration = Date.now() - startTime;
@@ -168,8 +188,9 @@ export class GraphCopyService {
     const copyConfig: CopyConfig = {
       batchSize: config.batchSize || this.DEFAULT_BATCH_SIZE,
       progressCallback: config.progressCallback,
-      preserveIds: config.preserveIds ?? false,
-      validateIntegrity: config.validateIntegrity ?? true
+      preserveIds: config.preserveIds ?? true,
+      validateIntegrity: config.validateIntegrity ?? true,
+      beforeCopy: config.beforeCopy
     };
 
     const result: CopyResult = {
@@ -185,23 +206,27 @@ export class GraphCopyService {
     try {
       // Get nodes that intersect with the time range
       const nodeIds = await this.getNodesInTimeRange(sourceGraphId, timeRange);
+      const selected = new Set(nodeIds.filter((id): id is string => typeof id === 'string'));
+      const plan = await copyConfig.beforeCopy?.(selected);
       
       // Copy filtered nodes in batches
       const nodeResult = await this.copyFilteredNodes(sourceGraphId, targetGraphId, nodeIds, copyConfig);
       result.copiedNodes = nodeResult.copiedCount;
       result.errors?.push(...(nodeResult.errors || []));
+      await this.applyArcPlan(targetGraphId, plan, copyConfig, result);
 
       // Copy relationships that connect the copied nodes
       const relationshipResult = await this.copyFilteredRelationships(sourceGraphId, targetGraphId, nodeIds, copyConfig);
       result.copiedRelationships = relationshipResult.copiedCount;
       result.errors?.push(...(relationshipResult.errors || []));
+      await this.dropSourceMarkers(targetGraphId, result);
 
       result.success = result.errors?.length === 0;
       result.duration = Date.now() - startTime;
 
-      // Validate integrity if requested
+      // Validate integrity if requested: against what was selected, not against the whole source
       if (copyConfig.validateIntegrity && result.success) {
-        const integrityReport = await this.validateCopyIntegrity(result);
+        const integrityReport = await this.validatePartialCopy(result, selected.size, relationshipResult.expectedCount);
         if (!integrityReport.isValid) {
           result.success = false;
           result.errors?.push(...integrityReport.violations);
@@ -230,8 +255,9 @@ export class GraphCopyService {
     const copyConfig: CopyConfig = {
       batchSize: config.batchSize || this.DEFAULT_BATCH_SIZE,
       progressCallback: config.progressCallback,
-      preserveIds: config.preserveIds ?? false,
-      validateIntegrity: config.validateIntegrity ?? true
+      preserveIds: config.preserveIds ?? true,
+      validateIntegrity: config.validateIntegrity ?? true,
+      beforeCopy: config.beforeCopy
     };
 
     const result: CopyResult = {
@@ -247,23 +273,27 @@ export class GraphCopyService {
     try {
       // Get nodes that match the entity filter
       const nodeIds = await this.getNodesMatchingFilter(sourceGraphId, filter);
+      const selected = new Set(nodeIds.filter((id): id is string => typeof id === 'string'));
+      const plan = await copyConfig.beforeCopy?.(selected);
       
       // Copy filtered nodes in batches
       const nodeResult = await this.copyFilteredNodes(sourceGraphId, targetGraphId, nodeIds, copyConfig);
       result.copiedNodes = nodeResult.copiedCount;
       result.errors?.push(...(nodeResult.errors || []));
+      await this.applyArcPlan(targetGraphId, plan, copyConfig, result);
 
       // Copy relationships that connect the copied nodes
       const relationshipResult = await this.copyFilteredRelationships(sourceGraphId, targetGraphId, nodeIds, copyConfig);
       result.copiedRelationships = relationshipResult.copiedCount;
       result.errors?.push(...(relationshipResult.errors || []));
+      await this.dropSourceMarkers(targetGraphId, result);
 
       result.success = result.errors?.length === 0;
       result.duration = Date.now() - startTime;
 
-      // Validate integrity if requested
+      // Validate integrity if requested: against what was selected, not against the whole source
       if (copyConfig.validateIntegrity && result.success) {
-        const integrityReport = await this.validateCopyIntegrity(result);
+        const integrityReport = await this.validatePartialCopy(result, selected.size, relationshipResult.expectedCount);
         if (!integrityReport.isValid) {
           result.success = false;
           result.errors?.push(...integrityReport.violations);
@@ -296,11 +326,7 @@ export class GraphCopyService {
       const sourceNodeCounts = await this.getNodeCounts(copyResult.sourceGraphId);
       const targetNodeCounts = await this.getNodeCounts(copyResult.targetGraphId);
 
-      if (Object.keys(sourceNodeCounts).length === 0) {
-        report.missingNodes.push(`Source graph "${copyResult.sourceGraphId}" contains no nodes or does not exist`);
-        report.isValid = false;
-      }
-
+      // A source with no nodes is copied as a graph with no nodes: nothing is missing.
       for (const [nodeType, sourceCount] of Object.entries(sourceNodeCounts)) {
         const targetCount = targetNodeCounts[nodeType] || 0;
         if (sourceCount !== targetCount) {
@@ -423,6 +449,94 @@ export class GraphCopyService {
   }
 
   /**
+   * Make the live arcs of a partial copy say what the version recorded for them: an arc whose parent
+   * was not copied has no parent (`metadata.parentArcId` removed) and the level the plan gives it.
+   */
+  private async applyArcPlan(
+    targetGraphId: string,
+    plan: CopyPlan | void,
+    config: CopyConfig,
+    result: CopyResult
+  ): Promise<void> {
+    if (!plan?.arcs || plan.arcs.size === 0 || !config.preserveIds) return;
+    const rows = [...plan.arcs].map(([id, placement]) => ({
+      id,
+      parent: placement.parent,
+      level: Integer.fromNumber(placement.level)
+    }));
+    try {
+      await this.session.run(
+        `UNWIND $rows AS row
+         MATCH (a:Arc {graphId: $targetGraphId, id: row.id})
+         WITH a, row, coalesce(apoc.convert.fromJsonMap(CASE WHEN a.metadata IS NULL OR a.metadata = '' THEN '{}' ELSE a.metadata END), {}) AS meta
+         SET a.level = row.level,
+             a.metadata = apoc.convert.toJson(
+               CASE WHEN row.parent IS NULL
+                    THEN apoc.map.removeKey(meta, 'parentArcId')
+                    ELSE apoc.map.setKey(meta, 'parentArcId', row.parent) END)`,
+        { rows, targetGraphId }
+      );
+    } catch (error) {
+      result.errors?.push(`Placing the copied arcs failed: ${error}`);
+    }
+  }
+
+  /**
+   * Integrity of a partial copy: the target holds as many nodes and relationships as the selection named
+   * (counted by label, so the graph index answers), and no relationship lacks an endpoint.
+   */
+  private async validatePartialCopy(
+    copyResult: CopyResult,
+    expectedNodes: number,
+    expectedRelationships: number
+  ): Promise<IntegrityReport> {
+    const report: IntegrityReport = { isValid: true, missingNodes: [], missingRelationships: [], orphanedRelationships: [], violations: [] };
+    try {
+      const labels = ['Event', 'Arc', 'InferredPressure'];
+      const nodeQuery = labels.map((label) => `MATCH (n:${label} {graphId: $graphId}) RETURN count(n) AS total`).join(' UNION ALL ');
+      const relationshipQuery = labels.map((label) => `MATCH (n:${label} {graphId: $graphId})-[r]->() RETURN count(r) AS total`).join(' UNION ALL ');
+      const sum = async (query: string): Promise<number> => {
+        const answer = await this.session.run(query, { graphId: copyResult.targetGraphId });
+        return answer.records.reduce((total, record) => total + toNumericCount(record.get('total')), 0);
+      };
+      const nodes = await sum(nodeQuery);
+      if (nodes !== expectedNodes) report.missingNodes.push(`selected ${expectedNodes}, found ${nodes}`);
+      const relationships = await sum(relationshipQuery);
+      if (relationships !== expectedRelationships) report.missingRelationships.push(`selected ${expectedRelationships}, found ${relationships}`);
+      const orphans = await this.findOrphanedRelationships(copyResult.targetGraphId);
+      if (orphans.length > 0) report.orphanedRelationships = orphans;
+      report.isValid = report.missingNodes.length === 0 && report.missingRelationships.length === 0 && orphans.length === 0;
+      if (!report.isValid) {
+        report.violations = [
+          ...report.missingNodes.map((msg) => `Missing nodes: ${msg}`),
+          ...report.missingRelationships.map((msg) => `Missing relationships: ${msg}`),
+          ...report.orphanedRelationships.map((msg) => `Orphaned relationship: ${msg}`)
+        ];
+      }
+      return report;
+    } catch (error) {
+      report.isValid = false;
+      report.violations.push(`Integrity validation failed: ${error}`);
+      return report;
+    }
+  }
+
+  /**
+   * Remove the `_sourceNodeId` the node pass leaves on every copied node. It only exists to join the
+   * relationship pass to the nodes it copied; left in place it would be a property of the copy's entities.
+   */
+  private async dropSourceMarkers(targetGraphId: string, result: CopyResult): Promise<void> {
+    try {
+      await this.session.run(
+        'MATCH (n) WHERE n.graphId = $targetGraphId AND n._sourceNodeId IS NOT NULL REMOVE n._sourceNodeId',
+        { targetGraphId }
+      );
+    } catch (error) {
+      result.errors?.push(`Removing the copy markers failed: ${error}`);
+    }
+  }
+
+  /**
    * Copy all relationships in batches
    */
   private async copyAllRelationships(
@@ -450,7 +564,7 @@ export class GraphCopyService {
 
     while (offset < totalCounts.relationships) {
       try {
-        const batchResult = await this.copyRelationshipBatch(sourceGraphId, targetGraphId, config.batchSize, offset);
+        const batchResult = await this.copyRelationshipBatch(sourceGraphId, targetGraphId, config.batchSize, offset, config.preserveIds);
         copiedCount += batchResult.copiedCount;
         
         if (batchResult.errors.length > 0) {
@@ -482,7 +596,8 @@ export class GraphCopyService {
   }
 
   /**
-   * Copy a batch of nodes
+   * Copy a batch of nodes. Events and arcs keep their ids (they are unique per graph, #35); an
+   * InferredPressure is given a new one, because its id constraint is still database-wide.
    */
   private async copyNodeBatch(
     sourceGraphId: string,
@@ -502,7 +617,9 @@ export class GraphCopyService {
         WITH n
         WITH n, labels(n) as nodeLabels, properties(n) as props
         WITH n, nodeLabels, 
-             CASE WHEN $preserveIds 
+             CASE WHEN 'InferredPressure' IN nodeLabels AND $preserveIds
+                  THEN apoc.map.setKey(props, 'id', randomUUID())
+                  WHEN $preserveIds 
                   THEN props 
                   ELSE apoc.map.removeKey(props, 'id') 
              END as finalProps
@@ -536,13 +653,43 @@ export class GraphCopyService {
   }
 
   /**
+   * Cypher that finds, in the target graph, the node a source node was copied to (`newSource` or `newTarget`).
+   *
+   * By the node's label and its kept `(graphId, id)`, so the composite constraint's index answers
+   * it: a join of two unlabelled `MATCH`es on `_sourceNodeId` was a cartesian product of two
+   * all-node scans per relationship, and a copy of a hundred linked events ran out of its time.
+   * Only an InferredPressure (it gets a new id) and a copy that drops ids are found by the marker,
+   * and then within one label of the target graph.
+   */
+  private targetNodeJoin(variable: 'source' | 'target', preserveIds: boolean): string {
+    const byId = (label: string): string => `
+        WITH ${variable}
+        WITH ${variable} WHERE '${label}' IN labels(${variable})
+        MATCH (n:${label} {graphId: $targetGraphId, id: ${variable}.id})
+        RETURN n`;
+    const byMarker = (label: string): string => `
+        WITH ${variable}
+        WITH ${variable} WHERE '${label}' IN labels(${variable})
+        MATCH (n:${label} {graphId: $targetGraphId})
+        WHERE n._sourceNodeId = id(${variable})
+        RETURN n`;
+    const branches = preserveIds
+      ? [byId('Event'), byId('Arc'), byMarker('InferredPressure')]
+      : [byMarker('Event'), byMarker('Arc'), byMarker('InferredPressure')];
+    return `CALL {${branches.join('\n        UNION')}
+      }
+      WITH r, ${variable === 'source' ? 'source, target, n AS newSource' : 'source, target, newSource, n AS newTarget'}`;
+  }
+
+  /**
    * Copy a batch of relationships
    */
   private async copyRelationshipBatch(
     sourceGraphId: string,
     targetGraphId: string,
     batchSize: number,
-    offset: number
+    offset: number,
+    preserveIds = true
   ): Promise<{ copiedCount: number; errors: string[] }> {
     // The edge is stamped with the target graph, not the source's: copying the
     // source properties verbatim would carry the source graph id onto an edge in
@@ -555,14 +702,9 @@ export class GraphCopyService {
       ORDER BY id(r)
       SKIP $offset LIMIT $batchSize
       
-      MATCH (newSource), (newTarget)
-      WHERE newSource.graphId = $targetGraphId 
-        AND newTarget.graphId = $targetGraphId
-        AND (
-          (newSource._sourceNodeId = id(source) AND newTarget._sourceNodeId = id(target)) OR
-          (newSource.id = source.id AND newTarget.id = target.id)
-        )
-      
+      ${this.targetNodeJoin('source', preserveIds)}
+      ${this.targetNodeJoin('target', preserveIds)}
+
       CALL apoc.create.relationship(
         newSource,
         type(r),
@@ -666,12 +808,13 @@ export class GraphCopyService {
   }
 
   /**
-   * Get node IDs that intersect with the given time range
+   * Get the keys (`Label:id`) of the nodes that intersect with the given time range. An event and an arc may
+   * hold the same id, so a node is named by its label and its id together.
    */
   private async getNodesInTimeRange(graphId: string, timeRange: TimeRange): Promise<string[]> {
     const query = `
       MATCH (n)
-      WHERE n.graphId = $graphId OR $graphId = 'default'
+      WHERE (n.graphId = $graphId OR $graphId = 'default')
       AND (
         // Events within time range
         (n:Event AND n.timestamp >= datetime($startTime) AND n.timestamp <= datetime($endTime))
@@ -682,7 +825,7 @@ export class GraphCopyService {
         // InferredPressures (include all for now, could be filtered by related arcs)
         (n:InferredPressure)
       )
-      RETURN n.id as nodeId
+      RETURN head([l IN labels(n) WHERE l IN ['Event', 'Arc', 'InferredPressure']]) + ':' + n.id AS nodeKey
     `;
 
     const parameters = {
@@ -693,14 +836,14 @@ export class GraphCopyService {
 
     try {
       const result = await runTemporal(this.session, query, parameters);
-      return result.records.map(record => record.get('nodeId'));
+      return result.records.map(record => record.get('nodeKey'));
     } catch (error) {
       throw new Error(`Failed to get nodes in time range: ${error}`);
     }
   }
 
   /**
-   * Get node IDs that match the entity filter
+   * Get the keys (`Label:id`) of the nodes that match the entity filter
    */
   private async getNodesMatchingFilter(graphId: string, filter: EntityFilter): Promise<string[]> {
     const conditions: string[] = [];
@@ -731,12 +874,12 @@ export class GraphCopyService {
       MATCH (n)
       WHERE (n.graphId = $graphId OR $graphId = 'default')
       AND (${conditions.join(' OR ')})
-      RETURN n.id as nodeId
+      RETURN head([l IN labels(n) WHERE l IN ['Event', 'Arc', 'InferredPressure']]) + ':' + n.id AS nodeKey
     `;
 
     try {
       const result = await runTemporal(this.session, query, parameters);
-      return result.records.map(record => record.get('nodeId'));
+      return result.records.map(record => record.get('nodeKey'));
     } catch (error) {
       throw new Error(`Failed to get nodes matching filter: ${error}`);
     }
@@ -798,7 +941,7 @@ export class GraphCopyService {
     targetGraphId: string,
     nodeIds: string[],
     config: CopyConfig
-  ): Promise<{ copiedCount: number; errors: string[] }> {
+  ): Promise<{ copiedCount: number; errors: string[]; expectedCount: number }> {
     const errors: string[] = [];
     let copiedCount = 0;
     let offset = 0;
@@ -822,7 +965,7 @@ export class GraphCopyService {
     while (offset < relationshipIds.length) {
       try {
         const batchRelIds = relationshipIds.slice(offset, offset + config.batchSize);
-        const batchResult = await this.copyRelationshipBatchByIds(sourceGraphId, targetGraphId, batchRelIds);
+        const batchResult = await this.copyRelationshipBatchByIds(sourceGraphId, targetGraphId, batchRelIds, config.preserveIds);
         copiedCount += batchResult.copiedCount;
         
         if (batchResult.errors.length > 0) {
@@ -850,7 +993,7 @@ export class GraphCopyService {
       }
     }
 
-    return { copiedCount, errors };
+    return { copiedCount, errors, expectedCount: relationshipIds.length };
   }
 
   /**
@@ -865,13 +1008,15 @@ export class GraphCopyService {
     const query = `
       MATCH (n)
       WHERE (n.graphId = $sourceGraphId OR $sourceGraphId = 'default')
-        AND n.id IN $nodeIds
+        AND any(l IN labels(n) WHERE (l + ':' + n.id) IN $nodeIds)
       
       CALL {
         WITH n
         WITH n, labels(n) as nodeLabels, properties(n) as props
         WITH n, nodeLabels, 
-             CASE WHEN $preserveIds 
+             CASE WHEN 'InferredPressure' IN nodeLabels AND $preserveIds
+                  THEN apoc.map.setKey(props, 'id', randomUUID())
+                  WHEN $preserveIds 
                   THEN props 
                   ELSE apoc.map.removeKey(props, 'id') 
              END as finalProps
@@ -911,8 +1056,8 @@ export class GraphCopyService {
       MATCH (source)-[r]->(target)
       WHERE (source.graphId = $graphId OR $graphId = 'default')
         AND (target.graphId = $graphId OR $graphId = 'default')
-        AND source.id IN $nodeIds
-        AND target.id IN $nodeIds
+        AND any(l IN labels(source) WHERE (l + ':' + source.id) IN $nodeIds)
+        AND any(l IN labels(target) WHERE (l + ':' + target.id) IN $nodeIds)
       RETURN id(r) as relId
     `;
 
@@ -930,7 +1075,8 @@ export class GraphCopyService {
   private async copyRelationshipBatchByIds(
     sourceGraphId: string,
     targetGraphId: string,
-    relationshipIds: string[]
+    relationshipIds: string[],
+    preserveIds = true
   ): Promise<{ copiedCount: number; errors: string[] }> {
     const query = `
       MATCH (source)-[r]->(target)
@@ -938,14 +1084,9 @@ export class GraphCopyService {
         AND (target.graphId = $sourceGraphId OR $sourceGraphId = 'default')
         AND id(r) IN $relationshipIds
       
-      MATCH (newSource), (newTarget)
-      WHERE newSource.graphId = $targetGraphId 
-        AND newTarget.graphId = $targetGraphId
-        AND (
-          (newSource._sourceNodeId = id(source) AND newTarget._sourceNodeId = id(target)) OR
-          (newSource.id = source.id AND newTarget.id = target.id)
-        )
-      
+      ${this.targetNodeJoin('source', preserveIds)}
+      ${this.targetNodeJoin('target', preserveIds)}
+
       CALL apoc.create.relationship(
         newSource,
         type(r),

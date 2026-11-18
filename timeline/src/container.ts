@@ -573,7 +573,7 @@ export class Container implements ServiceContainer {
   }
 
   /** Remove every live entity of one graph, and nothing of any other graph. */
-  private async clearLiveStore(graphId: string): Promise<void> {
+  async clearLiveStore(graphId: string): Promise<void> {
     if (this.databaseManager instanceof LocalDatabaseManager) {
       // Local mode: the graph is the store.
       const leased = await this.graphContextStore.lease(graphId);

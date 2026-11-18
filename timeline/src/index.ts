@@ -255,6 +255,7 @@ class Application {
     this.app.use(
       requestTimeout(this.config.performance.queryTimeoutMs, {
         '/api/ingest': this.config.performance.ingestTimeoutMs ?? 300000,
+        '/api/graphs/copy': this.config.performance.copyTimeoutMs ?? 120000,
       })
     );
     this.app.use(validateJsonRequest);

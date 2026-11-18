@@ -278,15 +278,12 @@ its child. If the end state is not a valid hierarchy the whole batch is refused
 with a `400` (`VALIDATION_ERROR`) before any step runs, atomic or not, so nothing
 lands.
 
-A create that names the id of an arc that already exists in the graph (or, in a
-Neo4j deployment, in another graph: an arc id is unique across them), or that an
-earlier step of the batch uses (a delete and a create of one id included), is
-refused with a `400` that names the id, before any step runs: a create never takes
-the place of another arc. Use an update, or another id. (One case is only caught
-when the step runs: in a Neo4j deployment, an id that only *another graph* holds.
-That step fails with a message that names the id, so a non-atomic transaction answers `207`
-with the other steps applied as for any failed step, and an atomic one `400`
-with what the failure undoes, as above.)
+A create that names the id of an arc that already exists in the graph (an id is
+unique within a graph, so another graph holding the same id does not matter: a
+branch holds its parent's ids), or that an earlier step of the batch uses (a
+delete and a create of one id included), is refused with a `400` that names the
+id, before any step runs: a create never takes the place of another arc. Use an
+update, or another id.
 
 **A step that does not apply is a failed step**, whatever its type: an `update_*`
 or `delete_*` of an id that is not there fails with the reason ("Not found: …"),

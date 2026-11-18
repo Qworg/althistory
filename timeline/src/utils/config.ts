@@ -107,6 +107,8 @@ export interface AppConfig {
      * query budget.
      */
     ingestTimeoutMs?: number;
+    /** A graph copy walks every node and relationship, then records a version: its own budget. */
+    copyTimeoutMs?: number;
     maxQueryResults: number;
     cacheExpirationMs: number;
   };
@@ -215,6 +217,7 @@ export function loadConfig(): AppConfig {
       performance: {
         queryTimeoutMs: parseInt(process.env.QUERY_TIMEOUT_MS || '2000', 10),
         ingestTimeoutMs: parseInt(process.env.INGEST_TIMEOUT_MS || '300000', 10),
+        copyTimeoutMs: parseInt(process.env.COPY_TIMEOUT_MS || '120000', 10),
         maxQueryResults: parseInt(process.env.MAX_QUERY_RESULTS || '10000', 10),
         cacheExpirationMs: parseInt(process.env.CACHE_EXPIRATION_MS || '300000', 10), // 5 minutes
       },

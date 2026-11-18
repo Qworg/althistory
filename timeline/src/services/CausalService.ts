@@ -445,6 +445,10 @@ export class CausalService {
       effectEventId: link.effect_event_id,
     };
     const conditions: string[] = [LINK_ID_CONDITION, 'cause.id = $causeEventId', 'effect.id = $effectEventId'];
+    // The endpoints too: an event id is only unique within a graph, so a bare `cause.id`
+    // would also name the same-id event of another graph (#35).
+    addGraphCondition(conditions, 'cause', graphId, parameters);
+    addGraphCondition(conditions, 'effect', graphId, parameters);
     addGraphCondition(conditions, 'r', graphId, parameters);
     let deleted = 0;
     try {
@@ -756,8 +760,8 @@ export class CausalService {
           id: typeof record.get('id') === 'string' ? (record.get('id') as string) : `${record.get('cause_event_id')}->${record.get('effect_event_id')}`,
           cause_event_id: record.get('cause_event_id'),
           effect_event_id: record.get('effect_event_id'),
-          weight: record.get('weight') || 0.5,
-          confidence: record.get('confidence') || 0.7,
+          weight: record.get('weight') ?? 0.5,
+          confidence: record.get('confidence') ?? 0.7,
           evidence: record.get('evidence') || '',
           relationship_type: record.get('relationship_type') || 'direct'
         }));

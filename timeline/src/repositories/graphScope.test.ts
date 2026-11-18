@@ -249,7 +249,7 @@ describe('graph-scoped cloud repositories (#59)', () => {
     });
 
     it('turns the store\'s uniqueness violation on create into a 400 that names the id', async () => {
-      // One arc per id across every graph: another graph's arc with the id makes the store refuse the create.
+      // One arc per id within a graph: an arc of this graph with the id makes the store refuse the create.
       const refusing = {
         getNeo4jSession: () => ({
           run: async () => {
@@ -261,6 +261,24 @@ describe('graph-scoped cloud repositories (#59)', () => {
       const repository = new ArcRepository(refusing, undefined, undefined, undefined, { graphId: GRAPH_ID });
       const created = repository.create({ id: 'dup', name: 'again', start_time: new Date('2020-01-01T00:00:00.000Z'), end_time: new Date('2020-01-02T00:00:00.000Z'), level: 0 });
       await expect(created).rejects.toMatchObject({ statusCode: 400, field: 'id', message: expect.stringContaining('"dup"') });
+      await expect(created).rejects.not.toThrow(/Node\(65\)|Neo4j/);
+      // An id is unique within a graph, so the message must not blame another graph (#35).
+      await expect(created).rejects.toThrow(/already exists in this graph/);
+      await expect(created).rejects.not.toThrow(/or another/);
+    });
+
+    it('turns an event the graph already holds into a 400 that names the id (#35)', async () => {
+      const refusing = {
+        getNeo4jSession: () => ({
+          run: async () => {
+            throw Object.assign(new Error("Node(65) already exists with label `Event` and property `graphId` = 'g'"), { code: 'Neo.ClientError.Schema.ConstraintValidationFailed' });
+          },
+          close: async () => undefined,
+        }),
+      } as unknown as DatabaseManager;
+      const repository = new EventRepository(refusing, undefined, undefined, { graphId: GRAPH_ID });
+      const created = repository.create({ id: 'dup', description: 'again', actor: 'a', target: 'b', timestamp: new Date('2020-01-01T00:00:00.000Z') });
+      await expect(created).rejects.toMatchObject({ statusCode: 400, field: 'id', message: expect.stringContaining('already exists in this graph') });
       await expect(created).rejects.not.toThrow(/Node\(65\)|Neo4j/);
     });
 
