@@ -636,7 +636,7 @@ describe('Graph routes (request-level)', () => {
       );
     });
 
-    it('POST /api/graphs/copy leaves no graph behind when the copy fails, or throws (#35)', async () => {
+    it('POST /api/graphs/copy leaves no graph behind when the copy fails, or throws, and answers with an error and no id (#35)', async () => {
       const before = (await container.graphService.listGraphs({ limit: 1000 })).graphs.map((g) => g.id).sort();
       vi.spyOn(container.graphCopyService, 'copyFullGraph').mockResolvedValueOnce({
         sourceGraphId: sourceGraph.id,
@@ -647,13 +647,13 @@ describe('Graph routes (request-level)', () => {
         success: false,
         errors: ['Node batch copy failed'],
       });
-      const failed = await request(app).post('/api/graphs/copy').set('X-API-Key', writeKey).send({ targetName: 'Failing Copy' }).expect(201);
-      expect(failed.body.data.status).toBe('failed');
+      const failed = await request(app).post('/api/graphs/copy').set('X-API-Key', writeKey).send({ targetName: 'Failing Copy' }).expect(500);
+      expect(failed.body.data).toBeUndefined();
+      expect(JSON.stringify(failed.body)).toContain('Node batch copy failed');
       vi.spyOn(container.graphCopyService, 'copyFullGraph').mockRejectedValueOnce(new Error('the store is down'));
-      await request(app).post('/api/graphs/copy').set('X-API-Key', writeKey).send({ targetName: 'Throwing Copy' });
+      await request(app).post('/api/graphs/copy').set('X-API-Key', writeKey).send({ targetName: 'Throwing Copy' }).expect(500);
       const after = (await container.graphService.listGraphs({ limit: 1000 })).graphs;
       expect(after.map((g) => g.id).sort()).toEqual(before);
-      expect(after.some((g) => g.name.endsWith('Copy') && g.name.startsWith('Failing'))).toBe(false);
     });
 
     it('POST /api/graphs/copy rejects a copy without a target name', async () => {

@@ -25,8 +25,8 @@ import {
   IGraph,
   findInvalidManualResolutions,
 } from '../../models/Graph';
-import type { CopyResult as GraphCopyResult, EntityFilter } from '../../services/GraphCopyService';
-import { ValidationError } from '../../utils/errors';
+import type { CopyPlan, CopyResult as GraphCopyResult, EntityFilter } from '../../services/GraphCopyService';
+import { DatabaseError, ValidationError } from '../../utils/errors';
 import { versionCopyFromHead } from '../../services/CopyVersioning';
 
 export const graphRoutes = Router();
@@ -285,7 +285,7 @@ graphRoutes.post(
 
       // The copy's first version is the source's head (what a branch records), made before the live
       // store is written: a copy that cannot be versioned has written nothing.
-      const beforeCopy = (selected: ReadonlySet<string> | null): Promise<void> =>
+      const beforeCopy = (selected: ReadonlySet<string> | null): Promise<CopyPlan> =>
         versionCopyFromHead(req.container, sourceGraphId, targetGraph.id, sourceGraph.name, selected);
 
       let result: GraphCopyResult;
@@ -304,8 +304,12 @@ graphRoutes.post(
         await discardCopy(req.container, targetGraph.id);
         throw error;
       }
-      // A failed copy leaves no graph behind, empty or half-filled.
-      if (!result.success) await discardCopy(req.container, targetGraph.id);
+      // A failed copy leaves no graph behind, empty or half-filled, and answers with the error, not with
+      // the id of a graph that is gone.
+      if (!result.success) {
+        await discardCopy(req.container, targetGraph.id);
+        throw new DatabaseError(`The copy failed and was removed: ${(result.errors ?? []).join('; ') || 'no reason given'}`, 'copyGraph');
+      }
 
       res.status(201).json({
         success: true,

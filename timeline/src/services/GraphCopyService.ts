@@ -57,6 +57,15 @@ export interface CopyProgress {
 }
 
 /**
+ * What the `beforeCopy` hook can ask of the live copy. A partial copy can leave an arc without its
+ * parent; the version it recorded gives that arc no parent and a level of its own, and the live copy
+ * is made to say the same.
+ */
+export interface CopyPlan {
+  arcs?: ReadonlyMap<string, { parent: string | null; level: number }>;
+}
+
+/**
  * Copy operation configuration
  */
 export interface CopyConfig {
@@ -69,7 +78,7 @@ export interface CopyConfig {
    * they carry (null: every node of the source). The route records the copy's first version here,
    * so a copy that fails to be versioned writes nothing, as a branch records its version first.
    */
-  beforeCopy?: (selected: ReadonlySet<string> | null) => Promise<void>;
+  beforeCopy?: (selected: ReadonlySet<string> | null) => Promise<CopyPlan | void>;
 }
 
 function toNumericCount(val: unknown): number {
@@ -178,9 +187,7 @@ export class GraphCopyService {
       batchSize: config.batchSize || this.DEFAULT_BATCH_SIZE,
       progressCallback: config.progressCallback,
       preserveIds: config.preserveIds ?? true,
-      // A partial copy is checked against the nodes it selected, not against the whole source: the
-      // count comparison is only meaningful for a full copy, so a partial one validates only when asked.
-      validateIntegrity: config.validateIntegrity ?? false,
+      validateIntegrity: config.validateIntegrity ?? true,
       beforeCopy: config.beforeCopy
     };
 
@@ -197,12 +204,14 @@ export class GraphCopyService {
     try {
       // Get nodes that intersect with the time range
       const nodeIds = await this.getNodesInTimeRange(sourceGraphId, timeRange);
-      await copyConfig.beforeCopy?.(new Set(nodeIds.filter((id): id is string => typeof id === 'string')));
+      const selected = new Set(nodeIds.filter((id): id is string => typeof id === 'string'));
+      const plan = await copyConfig.beforeCopy?.(selected);
       
       // Copy filtered nodes in batches
       const nodeResult = await this.copyFilteredNodes(sourceGraphId, targetGraphId, nodeIds, copyConfig);
       result.copiedNodes = nodeResult.copiedCount;
       result.errors?.push(...(nodeResult.errors || []));
+      await this.applyArcPlan(targetGraphId, plan, copyConfig, result);
 
       // Copy relationships that connect the copied nodes
       const relationshipResult = await this.copyFilteredRelationships(sourceGraphId, targetGraphId, nodeIds, copyConfig);
@@ -213,9 +222,9 @@ export class GraphCopyService {
       result.success = result.errors?.length === 0;
       result.duration = Date.now() - startTime;
 
-      // Validate integrity if requested
+      // Validate integrity if requested: against what was selected, not against the whole source
       if (copyConfig.validateIntegrity && result.success) {
-        const integrityReport = await this.validateCopyIntegrity(result);
+        const integrityReport = await this.validatePartialCopy(result, selected.size, relationshipResult.expectedCount);
         if (!integrityReport.isValid) {
           result.success = false;
           result.errors?.push(...integrityReport.violations);
@@ -245,9 +254,7 @@ export class GraphCopyService {
       batchSize: config.batchSize || this.DEFAULT_BATCH_SIZE,
       progressCallback: config.progressCallback,
       preserveIds: config.preserveIds ?? true,
-      // A partial copy is checked against the nodes it selected, not against the whole source: the
-      // count comparison is only meaningful for a full copy, so a partial one validates only when asked.
-      validateIntegrity: config.validateIntegrity ?? false,
+      validateIntegrity: config.validateIntegrity ?? true,
       beforeCopy: config.beforeCopy
     };
 
@@ -264,12 +271,14 @@ export class GraphCopyService {
     try {
       // Get nodes that match the entity filter
       const nodeIds = await this.getNodesMatchingFilter(sourceGraphId, filter);
-      await copyConfig.beforeCopy?.(new Set(nodeIds.filter((id): id is string => typeof id === 'string')));
+      const selected = new Set(nodeIds.filter((id): id is string => typeof id === 'string'));
+      const plan = await copyConfig.beforeCopy?.(selected);
       
       // Copy filtered nodes in batches
       const nodeResult = await this.copyFilteredNodes(sourceGraphId, targetGraphId, nodeIds, copyConfig);
       result.copiedNodes = nodeResult.copiedCount;
       result.errors?.push(...(nodeResult.errors || []));
+      await this.applyArcPlan(targetGraphId, plan, copyConfig, result);
 
       // Copy relationships that connect the copied nodes
       const relationshipResult = await this.copyFilteredRelationships(sourceGraphId, targetGraphId, nodeIds, copyConfig);
@@ -280,9 +289,9 @@ export class GraphCopyService {
       result.success = result.errors?.length === 0;
       result.duration = Date.now() - startTime;
 
-      // Validate integrity if requested
+      // Validate integrity if requested: against what was selected, not against the whole source
       if (copyConfig.validateIntegrity && result.success) {
-        const integrityReport = await this.validateCopyIntegrity(result);
+        const integrityReport = await this.validatePartialCopy(result, selected.size, relationshipResult.expectedCount);
         if (!integrityReport.isValid) {
           result.success = false;
           result.errors?.push(...integrityReport.violations);
@@ -315,11 +324,7 @@ export class GraphCopyService {
       const sourceNodeCounts = await this.getNodeCounts(copyResult.sourceGraphId);
       const targetNodeCounts = await this.getNodeCounts(copyResult.targetGraphId);
 
-      if (Object.keys(sourceNodeCounts).length === 0) {
-        report.missingNodes.push(`Source graph "${copyResult.sourceGraphId}" contains no nodes or does not exist`);
-        report.isValid = false;
-      }
-
+      // A source with no nodes is copied as a graph with no nodes: nothing is missing.
       for (const [nodeType, sourceCount] of Object.entries(sourceNodeCounts)) {
         const targetCount = targetNodeCounts[nodeType] || 0;
         if (sourceCount !== targetCount) {
@@ -439,6 +444,79 @@ export class GraphCopyService {
     }
 
     return { copiedCount, errors };
+  }
+
+  /**
+   * Make the live arcs of a partial copy say what the version recorded for them: an arc whose parent
+   * was not copied has no parent (`metadata.parentArcId` removed) and the level the plan gives it.
+   */
+  private async applyArcPlan(
+    targetGraphId: string,
+    plan: CopyPlan | void,
+    config: CopyConfig,
+    result: CopyResult
+  ): Promise<void> {
+    if (!plan?.arcs || plan.arcs.size === 0 || !config.preserveIds) return;
+    const rows = [...plan.arcs].map(([id, placement]) => ({
+      id,
+      parent: placement.parent,
+      level: Integer.fromNumber(placement.level)
+    }));
+    try {
+      await this.session.run(
+        `UNWIND $rows AS row
+         MATCH (a:Arc {graphId: $targetGraphId, id: row.id})
+         WITH a, row, apoc.convert.fromJsonMap(coalesce(a.metadata, '{}')) AS meta
+         SET a.level = row.level,
+             a.metadata = apoc.convert.toJson(
+               CASE WHEN row.parent IS NULL
+                    THEN apoc.map.removeKey(meta, 'parentArcId')
+                    ELSE apoc.map.setKey(meta, 'parentArcId', row.parent) END)`,
+        { rows, targetGraphId }
+      );
+    } catch (error) {
+      result.errors?.push(`Placing the copied arcs failed: ${error}`);
+    }
+  }
+
+  /**
+   * Integrity of a partial copy: the target holds as many nodes and relationships as the selection named
+   * (counted by label, so the graph index answers), and no relationship lacks an endpoint.
+   */
+  private async validatePartialCopy(
+    copyResult: CopyResult,
+    expectedNodes: number,
+    expectedRelationships: number
+  ): Promise<IntegrityReport> {
+    const report: IntegrityReport = { isValid: true, missingNodes: [], missingRelationships: [], orphanedRelationships: [], violations: [] };
+    try {
+      const labels = ['Event', 'Arc', 'InferredPressure'];
+      const nodeQuery = labels.map((label) => `MATCH (n:${label} {graphId: $graphId}) RETURN count(n) AS total`).join(' UNION ALL ');
+      const relationshipQuery = labels.map((label) => `MATCH (n:${label} {graphId: $graphId})-[r]->() RETURN count(r) AS total`).join(' UNION ALL ');
+      const sum = async (query: string): Promise<number> => {
+        const answer = await this.session.run(query, { graphId: copyResult.targetGraphId });
+        return answer.records.reduce((total, record) => total + toNumericCount(record.get('total')), 0);
+      };
+      const nodes = await sum(nodeQuery);
+      if (nodes !== expectedNodes) report.missingNodes.push(`selected ${expectedNodes}, found ${nodes}`);
+      const relationships = await sum(relationshipQuery);
+      if (relationships !== expectedRelationships) report.missingRelationships.push(`selected ${expectedRelationships}, found ${relationships}`);
+      const orphans = await this.findOrphanedRelationships(copyResult.targetGraphId);
+      if (orphans.length > 0) report.orphanedRelationships = orphans;
+      report.isValid = report.missingNodes.length === 0 && report.missingRelationships.length === 0 && orphans.length === 0;
+      if (!report.isValid) {
+        report.violations = [
+          ...report.missingNodes.map((msg) => `Missing nodes: ${msg}`),
+          ...report.missingRelationships.map((msg) => `Missing relationships: ${msg}`),
+          ...report.orphanedRelationships.map((msg) => `Orphaned relationship: ${msg}`)
+        ];
+      }
+      return report;
+    } catch (error) {
+      report.isValid = false;
+      report.violations.push(`Integrity validation failed: ${error}`);
+      return report;
+    }
   }
 
   /**
@@ -860,7 +938,7 @@ export class GraphCopyService {
     targetGraphId: string,
     nodeIds: string[],
     config: CopyConfig
-  ): Promise<{ copiedCount: number; errors: string[] }> {
+  ): Promise<{ copiedCount: number; errors: string[]; expectedCount: number }> {
     const errors: string[] = [];
     let copiedCount = 0;
     let offset = 0;
@@ -912,7 +990,7 @@ export class GraphCopyService {
       }
     }
 
-    return { copiedCount, errors };
+    return { copiedCount, errors, expectedCount: relationshipIds.length };
   }
 
   /**

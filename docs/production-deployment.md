@@ -224,8 +224,21 @@ to the ids copied, and a link only when both its events were), recorded before t
 live store is written, exactly as a branch records its version. So the copy can be
 edited, rolled back, exported, branched and merged by those ids, and it carries every
 field the source's history does (`sourceRef`, `parent_arc_id`, a link at weight 0, a
-link to another graph's event). A copy that fails, or cannot be versioned, is removed:
-no empty graph is left. An `InferredPressure` is the one entity given a new id (its
+link to another graph's event). Two cases differ:
+
+- A source that has live nodes and no head (data that predates versions) is versioned
+  from its selected live nodes, so a later edit and rollback of the copy keep them. A
+  live store that has drifted from a head it does have is the source's own
+  inconsistency: the copy follows the head, as a branch does.
+- A partial copy may leave an arc without its parent. Such an arc becomes a top-level
+  arc (no parent, level 0, and the arcs copied beneath it follow), in the version and
+  in the live copy, so the copy's own export imports.
+
+A copy is checked when it ends: a full copy against the whole source, a partial one
+against the nodes and relationships it selected. An empty source is a successful empty
+copy. A copy that fails the check, or fails, or cannot be versioned, is removed (its
+graph and its live nodes) and the request answers `500` with the reasons and no graph
+id; no empty graph is left. An `InferredPressure` is the one entity given a new id (its
 constraint is still database-wide); the inference recomputes pressures.
 
 A copy walks every node and relationship, so `/api/graphs/copy` has its own request

@@ -24,6 +24,7 @@ import { WebSocket } from 'ws';
 import type { RawData } from 'ws';
 import { Application } from '@/index';
 import { getContainer, type Container } from '@/container';
+import { ImportService } from '@/services/ImportService';
 import { getDatabaseManager } from '@/utils/database';
 import { runCausalLinkIdMigration, type CausalLinkIdMigrationResult } from '@/services/CausalLinkIdMigration';
 import { resetStreamTokenStore, STREAM_PATH } from '@/websocket';
@@ -529,10 +530,8 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
       expect(await markersIn(copy)).toBe(0);
     });
 
-    it('leaves no graph behind when the copy cannot be versioned, and writes nothing to the live store (#35)', async () => {
+    it('leaves no graph behind when a copy cannot be versioned, whatever it copies, and answers with an error and no id (#35)', async () => {
       const source = await importedSource('Unversionable source');
-      const spy = vi.spyOn(container.graphRepository, 'commitChanges').mockRejectedValueOnce(new Error('the version store is down'));
-      const before = (await container.graphService.listGraphs({ limit: 1000 })).graphs.map((g) => g.id).sort();
       const holding = async (): Promise<string[]> => {
         const session = getDatabaseManager().getNeo4jSession();
         try {
@@ -542,13 +541,67 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
           await session.close();
         }
       };
-      const holdingBefore = await holding();
-      const res = await http('POST', '/api/graphs/copy', agentKey, undefined, { sourceGraphId: source, targetName: 'Unversionable copy' });
-      spy.mockRestore();
-      expect((res.body.data as { status: string }).status).toBe('failed');
-      expect((await container.graphService.listGraphs({ limit: 1000 })).graphs.map((g) => g.id).sort()).toEqual(before);
-      // No node of the refused copy was written: the same graphs hold nodes as before.
-      expect(await holding()).toEqual(holdingBefore);
+      for (const body of [
+        {},
+        { copyType: 'time_range', timeRange: { start: '1755-01-01T00:00:00.000Z', end: '1775-01-01T00:00:00.000Z' } },
+        { copyType: 'filtered', filter: { actors: ['A'] } },
+      ]) {
+        const spy = vi.spyOn(container.graphRepository, 'commitChanges').mockRejectedValueOnce(new Error('the version store is down'));
+        const before = (await container.graphService.listGraphs({ limit: 1000 })).graphs.map((g) => g.id).sort();
+        const holdingBefore = await holding();
+        const res = await http('POST', '/api/graphs/copy', agentKey, undefined, { sourceGraphId: source, targetName: 'Unversionable copy', ...body });
+        spy.mockRestore();
+        // An error, with no graph id to chase, and nothing written before the version was refused.
+        expect(res.status).toBe(500);
+        expect(res.body.data).toBeUndefined();
+        expect((await container.graphService.listGraphs({ limit: 1000 })).graphs.map((g) => g.id).sort()).toEqual(before);
+        expect(await holding()).toEqual(holdingBefore);
+      }
+    });
+
+    it('copies an empty graph as an empty graph that can be used (#35)', async () => {
+      const source = (await container.graphService.createGraph({ name: 'Empty source' })).id;
+      graphsMade.push(source);
+      const copy = await copyOf(source, 'Empty copy');
+      expect((await http('GET', `/api/graphs/${copy}`, agentKey, copy)).status).toBe(200);
+      expect((await http('POST', '/api/events', agentKey, copy, { description: 'First', actor: 'A', target: 'B', timestamp: '1800-01-01T00:00:00.000Z' })).status).toBe(201);
+    });
+
+    it('makes a filtered copy whose export imports, because an arc whose parent was left out is a top-level arc (#35)', async () => {
+      const source = await importedSource('Hierarchy source');
+      const copy = await copyOf(source, 'Hierarchy copy', { copyType: 'filtered', filter: { actors: ['A'], arcLevels: [1] } });
+
+      const head = await container.graphRepository.checkout(copy);
+      expect(head.arcs['imp-arc-inner']).toMatchObject({ parent_arc_id: null, level: 0 });
+      const live = await (await container.graphScopedRepositories(copy)).arcRepository.findById('imp-arc-inner');
+      expect(live?.level).toBe(0);
+      expect(live?.metadata?.parentArcId).toBeUndefined();
+
+      const { export: doc } = await container.exportService.exportGraph({ graphId: copy, scope: 'full', includeProvenance: false });
+      const importer = new ImportService({ dataDir });
+      const imported = await importer.executeImport(doc, { mode: 'create-new', conflictResolution: 'skip' });
+      graphsMade.push(imported.graphId);
+      expect(imported.errors).toEqual([]);
+      expect(imported.success).toBe(true);
+    });
+
+    it('versions a source that has live nodes and no version, so an edit and a rollback of the copy keep its nodes (#35)', async () => {
+      const source = (await container.graphService.createGraph({ name: 'Unversioned source' })).id;
+      graphsMade.push(source);
+      // Live nodes that were never versioned: what data adopted at startup looks like.
+      const repos = await container.graphScopedRepositories(source);
+      const first = await repos.eventRepository.create({ description: 'Live one', actor: 'A', target: 'B', timestamp: new Date(Date.UTC(1810, 0, 1)) });
+      const second = await repos.eventRepository.create({ description: 'Live two', actor: 'A', target: 'B', timestamp: new Date(Date.UTC(1820, 0, 1)) });
+      expect(await container.graphRepository.getLatestVersion(source)).toBeNull();
+
+      const copy = await copyOf(source, 'Unversioned copy');
+      expect(Object.keys((await container.graphRepository.checkout(copy)).events).sort()).toEqual([first.id, second.id].sort());
+
+      expect((await http('PUT', `/api/events/${first.id}`, agentKey, copy, { description: 'Edited' })).status).toBe(200);
+      const latest = (await container.graphRepository.getLatestVersion(copy))?.version as number;
+      expect((await http('POST', `/api/graphs/${copy}/rollback/${latest}`, agentKey, copy)).status).toBe(200);
+      const { eventRepository } = await container.graphScopedRepositories(copy);
+      expect((await eventRepository.findAll()).map((e) => e.id).sort()).toEqual([first.id, second.id].sort());
     });
 
     it('versions a batch of links under the id a single link gets in Neo4j, and a transaction that removes it', async () => {

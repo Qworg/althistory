@@ -285,6 +285,75 @@ describe('GraphCopyService Unit Tests', () => {
     });
   });
 
+  describe('partial copies and empty sources (#35)', () => {
+    const count = (n: number) => ({ records: [{ get: vi.fn().mockReturnValue(Integer.fromNumber(n)) }] }) as never;
+    const queries = () => vi.mocked(mockSession.run).mock.calls.map((call) => String(call[0]));
+    const range = { start: new Date('1900-01-01T00:00:00Z'), end: new Date('1910-01-01T00:00:00Z') };
+
+    /** Answers by what the query is: two selected nodes, one relationship between them, and `target` counts. */
+    const script = (target: { nodes: number; relationships: number }) =>
+      (mockSession.run as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (query: unknown) => {
+        const q = String(query);
+        if (q.includes('datetime($startTime)') || q.includes('n.actor IN')) return { records: [{ get: () => 'e1' }, { get: () => 'e2' }] } as never;
+        if (q.includes('RETURN id(r) as relId')) return { records: [{ get: () => Integer.fromNumber(7) }] } as never;
+        if (q.includes('count(r) AS total')) return count(target.relationships);
+        if (q.includes('count(n) AS total')) return count(target.nodes / 3);
+        if (q.includes('orphan')) return { records: [] } as never;
+        return count(1);
+      });
+
+    it('validates a partial copy against what it selected, and passes when the target holds it', async () => {
+      script({ nodes: 6, relationships: 1 });
+      const result = await graphCopyService.copyByTimeRange('src', range, 'dst');
+      expect(queries().some((q) => q.includes('MATCH (n:Event {graphId: $graphId}) RETURN count(n)'))).toBe(true);
+      expect(result.success).toBe(true);
+    });
+
+    it('fails a partial copy that holds more relationships than it selected', async () => {
+      script({ nodes: 6, relationships: 3 });
+      const result = await graphCopyService.copyByTimeRange('src', range, 'dst');
+      expect(result.success).toBe(false);
+      expect(result.errors?.join(' ')).toContain('Missing relationships: selected 1, found 3');
+    });
+
+    it('fails a partial copy that holds fewer nodes than it selected', async () => {
+      script({ nodes: 0, relationships: 1 });
+      const result = await graphCopyService.copyByEntityFilter('src', { actors: ['A'] }, 'dst');
+      expect(result.success).toBe(false);
+      expect(result.errors?.join(' ')).toContain('Missing nodes: selected 2, found 0');
+    });
+
+    it('asks for the first version of a filtered copy before it writes a node', async () => {
+      script({ nodes: 6, relationships: 1 });
+      const beforeCopy = vi.fn(async () => {
+        expect(queries().some((q) => q.includes('apoc.create.node'))).toBe(false);
+      });
+      await graphCopyService.copyByEntityFilter('src', { actors: ['A'] }, 'dst', { beforeCopy });
+      expect(beforeCopy).toHaveBeenCalledTimes(1);
+    });
+
+    it('places the copied arcs the way the version recorded them', async () => {
+      script({ nodes: 6, relationships: 1 });
+      const plan = { arcs: new Map([['mid', { parent: null, level: 0 }]]) };
+      await graphCopyService.copyByEntityFilter('src', { actors: ['A'] }, 'dst', { beforeCopy: async () => plan, validateIntegrity: false });
+      const placement = vi.mocked(mockSession.run).mock.calls.find((call) => String(call[0]).includes('apoc.convert.fromJsonMap'));
+      expect(placement).toBeDefined();
+      expect((placement?.[1] as { rows: Array<{ id: string; parent: string | null }> }).rows).toMatchObject([{ id: 'mid', parent: null }]);
+    });
+
+    it('copies a source with no nodes as a graph with no nodes, not as a failure', async () => {
+      (mockSession.run as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (query: unknown) => {
+        const q = String(query);
+        if (q.includes('GROUP') || q.includes('labels(n)')) return { records: [] } as never;
+        if (q.includes('orphan')) return { records: [] } as never;
+        return count(0);
+      });
+      const result = await graphCopyService.copyFullGraph('src', 'dst');
+      expect(result.success).toBe(true);
+      expect(result.errors).toEqual([]);
+    });
+  });
+
   describe('validateCopyIntegrity', () => {
     it('should validate successful copy integrity', async () => {
       // Arrange
