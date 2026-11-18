@@ -158,4 +158,30 @@ describe('the CLI importer', () => {
       expect(after.arcs.C).toEqual([2, 'P', 'C']);
     });
   }
+
+  describe('an id listed twice in the document (issue 39)', () => {
+    for (const strategy of ['skip', 'overwrite', 'rename'] as const) {
+      for (const holdsIt of [false, true]) {
+        it(`refuses a repeated arc id under ${strategy}${holdsIt ? ' into a graph that holds it' : ''}, and writes nothing`, async () => {
+          const graphId = await newGraph();
+          if (holdsIt) await run(document([arc('R', 0, 1800, 1900)]), graphId, 'skip');
+          const before = await versionCount(graphId);
+          const arcsBefore = (await container.graphScopedRepositories(graphId)).arcRepository;
+          const countBefore = (await arcsBefore.findAll()).length;
+          await expect(run(document([arc('R', 0, 1800, 1900, undefined, 'First'), arc('X', 0, 1800, 1900), arc('R', 0, 1800, 1900, undefined, 'Second')]), graphId, strategy)).rejects.toThrow(
+            /arc id "R" appears twice in the document, at arcs\[0\] and arcs\[2\]/
+          );
+          expect(await versionCount(graphId)).toBe(before);
+          expect((await arcsBefore.findAll()).length).toBe(countBefore);
+        });
+      }
+      it(`refuses a repeated event id under ${strategy}, and writes nothing`, async () => {
+        const graphId = await newGraph();
+        const before = await versionCount(graphId);
+        await expect(run(document([], [event('E', 'one'), event('E', 'two')]), graphId, strategy)).rejects.toThrow(/event id "E" appears twice in the document, at events\[0\] and events\[1\]/);
+        expect(await versionCount(graphId)).toBe(before);
+        expect(await (await container.graphScopedRepositories(graphId)).eventRepository.findById('E')).toBeFalsy();
+      });
+    }
+  });
 });

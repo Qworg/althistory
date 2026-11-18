@@ -86,6 +86,27 @@ export class GraphImporter {
       throw new ValidationErrorCLI(`Import refused: ${problems.slice(0, 5).join('; ')}${problems.length > 5 ? `; and ${problems.length - 5} more` : ''}`);
     }
 
+    // An id listed twice is refused under every strategy, before a graph or
+    // an entity is written: which entry should win is not for the importer to
+    // guess, and "already exists" would blame the target graph.
+    const repeated: string[] = [];
+    for (const [kind, list] of [['arc', arcs], ['event', events]] as const) {
+      const seen = new Map<string, number>();
+      list.forEach((entity, index) => {
+        const id = String(entity.id || '');
+        if (!id) return;
+        const first = seen.get(id);
+        if (first === undefined) seen.set(id, index);
+        else {
+          const name = (entity.name ?? entity.description) ? ` ("${String(entity.name ?? entity.description).slice(0, 40)}")` : '';
+          repeated.push(`${kind} id "${id}" appears twice in the document, at ${kind}s[${first}] and ${kind}s[${index}]${name}`);
+        }
+      });
+    }
+    if (repeated.length > 0) {
+      throw new ValidationErrorCLI(`Import refused: ${repeated.slice(0, 5).join('; ')}${repeated.length > 5 ? `; and ${repeated.length - 5} more` : ''}. Each id may be listed once.`);
+    }
+
     // Resolve target graph
     let targetGraphId = options?.graphId;
     if (!targetGraphId) {
