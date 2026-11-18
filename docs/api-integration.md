@@ -373,9 +373,25 @@ response is a valid export. See [`docs/export-format.md`](./export-format.md).
 | `403` | The key is valid but lacks the permission, or may not touch that graph. |
 | `404` | The entity, graph or job does not exist. |
 | `409` | A conflict the request cannot resolve: a merge refused because of conflicts or anomalies in the result, or an import already running for that graph (or an idempotency key reused). |
+| `408` | The request ran out of its time budget (`QUERY_TIMEOUT_MS`, 2 s by default; ingestion has its own, longer one). **Nothing was saved**: the work is cancelled before the server answers, so a write is safe to retry. See below. |
 | `413` | The body was too large. |
 | `429` | Rate limited. Honour `Retry-After`. |
 | `500` | The server failed. `requestId` identifies it in the logs. |
+
+### A `408` means nothing was saved
+
+When a request passes its budget the server cancels it, then answers `408`. A
+write that was still waiting or running is rolled back (a Neo4j transaction is
+rolled back and never committed; the local store and the version history refuse
+the write), so retrying a timed-out `POST` cannot create a second event, arc or
+link. The timed-out request is not counted against your rate limit if it had not
+yet reached the limiter; one that had already been counted stays counted.
+
+One case is not cut off. Once a write has begun to commit, the server lets it
+finish rather than leave the live graph and its version history disagreeing; you
+then get that write's own reply (a late `201`), not a `408`. So the rule is
+simple: a `408` is never a partial or a completed write. A batch or an import
+that has already committed its first entity likewise runs to its end.
 
 Log the `requestId` on any non-2xx: it is the only thing that ties your failed
 request to a server log line.
