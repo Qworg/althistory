@@ -316,4 +316,22 @@ describe('Batch writes are recorded as versions', () => {
     expect(reversed.status).toBe(207);
     expect(reversed.body.failed[0].error).toContain('start_time must be before end_time');
   });
+
+  it('removes a link a transaction deleted from the head (issue 40: the links are still read for a delete)', async () => {
+    const graphId = await newGraph('Batch link delete');
+    const cause = await addEvent(graphId, 'Cause', '1800-01-01T00:00:00.000Z');
+    const effect = await addEvent(graphId, 'Effect', '1801-01-01T00:00:00.000Z');
+    const other = await addEvent(graphId, 'Other', '1802-01-01T00:00:00.000Z');
+    await batch(graphId, 'transaction', {
+      operations: [
+        { type: 'create_relationship', data: { cause_event_id: cause, effect_event_id: effect, evidence: 'Seen' } },
+        { type: 'create_relationship', data: { cause_event_id: effect, effect_event_id: other, evidence: 'Seen' } },
+      ],
+    }).expect(200);
+    expect(Object.keys((await container.graphRepository.checkout(graphId)).relationships)).toHaveLength(2);
+    await batch(graphId, 'transaction', { operations: [{ type: 'delete_relationship', data: { cause_event_id: cause, effect_event_id: effect } }] }).expect(200);
+    const { live, head } = await bothStores(graphId);
+    expect(live.links).toHaveLength(1);
+    expect(head.links).toEqual(live.links);
+  });
 });
