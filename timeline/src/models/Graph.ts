@@ -61,6 +61,8 @@ export interface GraphMetadata {
     end: string;
   };
   actors?: string[];
+  /** The tree hash of the head these were computed from: metadata is extended only from the head it describes. */
+  headTree?: string;
 }
 
 /**

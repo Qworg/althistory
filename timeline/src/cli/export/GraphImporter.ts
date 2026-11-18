@@ -88,20 +88,32 @@ export class GraphImporter {
 
     // An id listed twice is refused under every strategy, before a graph or
     // an entity is written: which entry should win is not for the importer to
-    // guess, and "already exists" would blame the target graph.
-    const repeated: string[] = [];
+    // guess, and "already exists" would blame the target graph. Arcs and events
+    // share one id namespace in the live store, so an arc and an event with the
+    // same id are the same mistake.
+    const listed = new Map<string, Array<{ kind: 'arc' | 'event'; position: string }>>();
     for (const [kind, list] of [['arc', arcs], ['event', events]] as const) {
-      const seen = new Map<string, number>();
       list.forEach((entity, index) => {
         const id = String(entity.id || '');
         if (!id) return;
-        const first = seen.get(id);
-        if (first === undefined) seen.set(id, index);
-        else {
-          const name = (entity.name ?? entity.description) ? ` ("${String(entity.name ?? entity.description).slice(0, 40)}")` : '';
-          repeated.push(`${kind} id "${id}" appears twice in the document, at ${kind}s[${first}] and ${kind}s[${index}]${name}`);
-        }
+        const at = listed.get(id) ?? [];
+        at.push({ kind, position: `${kind}s[${index}]` });
+        listed.set(id, at);
       });
+    }
+    const repeated: string[] = [];
+    for (const [id, at] of listed) {
+      if (at.length < 2) continue;
+      const positions = at.map((entry) => entry.position);
+      if (at.every((entry) => entry.kind === at[0].kind)) {
+        repeated.push(
+          at.length === 2
+            ? `${at[0].kind} id "${id}" appears twice in the document, at ${positions[0]} and ${positions[1]}`
+            : `${at[0].kind} id "${id}" appears ${at.length} times in the document, at ${positions.join(', ')}`
+        );
+      } else {
+        repeated.push(`id "${id}" is used by ${positions.join(' and ')} (an arc and an event cannot share an id)`);
+      }
     }
     if (repeated.length > 0) {
       throw new ValidationErrorCLI(`Import refused: ${repeated.slice(0, 5).join('; ')}${repeated.length > 5 ? `; and ${repeated.length - 5} more` : ''}. Each id may be listed once.`);
@@ -134,6 +146,20 @@ export class GraphImporter {
     }
 
     const scoped = await container.graphScopedRepositories(targetGraphId);
+
+    // The same refusal for an id the target graph already uses for the other kind.
+    const otherKind: string[] = [];
+    for (const [index, arcData] of arcs.entries()) {
+      const id = String(arcData.id || '');
+      if (id && (await scoped.eventRepository.findById(id))) otherKind.push(`arc id "${id}" (arcs[${index}]) is already used by an event in the graph`);
+    }
+    for (const [index, evtData] of events.entries()) {
+      const id = String(evtData.id || '');
+      if (id && (await scoped.arcRepository.findById(id))) otherKind.push(`event id "${id}" (events[${index}]) is already used by an arc in the graph`);
+    }
+    if (otherKind.length > 0) {
+      throw new ValidationErrorCLI(`Import refused: ${otherKind.slice(0, 5).join('; ')}${otherKind.length > 5 ? `; and ${otherKind.length - 5} more` : ''}`);
+    }
     const idMap = new Map<string, string>();
 
     const imported = { events: 0, arcs: 0, relationships: 0 };

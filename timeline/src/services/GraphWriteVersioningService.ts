@@ -638,16 +638,18 @@ export class GraphWriteVersioningService {
             : false;
     const missing: Array<{ type: EntityType; id: string }> = [];
     // Only what the batch can touch is read from the head, so the cost follows
-    // the batch and not the graph: the entities it names; every link when it
-    // writes a link or deletes an event or a link (the scans below look for the
-    // head's links by their two events); every pressure when it deletes an arc
-    // (`releasePressures`).
+    // the batch and not the graph: the entities it names, and the links it
+    // writes by id; every link only when it deletes an event or a link (the
+    // scans below look for the head's links by their two events, so a batch
+    // that deletes an event or a link still reads every link in the graph);
+    // every pressure when it deletes an arc (`releasePressures`).
     const deletesEvent = [...(state.events ?? [])].some(([, event]) => !event);
     const deletesArc = [...(state.arcs ?? [])].some(([, arc]) => !arc);
+    const readsAllLinks = state.deletesLinks === true || deletesEvent;
     const selection: TreeSelection = {
       events: [...(state.events?.keys() ?? [])],
       arcs: [...(state.arcs?.keys() ?? [])],
-      relationships: (state.links ?? []).length > 0 || state.deletesLinks === true || deletesEvent ? 'all' : [],
+      relationships: readsAllLinks ? 'all' : [...liveLinks],
       pressures: deletesArc ? 'all' : [],
     };
     const options = { strict: mustResolve, missing };
@@ -684,7 +686,7 @@ export class GraphWriteVersioningService {
     // The head's links by their two events, read once: a scan of every head link
     // per pair made a batch of N pairs cost N times the size of the graph.
     const headLinksByPair = new Map<string, string[]>();
-    if ((state.links ?? []).length > 0) {
+    if (readsAllLinks && (state.links ?? []).length > 0) {
       for (const [id, link] of Object.entries(head.relationships)) {
         const key = `${link.cause_event_id}\u0000${link.effect_event_id}`;
         const ids = headLinksByPair.get(key);

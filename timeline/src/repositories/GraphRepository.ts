@@ -184,6 +184,7 @@ export class GraphRepository {
 
     const deleted = existing.update({ status: 'deleted' });
     await this.saveGraphMetadata(deleted);
+    this.versionRepository.forgetGraph?.(id);
 
     // Remove from active if it was active
     await this.mutateIndex((index) => {
@@ -358,7 +359,8 @@ export class GraphRepository {
     // Update graph metadata
     const graph = await this.findById(graphId);
     if (graph) {
-      const metadata = (await this.extendMetadata(graphId, graph.metadata, changes)) ?? (await this.calculateMetadata(graphId));
+      const parent = versionRef.parentVersion === null ? null : await this.versionRepository.getVersionRef(graphId, versionRef.parentVersion);
+      const metadata = (await this.extendMetadata(graphId, graph.metadata, changes, parent?.treeHash, versionRef.treeHash)) ?? (await this.calculateMetadata(graphId));
       await this.update(graphId, { metadata });
     }
 
@@ -375,8 +377,15 @@ export class GraphRepository {
    * (its counts plus the commit's changes are not the head's counts), so a
    * stale record is recomputed, never extended.
    */
-  private async extendMetadata(graphId: string, previous: GraphMetadata | undefined, changes: EntityChanges): Promise<GraphMetadata | undefined> {
-    if (!previous || !Array.isArray(previous.actors)) return undefined;
+  private async extendMetadata(
+    graphId: string,
+    previous: GraphMetadata | undefined,
+    changes: EntityChanges,
+    parentTree: string | undefined,
+    headTree: string
+  ): Promise<GraphMetadata | undefined> {
+    // Only from metadata computed from the very head this commit followed.
+    if (!previous || !Array.isArray(previous.actors) || parentTree === undefined || previous.headTree !== parentTree) return undefined;
     if (changes.modified.some((e) => e.type === 'event') || changes.deleted.some((e) => e.type === 'event')) return undefined;
     const net = (type: 'event' | 'arc' | 'relationship' | 'pressure'): number =>
       changes.added.filter((e) => e.type === type).length - changes.deleted.filter((e) => e.type === type).length;
@@ -422,7 +431,8 @@ export class GraphRepository {
       relationshipCount: now.relationships,
       pressureCount: now.pressures,
       temporalRange,
-      actors: Array.from(actors),
+      actors: Array.from(actors).sort(),
+      headTree,
     };
   }
 
@@ -556,6 +566,7 @@ export class GraphRepository {
    * Calculate metadata for a graph based on current state
    */
   async calculateMetadata(graphId: string): Promise<GraphMetadata> {
+    const latest = await this.versionRepository.getLatestVersion(graphId);
     const data = await this.checkout(graphId);
 
     const events = Object.values(data.events);
@@ -594,7 +605,8 @@ export class GraphRepository {
       relationshipCount,
       pressureCount,
       temporalRange,
-      actors: Array.from(actorSet),
+      actors: Array.from(actorSet).sort(),
+      ...(latest ? { headTree: latest.treeHash } : {}),
     };
   }
 

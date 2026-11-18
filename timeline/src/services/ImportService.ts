@@ -1707,6 +1707,35 @@ export class ImportService {
   }
 
   /**
+   * Ids the document uses for one kind of entity that the target graph
+   * already uses for the other (an event named like an arc, or the reverse).
+   * `replace` clears the graph first, so it cannot collide.
+   */
+  private async otherKindIdErrors(importData: AlthistoryExport, graphId: string, mode: ImportMode): Promise<ImportError[]> {
+    if (mode === 'create-new' || mode === 'replace') return [];
+    let graphData: ExistingGraphData;
+    try {
+      graphData = await this.loadExistingGraph(graphId);
+    } catch {
+      return [];
+    }
+    const arcIds = new Set(graphData.arcs.map((a) => a.id));
+    const eventIds = new Set(graphData.events.map((e) => e.id));
+    const errors: ImportError[] = [];
+    (importData.data.events || []).forEach((event, index) => {
+      if (arcIds.has(event.id)) {
+        errors.push({ path: `$.data.events[${index}].id`, message: `ID '${event.id}' is used by an arc in the target graph; an event cannot take it`, code: 'DUPLICATE_ID' });
+      }
+    });
+    (importData.data.arcs || []).forEach((arc, index) => {
+      if (eventIds.has(arc.id)) {
+        errors.push({ path: `$.data.arcs[${index}].id`, message: `ID '${arc.id}' is used by an event in the target graph; an arc cannot take it`, code: 'DUPLICATE_ID' });
+      }
+    });
+    return errors;
+  }
+
+  /**
    * Detect conflicts between import data and existing graph data
    * Includes deduplication to prevent duplicate conflict entries
    */
@@ -2375,6 +2404,13 @@ export class ImportService {
         errors: crossGraphErrors,
         warnings: validation.warnings,
       };
+    }
+
+    // An event and an arc share one id namespace in the live store: an id the
+    // target graph uses for the other kind is refused under every resolution.
+    const otherKindErrors = options.graphId ? await this.otherKindIdErrors(importData, options.graphId, options.mode) : [];
+    if (otherKindErrors.length > 0) {
+      return { ...emptyResult(), errors: otherKindErrors, warnings: validation.warnings };
     }
 
     // FIX B#6: Check cancellation

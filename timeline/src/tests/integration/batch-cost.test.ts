@@ -139,4 +139,126 @@ describe('recording a batch', () => {
     expect(rolled.arcs).not.toContain('later');
     expect(rolled.events).toContain('batch-e');
   });
+
+  describe('links', () => {
+    const link = (cause: string, effect: string) => ({ cause_event_id: cause, effect_event_id: effect, weight: 0.5, confidence: 0.5, evidence: 'because', relationship_type: 'direct' });
+    async function graphWithLinks(events: number): Promise<string> {
+      graphCount += 1;
+      const id = (await container.graphService.createGraph({ name: `Batch links ${graphCount}` })).id;
+      const doc = {
+        metadata: {},
+        data: {
+          arcs: [],
+          events: Array.from({ length: events }, (_, i) => event(`e${i}`)),
+          causalRelationships: Array.from({ length: events - 1 }, (_, i) => link(`e${i}`, `e${i + 1}`)),
+        },
+      };
+      await run(doc, id);
+      return id;
+    }
+    const batchWithLink = (prefix: string) => ({
+      metadata: {},
+      data: { arcs: [arc(`${prefix}arc`)], events: [event(`${prefix}1`), event(`${prefix}2`)], causalRelationships: [link(`${prefix}1`, `${prefix}2`)] },
+    });
+
+    it('reads no more objects for a batch that carries a link in a graph of many links than in a graph of few', async () => {
+      const few = await graphWithLinks(4);
+      const many = await graphWithLinks(200);
+      const inFew = await counted(() => run(batchWithLink('f'), few));
+      const inMany = await counted(() => run(batchWithLink('m'), many));
+      expect(inMany).toEqual(inFew);
+      expect(inMany.reads).toBeLessThanOrEqual(3);
+      expect(inMany.writes).toBe(4);
+    });
+
+    it('still reads every link when a batch deletes an event, and records the links that went with it', async () => {
+      const graphId = await graphWithLinks(6);
+      const scoped = await container.graphScopedRepositories(graphId);
+      await scoped.eventRepository.delete('e3');
+      const before = await container.graphRepository.checkout(graphId);
+      expect(Object.keys(before.relationships)).toHaveLength(5);
+      const live = (await scoped.causalService.getAllRelationships()).map((l) => l.id);
+      // A direct recordBatch with a deleted event and no `deletesLinks`.
+      await container.graphWriteVersioningService.recordBatch(graphId, { events: new Map([['e3', null]]) }, [{ operation: 'delete', type: 'event', id: 'e3' }]);
+      const head = await container.graphRepository.checkout(graphId);
+      expect(Object.keys(head.events)).not.toContain('e3');
+      expect(Object.keys(head.relationships).sort()).toEqual([...live].sort());
+      expect(Object.keys(head.relationships)).toHaveLength(3);
+    });
+  });
+
+  describe('the graph metadata', () => {
+    it('is recounted, not extended, when it describes another head though its counts match', async () => {
+      const graphId = await graphOf(1, 2);
+      // Counts that add up, but computed from some other head: an actor that is not there.
+      const kept = (await container.graphRepository.findById(graphId))!.metadata!;
+      await container.graphRepository.update(graphId, { metadata: { ...kept, actors: ['Ghost'], headTree: 'not-the-head' } });
+      await run(document([], [event('later', 'Real')]), graphId);
+      const after = (await container.graphRepository.findById(graphId))!.metadata!;
+      expect(after.actors).toEqual(['A', 'Real']);
+      expect(after).toEqual(await container.graphRepository.calculateMetadata(graphId));
+    });
+
+    it('lists the actors in the same order whichever way it was reached', async () => {
+      const graphId = await graphOf(0, 0);
+      await run(document([], [event('z1', 'Zed')]), graphId);
+      await run(document([], [event('a1', 'Abe')]), graphId);
+      const kept = (await container.graphRepository.findById(graphId))!.metadata!;
+      expect(kept.actors).toEqual(['Abe', 'Zed']);
+      expect(kept).toEqual(await container.graphRepository.calculateMetadata(graphId));
+    });
+
+    it('equals a full recount after any mix of batches, deletes, rollbacks, branches and merges', async () => {
+      let seed = 12345;
+      const random = (n: number): number => {
+        seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+        return seed % n;
+      };
+      const actors = ['Ada', 'Bo', 'Cy', 'Di'];
+      const times = ['1700-01-01T00:00:00.000Z', '1850-06-01T00:00:00.000Z', '1999-12-31T00:00:00.000Z', '0044-03-15T00:00:00.000Z', '-100000-01-01T00:00:00.000Z', '+100000-01-01T00:00:00.000Z'];
+      const graphId = await graphOf(2, 3);
+      let next = 0;
+      for (let step = 0; step < 40; step++) {
+        const scoped = await container.graphScopedRepositories(graphId);
+        const events = (await scoped.eventRepository.findAll()).map((e) => e.id);
+        const roll = random(10);
+        if (roll < 4) {
+          const doc = document([arc(`fa${next}`)], [event(`fe${next}`, actors[random(4)], times[random(times.length)])]);
+          next++;
+          await run(doc, graphId);
+        } else if (roll < 6 && events.length > 0) {
+          const id = events[random(events.length)];
+          await run(document([], [event(id, actors[random(4)], times[random(times.length)])]), graphId, 'overwrite');
+        } else if (roll < 8 && events.length > 0) {
+          const id = events[random(events.length)];
+          await scoped.eventRepository.delete(id);
+          await container.graphWriteVersioningService.recordDeletion(graphId, 'event', id);
+        } else if (roll === 8) {
+          const history = await container.graphRepository.getVersionHistory(graphId);
+          const target = history.versions[random(history.versions.length)].version;
+          await container.graphService.rollbackGraph(graphId, target);
+        } else {
+          const side = await container.graphService.branchGraph(graphId, { name: `fuzz ${step}` });
+          await run(document([], [event(`side${step}`, actors[random(4)], times[random(times.length)])]), side.id);
+          await container.graphService.mergeGraph(graphId, { sourceGraphId: side.id, conflictResolution: 'keep-source' });
+        }
+        const kept = (await container.graphRepository.findById(graphId))!.metadata;
+        expect(kept, `after step ${step} (roll ${roll})`).toEqual(await container.graphRepository.calculateMetadata(graphId));
+      }
+    }, 120000);
+  });
+
+  describe('the kept trees', () => {
+    it('are bounded, and a soft-deleted graph is let go', async () => {
+      const versions = (container.graphRepository as unknown as { versionRepository: { keptTreeCount(): number } }).versionRepository;
+      const ids: string[] = [];
+      for (let i = 0; i < 12; i++) ids.push(await graphOf(1, 1));
+      expect(versions.keptTreeCount()).toBeLessThanOrEqual(8);
+      const last = ids[ids.length - 1];
+      expect(versions.keptTreeCount()).toBeGreaterThan(0);
+      const before = versions.keptTreeCount();
+      await container.graphRepository.delete(last);
+      expect(versions.keptTreeCount()).toBe(before - 1);
+    });
+  });
 });

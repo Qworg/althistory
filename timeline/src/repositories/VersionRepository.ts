@@ -115,12 +115,34 @@ class GraphMutex {
   }
 }
 
+const MAX_KEPT_TREES = 8;
+
 export class VersionRepository {
   private readonly dataDir: string;
   private readonly packThreshold: number;
   private readonly commitMutex: GraphMutex;
-  /** The tree last read or stored for each graph (see `getTree`). */
+  /** The tree last read or stored for each graph (see `getTree`), least recently used first, at most `MAX_KEPT_TREES`. */
   private readonly headTrees = new Map<string, { hash: string; tree: TreeObject }>();
+
+  private keepTree(graphId: string, hash: string, tree: TreeObject): void {
+    this.headTrees.delete(graphId);
+    this.headTrees.set(graphId, { hash, tree });
+    while (this.headTrees.size > MAX_KEPT_TREES) {
+      const oldest = this.headTrees.keys().next().value;
+      if (oldest === undefined) break;
+      this.headTrees.delete(oldest);
+    }
+  }
+
+  /** Drop what is kept in memory for a graph (it is being deleted). */
+  forgetGraph(graphId: string): void {
+    this.headTrees.delete(graphId);
+  }
+
+  /** How many graphs' trees are kept in memory. */
+  keptTreeCount(): number {
+    return this.headTrees.size;
+  }
 
   constructor(config: VersionRepositoryConfig) {
     this.dataDir = config.dataDir;
@@ -552,7 +574,7 @@ export class VersionRepository {
     } catch {
       await fs.promises.writeFile(objectPath, content, 'utf-8');
     }
-    this.headTrees.set(graphId, { hash, tree });
+    this.keepTree(graphId, hash, tree);
     return hash;
   }
 
@@ -564,13 +586,16 @@ export class VersionRepository {
     // the hash of its content, so it cannot be stale, and a write that reads
     // the head several times parses it once. The result is shared: read-only.
     const kept = this.headTrees.get(graphId);
-    if (kept?.hash === hash) return kept.tree;
+    if (kept?.hash === hash) {
+      this.keepTree(graphId, hash, kept.tree);
+      return kept.tree;
+    }
     const objectPath = this.getObjectPath(graphId, hash);
 
     try {
       const content = await fs.promises.readFile(objectPath, 'utf-8');
       const tree = JSON.parse(content) as TreeObject;
-      this.headTrees.set(graphId, { hash, tree });
+      this.keepTree(graphId, hash, tree);
       return tree;
     } catch {
       // Check pack files
