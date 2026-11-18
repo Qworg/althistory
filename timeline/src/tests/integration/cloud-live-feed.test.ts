@@ -320,20 +320,25 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
       expect((await container.graphRepository.checkout(graphA)).arcs['keep-me']).toEqual(before);
     });
 
-    it('refuses a create of an arc id another graph holds, by id, in both doors', async () => {
-      const arc = { id: 'held-elsewhere', name: 'held', start_time: '1800-01-01T00:00:00.000Z', end_time: '1900-01-01T00:00:00.000Z', level: 0 };
-      expect((await http('POST', '/api/arcs', agentKey, graphA, arc)).status).toBe(201);
-      // The store has one arc per id across graphs: graph B cannot take it, and the answer is a 400 that names the id.
-      const single = await http('POST', '/api/arcs', agentKey, graphB, arc);
-      expect(single.status).toBe(400);
-      expect(JSON.stringify(single.body)).toContain('held-elsewhere');
-      expect(JSON.stringify(single.body)).not.toMatch(/Neo4jError|Node\(\d+\)/);
-      const batch = await http('POST', '/api/batch/transaction', agentKey, graphB, { graphId: graphB, operations: [{ type: 'create_arc', data: arc }] });
-      expect(batch.status).toBe(400);
-      expect(JSON.stringify(batch.body)).toContain('held-elsewhere');
-      expect(JSON.stringify(batch.body)).not.toMatch(/Neo4jError|Node\(\d+\)/);
-      const { arcRepository } = await container.graphScopedRepositories(graphB);
-      expect(await arcRepository.findById('held-elsewhere')).toBeNull();
+    it('takes a create of an arc id another graph holds, in both doors, and leaves that graph\'s arc alone (#35)', async () => {
+      const arc = (id: string, name: string) => ({ id, name, start_time: '1800-01-01T00:00:00.000Z', end_time: '1900-01-01T00:00:00.000Z', level: 0 });
+      // An id is unique within a graph: a branch holds its parent's ids, so graph B may take what graph A has.
+      expect((await http('POST', '/api/arcs', agentKey, graphA, arc('held-elsewhere', 'in A'))).status).toBe(201);
+      expect((await http('POST', '/api/arcs', agentKey, graphB, arc('held-elsewhere', 'in B'))).status).toBe(201);
+      expect((await http('POST', '/api/arcs', agentKey, graphA, arc('held-by-batch', 'in A'))).status).toBe(201);
+      const batch = await http('POST', '/api/batch/transaction', agentKey, graphB, { graphId: graphB, operations: [{ type: 'create_arc', data: arc('held-by-batch', 'in B') }] });
+      expect(batch.status).toBe(200);
+      const inA = await container.graphScopedRepositories(graphA);
+      const inB = await container.graphScopedRepositories(graphB);
+      expect((await inA.arcRepository.findById('held-elsewhere'))?.name).toBe('in A');
+      expect((await inB.arcRepository.findById('held-elsewhere'))?.name).toBe('in B');
+      expect((await inA.arcRepository.findById('held-by-batch'))?.name).toBe('in A');
+      expect((await inB.arcRepository.findById('held-by-batch'))?.name).toBe('in B');
+      // The same graph still refuses its own id, by id, without the store's wording.
+      const again = await http('POST', '/api/arcs', agentKey, graphB, arc('held-elsewhere', 'twice'));
+      expect(again.status).toBe(400);
+      expect(JSON.stringify(again.body)).toContain('held-elsewhere');
+      expect(JSON.stringify(again.body)).not.toMatch(/Neo4jError|Node\(\d+\)/);
     });
 
     it('versions a batch of links under the id a single link gets in Neo4j, and a transaction that removes it', async () => {
