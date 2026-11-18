@@ -1,4 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { CAUSAL_QUERY_KEY } from '@/hooks/causalQueryKey'
+import { graphKeys } from '@/hooks/useGraphs'
 import { shouldIgnoreAppShortcut } from '@/utils/keyboardShortcuts'
 import { CausalGraphComponent } from '@/components/causal-graph'
 import { Event, CausalRelationship } from '@/types'
@@ -8,7 +11,7 @@ import { VIEW_EVENT_LIMIT } from '@/hooks/useEvents'
 import { ViewLoadError, SlowLoadNotice } from './ViewLoadState'
 import { useSlowLoading } from '@/hooks/useSlowLoading'
 import { EmptyGraphState } from './EmptyGraphState'
-import { useEvents, useCausalRelationships, useDeleteCausalLink, useUpdateCausalLink, useDeleteEvent, useUpdateEvent } from '@/hooks/useAPI'
+import { useEvents, useCausalRelationships, useDeleteCausalLink, useDeleteEvent, useUpdateEvent } from '@/hooks/useAPI'
 import { ContextMenu, ConfirmDialog } from '@/components/ui'
 import { EventDetailModal, CausalRelationshipModal } from '@/components/modals'
 import { CausalEventInspector } from '@/components/causal-graph/CausalEventInspector'
@@ -119,8 +122,8 @@ export function CausalGraphView() {
   )
 
   // Mutation hooks
+  const queryClient = useQueryClient()
   const deleteCausalLinkMutation = useDeleteCausalLink()
-  const updateCausalLinkMutation = useUpdateCausalLink()
   const deleteEventMutation = useDeleteEvent()
   const updateEventMutation = useUpdateEvent()
 
@@ -202,9 +205,11 @@ export function CausalGraphView() {
         }
       } else {
         const rel = deleteConfirm.item as CausalRelationship
+        // By the link's own id: a pair can hold several links.
         await deleteCausalLinkMutation.mutateAsync({
           causeEventId: rel.cause_event_id,
-          effectEventId: rel.effect_event_id
+          effectEventId: rel.effect_event_id,
+          linkId: rel.id
         })
         if (selectedRelationship?.id === rel.id) {
           setSelectedRelationship(null)
@@ -248,41 +253,28 @@ export function CausalGraphView() {
     }
   }, [editModal, deleteEventMutation, selectedEvent])
 
-  // Save relationship changes
-  const handleRelationshipSave = useCallback(async (relationship: CausalRelationship) => {
-    if (editModal?.type === 'relationship') {
-      const rel = editModal.item as CausalRelationship
-      await updateCausalLinkMutation.mutateAsync({
-        causeEventId: rel.cause_event_id,
-        effectEventId: rel.effect_event_id,
-        data: {
-          weight: relationship.weight,
-          confidence: relationship.confidence,
-          evidence: relationship.evidence,
-          relationship_type: relationship.relationship_type
-        }
-      })
-      setEditModal(null)
-    }
-  }, [editModal, updateCausalLinkMutation])
+  // The relationship modal has already sent its own request, by the link's id
+  // (and updated the store). These only tell the view: sending the change again
+  // by the pair would land on the oldest link of the two events, not this one.
+  const refreshLinks = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: CAUSAL_QUERY_KEY })
+    queryClient.invalidateQueries({ queryKey: graphKeys.all })
+  }, [queryClient])
 
-  // Delete relationship from modal. The id is not needed: the relationship to
-  // delete is already carried on `editModal`, so the parameter is simply omitted
-  // (the handler stays assignable to the `(relationshipId: string) => void`
-  // prop it is passed as).
-  const handleRelationshipDelete = useCallback(async () => {
-    if (editModal?.type === 'relationship') {
-      const rel = editModal.item as CausalRelationship
-      await deleteCausalLinkMutation.mutateAsync({
-        causeEventId: rel.cause_event_id,
-        effectEventId: rel.effect_event_id
-      })
-      setEditModal(null)
-      if (selectedRelationship?.id === rel.id) {
-        setSelectedRelationship(null)
-      }
+  // Relationship saved by the modal
+  const handleRelationshipSave = useCallback(() => {
+    refreshLinks()
+    setEditModal(null)
+  }, [refreshLinks])
+
+  // Relationship deleted by the modal
+  const handleRelationshipDelete = useCallback((relationshipId?: string) => {
+    refreshLinks()
+    setEditModal(null)
+    if (relationshipId && selectedRelationship?.id === relationshipId) {
+      setSelectedRelationship(null)
     }
-  }, [editModal, deleteCausalLinkMutation, selectedRelationship])
+  }, [refreshLinks, selectedRelationship])
 
   // Close edit modal
   const handleEditModalClose = useCallback(() => {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { CausalRelationship, Event, CausalRelationshipData } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
 import { apiClient } from '@/services/api'
@@ -47,6 +47,10 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
   })
   const [graphsList, setGraphsList] = useState<Array<{ id: string; name: string }>>(availableGraphs || [])
   const [isLoading, setIsLoading] = useState(false)
+  // Evidence is required: shown inline, under the field, once a save was tried
+  // without it, and cleared as soon as the person types some.
+  const [evidenceError, setEvidenceError] = useState<string | null>(null)
+  const evidenceRef = useRef<HTMLTextAreaElement>(null)
   const [causeEvent, setCauseEvent] = useState<Event | null>(null)
   const [effectEvent, setEffectEvent] = useState<Event | null>(null)
 
@@ -127,6 +131,7 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
   // Reset form when modal closes
   useEffect(() => {
     if (!isOpen) {
+      setEvidenceError(null)
       setFormData({
         weight: 0.5,
         evidence: '',
@@ -142,6 +147,16 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
   }, [isOpen])
 
   const handleSave = async () => {
+    // Every link says why. Refused here, before any request, with the reason
+    // beside the field (the server refuses it too).
+    if (!formData.evidence.trim()) {
+      setEvidenceError('Evidence is required: say why the cause led to the effect.')
+      // Move to the field the error is about, so it is announced and typed into.
+      evidenceRef.current?.focus()
+      return
+    }
+    setEvidenceError(null)
+
     try {
       setIsLoading(true)
 
@@ -164,7 +179,7 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
 
       const payload: CausalRelationshipData = {
         weight: formData.weight,
-        evidence: formData.evidence,
+        evidence: formData.evidence.trim(),
         confidence: formData.confidence,
         relationship_type: formData.relationship_type,
         ...(formData.isCrossGraph ? { isCrossGraph: true } : {}),
@@ -181,7 +196,8 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
         const updatedRelationship = await apiClient.causal.updateLink(
           relationship.cause_event_id,
           relationship.effect_event_id,
-          payload
+          payload,
+          relationship.id
         )
 
         // Update global state
@@ -214,7 +230,7 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
       setIsLoading(true)
 
       // Delete via API
-      await apiClient.causal.deleteLink(relationship.cause_event_id, relationship.effect_event_id)
+      await apiClient.causal.deleteLink(relationship.cause_event_id, relationship.effect_event_id, relationship.id)
       
       // Update global state
       deleteCausalRelationship(relationship.id)
@@ -409,17 +425,34 @@ export const CausalRelationshipModal: React.FC<CausalRelationshipModalProps> = (
 
               {/* Evidence */}
               <div>
-                <label className="block text-sm font-medium text-ink-secondary mb-2">
-                  Evidence
+                <label htmlFor="relationship-evidence" className="block text-sm font-medium text-ink-secondary mb-2">
+                  Evidence <span aria-hidden="true" className="text-danger">*</span>
+                  <span className="sr-only"> (required)</span>
                 </label>
                 <textarea
+                  id="relationship-evidence"
+                  ref={evidenceRef}
                   value={formData.evidence}
-                  onChange={(e) => handleInputChange('evidence', e.target.value)}
+                  onChange={(e) => {
+                    handleInputChange('evidence', e.target.value)
+                    if (evidenceError && e.target.value.trim()) setEvidenceError(null)
+                  }}
                   rows={4}
-                  className="w-full px-3 py-2 border border-line rounded-md focus:outline-none focus:ring-2 focus:ring-selected focus:border-transparent"
+                  required
+                  aria-required="true"
+                  aria-invalid={evidenceError !== null}
+                  aria-describedby={evidenceError ? 'relationship-evidence-error' : undefined}
+                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-selected focus:border-transparent ${
+                    evidenceError ? 'border-danger' : 'border-line'
+                  }`}
                   placeholder="Describe the evidence supporting this causal relationship..."
                   disabled={isLoading}
                 />
+                {evidenceError && (
+                  <p id="relationship-evidence-error" role="alert" className="mt-1 text-sm text-danger">
+                    {evidenceError}
+                  </p>
+                )}
               </div>
             </div>
           </div>

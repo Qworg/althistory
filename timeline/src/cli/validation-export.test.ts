@@ -66,6 +66,7 @@ describe('CLI Phase 5: Validation, Self-Healing & Export/Import Engine', () => {
 
       // Link cause -> effect (1440 -> 1455)
       await engine.createCausalLink(testGraphId, {
+        reasoning: 'Test evidence',
         causeId: evt1.id,
         effectId: evt2.id,
         weight: 0.9,
@@ -91,6 +92,7 @@ describe('CLI Phase 5: Validation, Self-Healing & Export/Import Engine', () => {
 
       // Initially link cause (1957) -> effect (1969)
       await engine.createCausalLink(testGraphId, {
+        reasoning: 'Test evidence',
         causeId: evt1.id,
         effectId: evt2.id,
         weight: 0.8,
@@ -124,6 +126,7 @@ describe('CLI Phase 5: Validation, Self-Healing & Export/Import Engine', () => {
       });
 
       await engine.createCausalLink(testGraphId, {
+        reasoning: 'Test evidence',
         causeId: evt1.id,
         effectId: evt2.id,
         weight: 0.8,
@@ -146,6 +149,7 @@ describe('CLI Phase 5: Validation, Self-Healing & Export/Import Engine', () => {
       });
 
       await engine.createCausalLink(testGraphId, {
+        reasoning: 'Test evidence',
         causeId: evt1.id,
         effectId: evt2.id,
         weight: 0.8,
@@ -469,7 +473,7 @@ describe('CLI Phase 5: Validation, Self-Healing & Export/Import Engine', () => {
       const outside = report.issues.find((issue) => /falls outside arc/.test(issue.message));
       expect(outside?.message).toContain('44-03-15 BCE) falls outside arc "The Late Republic" bounds (100-01-01 BCE - 50-12-31 BCE)');
 
-      await expect(engine.createCausalLink(testGraphId, { causeId: caesar, effectId: gaul })).rejects.toThrow(
+      await expect(engine.createCausalLink(testGraphId, { reasoning: 'Test evidence', causeId: caesar, effectId: gaul })).rejects.toThrow(
         'cause timestamp (44-03-15 BCE) must not be after effect timestamp (50 BCE)'
       );
     });
@@ -508,6 +512,32 @@ describe('CLI Phase 5: Validation, Self-Healing & Export/Import Engine', () => {
       await engine.deleteGraph(targetGraph.id);
     });
 
+    it('imports a link exported without evidence, keeping it with a placeholder and a warning (#31)', async () => {
+      const a = await engine.createEvent(testGraphId, { description: 'Old cause', timestamp: '1900-01-01T00:00:00.000Z' });
+      const b = await engine.createEvent(testGraphId, { description: 'Old effect', timestamp: '1901-01-01T00:00:00.000Z' });
+      await engine.createCausalLink(testGraphId, { causeId: a.id, effectId: b.id, reasoning: 'Seen' });
+      const exportRes = await engine.exportGraph(testGraphId, 'json');
+      // An export from before evidence was required: the field is not there.
+      const old = JSON.parse(exportRes.content!);
+      for (const rel of old.data.causalRelationships) delete rel.evidence;
+      old.metadata.checksum = '';
+      const jsonPath = path.join(tempDir, 'old-export.json');
+      fs.writeFileSync(jsonPath, JSON.stringify(old), 'utf8');
+
+      const target = await engine.createGraph('Old import target');
+      try {
+        // The target has the same events (by id) only after the import creates them.
+        const imported = await engine.importGraph(jsonPath, { strategy: 'skip', graphId: target.id });
+        expect(imported.imported.relationships).toBe(1);
+        expect(imported.warnings?.some((w) => /no evidence/.test(w) && /\(no evidence recorded\)/.test(w))).toBe(true);
+        const links = await engine.listCausalLinks(target.id);
+        expect(links).toHaveLength(1);
+        expect(links[0]!.reasoning).toBe('(no evidence recorded)');
+      } finally {
+        await engine.deleteGraph(target.id);
+      }
+    });
+
     it('imports with strategy: rename to avoid ID collisions', async () => {
       const evt = await engine.createEvent(testGraphId, {
         description: 'Original Collision Event',
@@ -542,7 +572,7 @@ describe('CLI Phase 5: Validation, Self-Healing & Export/Import Engine', () => {
         description: 'Subsequent Event',
         timestamp: '2020-01-01T00:00:00.000Z',
       });
-      await engine.createCausalLink(testGraphId, { causeId: e1.id, effectId: e2.id });
+      await engine.createCausalLink(testGraphId, { reasoning: 'Test evidence', causeId: e1.id, effectId: e2.id });
       await engine.updateEvent(testGraphId, e1.id, { timestamp: '2030-01-01T00:00:00.000Z' });
 
       const exitCode = await runCLI([
@@ -555,6 +585,19 @@ describe('CLI Phase 5: Validation, Self-Healing & Export/Import Engine', () => {
       ]);
 
       expect(exitCode).toBe(ExitCode.VALIDATION_FAILED);
+    });
+
+    it('refuses `causal link` without --evidence, and accepts --evidence and the older --reasoning (#31)', async () => {
+      const a = await engine.createEvent(testGraphId, { description: 'CLI cause', timestamp: '1800-01-01T00:00:00.000Z' });
+      const b = await engine.createEvent(testGraphId, { description: 'CLI effect', timestamp: '1801-01-01T00:00:00.000Z' });
+      const base = ['node', 'althistory', 'causal', 'link', '-g', testGraphId, '-c', a.id, '-e', b.id, '--direct', '--json'];
+
+      expect(await runCLI([...base])).toBe(ExitCode.VALIDATION_FAILED);
+      expect(await runCLI([...base, '--evidence', '   '])).toBe(ExitCode.VALIDATION_FAILED);
+      expect(await engine.listCausalLinks(testGraphId)).toEqual([]);
+
+      expect(await runCLI([...base, '--evidence', 'The treaty says so'])).toBe(ExitCode.SUCCESS);
+      expect((await engine.listCausalLinks(testGraphId)).map((l) => l.reasoning)).toEqual(['The treaty says so']);
     });
 
     it('executes export command via CLI runner to stdout', async () => {

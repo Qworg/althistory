@@ -558,6 +558,7 @@ describe('CausalGraphComponent - Relationship Interactions', () => {
       })
     })
 
+    await user.type(await screen.findByRole('textbox', { name: /evidence/i }), 'A contemporary letter')
     await user.click(await screen.findByRole('button', { name: 'Create Relationship' }))
 
     await waitFor(() => {

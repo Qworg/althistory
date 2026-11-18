@@ -6,13 +6,17 @@ import { axisTicks, fitAxis, formatTimeAxisTickSet, getTimeAxisInterval } from '
 import { useWorldCalendar } from '@/stores/worldCalendarStore'
 import { formatEventDate } from '@/utils/historicalTime'
 import { truncateToWidth } from '@/utils'
-import { layoutEventLabels, type EventLabelPlacement, type LabelLayoutConfig } from './eventLabelLayout'
+import { measureLabelWidth } from './labelWidth'
+import { useFontEpoch } from './useFontEpoch'
+import { PLATE_ASCENT, PLATE_DESCENT, PLATE_PAD, planPinnedText, type PlacedLabelBox } from './pinnedLabel'
+import { layoutEventLabels, truncateLabel, TIMELINE_LABEL_CONFIG, type EventLabelPlacement, type LabelLayoutConfig } from './eventLabelLayout'
+import { DEFAULT_ACTOR_MARGIN, actorAxisMaxTicks } from './timelineLayout'
 import { compareInstants, msApart, toAxisTime, toInstant } from '@althistory/calendar'
 
 /** Two rows of 12px labels (the 12px floor); the pitch is the font plus leading. */
-const ACTOR_LABEL_CONFIG: LabelLayoutConfig = { rowOffsets: [-16, -30], fontSize: 12 }
+const ACTOR_LABEL_CONFIG: LabelLayoutConfig = { rowOffsets: [-16, -30], fontSize: 12, fullChars: TIMELINE_LABEL_CONFIG.fullChars, lengthen: true }
 /** Rows under a mark, for a label with no room above it. */
-const ACTOR_LABEL_BELOW_CONFIG: LabelLayoutConfig = { rowOffsets: [24, 38], fontSize: 12 }
+const ACTOR_LABEL_BELOW_CONFIG: LabelLayoutConfig = { rowOffsets: [24, 38], fontSize: 12, fullChars: TIMELINE_LABEL_CONFIG.fullChars, lengthen: true }
 /**
  * Arc names are drawn at 12px medium, which runs wider than the regular
  * weight the estimate assumes; measured at 13px so two neighbouring names do
@@ -44,7 +48,7 @@ export interface ActorTimelineState {
   hoveredEventId: string | null
 }
 
-const DEFAULT_MARGIN = { top: 20, right: 20, bottom: 60, left: 80 }
+const DEFAULT_MARGIN = DEFAULT_ACTOR_MARGIN
 
 /** Approximate advance of one character of the 11px monospace tick labels. */
 const TICK_CHAR_PX = 6.6
@@ -225,7 +229,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
     const [domainStart, domainEnd] = timeScale.domain()
     const deepDomain = usesArithmeticTicks(domainStart, domainEnd)
     const [start = 0, end = 0] = timeScale.range()
-    const maxTicks = Math.max(2, Math.floor(Math.abs(end - start) / 96))
+    const maxTicks = actorAxisMaxTicks(end - start)
     const countTicks = () => axisTicks(timeScale.domain(), maxTicks, worldCalendar).map(({ date, label }) => ({
       key: String(toAxisTime(date)),
       date,
@@ -254,7 +258,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
   // to the room rather than turned (an end label anchored inside the SVG, ticks
   // that would overprint dropped, times of day given a caption naming their
   // day). Any other set is drawn as it always was.
-  const { ticks: xTicks, caption: axisCaption, fitted: fittedAxis } = useMemo(
+  const { ticks: xTicks, caption: axisCaption, captionFull: axisCaptionFull, captionX: axisCaptionX, fitted: fittedAxis } = useMemo(
     () =>
       fitAxis(
         rawTicks,
@@ -333,7 +337,6 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
           id: event.id,
           x: timeScale(toInstant(event.timestamp)),
           description: event.description,
-          priority: event.id === state.selectedEventId,
         })),
         innerWidth,
         ACTOR_LABEL_CONFIG
@@ -362,7 +365,48 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
       }
     }
     return placements
-  }, [events.length, groups, layoutMode, innerHeight, innerWidth, timeScale, yScale, arcLabelFloor, state.selectedEventId])
+  }, [events.length, groups, layoutMode, innerHeight, innerWidth, timeScale, yScale, arcLabelFloor])
+
+  // The selected mark's name when the layout had no room for it (see
+  // markLabels): on a plate over the marks, where it hides least (pinnedLabel.ts).
+  // A label the plate covers by half or more is hidden whole; none is left as a
+  // fragment, and none moves.
+  const fontEpoch = useFontEpoch()
+  const pinnedSelection = useMemo(() => {
+    void fontEpoch
+    const selected = events.find((event) => event.id === state.selectedEventId)
+    if (!selected || markLabels.has(selected.id)) return null
+    const x = timeScale(toInstant(selected.timestamp))
+    if (!(x >= 0 && x <= innerWidth)) return null
+    const labels: PlacedLabelBox[] = []
+    for (const event of events) {
+      const placement = markLabels.get(event.id)
+      if (!placement) continue
+      const markX = timeScale(toInstant(event.timestamp))
+      const baseline = yFor(event) + placement.offset
+      const width = measureLabelWidth(placement.text, 12)
+      const left = placement.anchor === 'start' ? markX : placement.anchor === 'end' ? markX - width : markX - width / 2
+      labels.push({ id: event.id, left, right: left + width, top: baseline - 9.6, bottom: baseline + 3, length: placement.text.length })
+    }
+    const y = yFor(selected)
+    // The full name if a plate fits; else the shorter forms the layout uses.
+    const found = planPinnedText(
+      { x, markY: y, innerWidth, rows: [-16, -30, 24, 38], labels },
+      [32, 24, 18, 14].map((chars) => {
+        const text = truncateLabel(selected.description, chars)
+        return { text, width: measureLabelWidth(text, 12, 600) }
+      })
+    )
+    return found ? { id: selected.id, x, y, text: found.text, plan: found.plan } : null
+    // fontEpoch: widths are measured again once the fonts have loaded.
+  }, [events, state.selectedEventId, markLabels, timeScale, innerWidth, yFor, fontEpoch])
+
+  // The labels drawn: the layout's, less any the selection's plate hides whole.
+  const shownLabels = useMemo(() => {
+    if (!pinnedSelection || pinnedSelection.plan.hidden.length === 0) return markLabels
+    const hidden = new Set(pinnedSelection.plan.hidden)
+    return new Map([...markLabels].filter(([id]) => !hidden.has(id)))
+  }, [markLabels, pinnedSelection])
 
   const selectEvent = useCallback((event: ActorEventData) => {
     setState(prev => ({
@@ -532,7 +576,9 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
                     ))}
                     {axisCaption && (
                       <text
+                        x={axisCaptionX ?? 0}
                         y={36}
+                        aria-label={axisCaptionFull}
                         textAnchor="start"
                         fontSize={11}
                         className="axis-day-caption"
@@ -616,6 +662,24 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
               })}
             </g>
 
+            {/* The selection's plate hangs from its mark by a leader in the accent,
+                beneath every mark and label (labels have no halo here, but the
+                plate is opaque and the leader is a hairline). */}
+            {pinnedSelection && (
+              <line
+                className="event-label-plate-leader"
+                data-pinned-leader-for={pinnedSelection.id}
+                aria-hidden="true"
+                pointerEvents="none"
+                x1={pinnedSelection.x}
+                x2={pinnedSelection.x}
+                y1={pinnedSelection.y + (pinnedSelection.plan.offset < 0 ? pinnedSelection.plan.offset + PLATE_DESCENT : 10)}
+                y2={pinnedSelection.y + (pinnedSelection.plan.offset < 0 ? -10 : pinnedSelection.plan.offset - PLATE_ASCENT)}
+                stroke="var(--accent-selected)"
+                strokeWidth={1}
+              />
+            )}
+
             {/* Event marks */}
             <g className="events-layer">
               {events.length > 0 && groups.map(([groupKey, groupEvents]) => {
@@ -653,7 +717,7 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
                       const isHovered = state.hoveredEventId === event.id
                       const roleColor = ROLE_COLOR[event.role]
                       const placed = { event, x, y }
-                      const label = markLabels.get(event.id)
+                      const label = shownLabels.get(event.id)
                       return (
                         <g
                           key={event.id}
@@ -731,6 +795,35 @@ export const ActorTimeline: React.FC<ActorTimelineProps> = ({
                 )
               })}
             </g>
+
+            {/* The selection's name where the layout had no room for it: on a
+                card plate, over every mark and label, inside the plot, and
+                without moving any other label. */}
+            {pinnedSelection && (
+              <g className="actor-pinned-label" data-pinned-label-for={pinnedSelection.id} aria-hidden="true" pointerEvents="none">
+                <rect
+                  className="event-label-plate"
+                  x={pinnedSelection.plan.left - PLATE_PAD}
+                  y={pinnedSelection.y + pinnedSelection.plan.offset - PLATE_ASCENT}
+                  width={pinnedSelection.plan.right - pinnedSelection.plan.left + 2 * PLATE_PAD}
+                  height={PLATE_ASCENT + PLATE_DESCENT}
+                  rx={3}
+                  style={{ fill: 'var(--surface-card)', stroke: 'var(--accent-selected)' }}
+                  strokeWidth={1}
+                />
+                <text
+                  className="actor-event-label"
+                  x={pinnedSelection.plan.anchor === 'start' ? pinnedSelection.plan.left : pinnedSelection.plan.anchor === 'end' ? pinnedSelection.plan.right : pinnedSelection.x}
+                  y={pinnedSelection.y + pinnedSelection.plan.offset}
+                  textAnchor={pinnedSelection.plan.anchor}
+                  fontSize={12}
+                  fontWeight={600}
+                  style={{ fill: 'var(--accent-selected)' }}
+                >
+                  {pinnedSelection.text}
+                </text>
+              </g>
+            )}
           </g>
         </svg>
 

@@ -109,97 +109,31 @@ describe('ArcRepository Unit Tests', () => {
       }
     });
 
-    it('allows a child arc fully contained within a parent arc and non-overlapping sibling arcs', async () => {
-      const parent = await repository.create({
-        name: 'Parent Era',
-        start_time: new Date('2020-01-01T00:00:00Z'),
-        end_time: new Date('2020-12-31T23:59:59Z'),
-        level: 0
-      });
-
-      const child1 = await repository.create({
-        name: 'Child Phase 1',
-        start_time: new Date('2020-01-01T00:00:00Z'),
-        end_time: new Date('2020-06-30T23:59:59Z'),
-        level: 1
-      });
-
-      const child2 = await repository.create({
-        name: 'Child Phase 2',
-        start_time: new Date('2020-07-01T00:00:00Z'),
-        end_time: new Date('2020-12-31T23:59:59Z'),
-        level: 1
-      });
-
-      const unrelated = await repository.create({
-        name: 'Unrelated Later Child',
-        start_time: new Date('2022-01-01T00:00:00Z'),
-        end_time: new Date('2022-06-01T00:00:00Z'),
-        level: 1
-      });
-
-      expect(parent.id).toBeDefined();
-      expect(child1.id).toBeDefined();
-      expect(child2.id).toBeDefined();
-      expect(unrelated.id).toBeDefined();
+    it('allows a child arc within its parent, and arcs of other branches that overlap it at any level', async () => {
+      const parent = await repository.create({ name: 'Parent Era', start_time: new Date('2020-01-01T00:00:00Z'), end_time: new Date('2020-12-31T23:59:59Z'), level: 0 });
+      const child = await repository.create({ name: 'Child Phase', start_time: new Date('2020-02-01T00:00:00Z'), end_time: new Date('2020-06-30T23:59:59Z'), level: 1, metadata: { parentArcId: parent.id } });
+      // Another branch: overlaps the child and the parent without containing either, at the child's level and below it.
+      const other = await repository.create({ name: 'Other Root', start_time: new Date('2020-03-01T00:00:00Z'), end_time: new Date('2021-03-01T00:00:00Z'), level: 0 });
+      const otherChild = await repository.create({ name: 'Other Child', start_time: new Date('2020-03-01T00:00:00Z'), end_time: new Date('2020-08-01T00:00:00Z'), level: 1, metadata: { parentArcId: other.id } });
+      expect([parent.id, child.id, other.id, otherChild.id].every(Boolean)).toBe(true);
     });
 
-    it('rejects a child arc that overlaps a parent arc and extends beyond its boundaries', async () => {
-      await repository.create({
-        name: 'Parent Era',
-        start_time: new Date('2020-01-01T00:00:00Z'),
-        end_time: new Date('2020-06-30T23:59:59Z'),
-        level: 0
-      });
-
+    it('rejects a child arc that extends beyond its parent, with a 400', async () => {
+      const parent = await repository.create({ name: 'Parent Era', start_time: new Date('2020-01-01T00:00:00Z'), end_time: new Date('2020-06-30T23:59:59Z'), level: 0 });
       await expect(
-        repository.create({
-          name: 'Overflowing Child',
-          start_time: new Date('2020-05-01T00:00:00Z'),
-          end_time: new Date('2020-08-01T00:00:00Z'),
-          level: 1
-        })
-      ).rejects.toThrow(/Temporal boundary violation.*Parent Era/);
+        repository.create({ name: 'Overflowing Child', start_time: new Date('2020-05-01T00:00:00Z'), end_time: new Date('2020-08-01T00:00:00Z'), level: 1, metadata: { parentArcId: parent.id } })
+      ).rejects.toMatchObject({ statusCode: 400, message: expect.stringMatching(/Temporal boundary violation.*Overflowing Child.*Parent Era/) });
     });
 
-    it('rejects a parent arc that overlaps an existing child arc without fully containing it', async () => {
-      await repository.create({
-        name: 'Existing Child',
-        start_time: new Date('2020-03-01T00:00:00Z'),
-        end_time: new Date('2020-09-01T00:00:00Z'),
-        level: 1
-      });
-
-      await expect(
-        repository.create({
-          name: 'Partial Parent',
-          start_time: new Date('2020-01-01T00:00:00Z'),
-          end_time: new Date('2020-06-01T00:00:00Z'),
-          level: 0
-        })
-      ).rejects.toThrow(/Temporal boundary violation.*Existing Child/);
+    it('lets an arc that names no parent overlap anything', async () => {
+      await repository.create({ name: 'Existing', start_time: new Date('2020-03-01T00:00:00Z'), end_time: new Date('2020-09-01T00:00:00Z'), level: 1 });
+      await expect(repository.create({ name: 'Partial', start_time: new Date('2020-01-01T00:00:00Z'), end_time: new Date('2020-06-01T00:00:00Z'), level: 0 })).resolves.toBeDefined();
     });
 
-    it('rejects updating a parent arc so that it shrinks inside a child arc', async () => {
-      const parent = await repository.create({
-        name: 'Shrinking Parent',
-        start_time: new Date('2020-01-01T00:00:00Z'),
-        end_time: new Date('2020-12-31T23:59:59Z'),
-        level: 0
-      });
-
-      await repository.create({
-        name: 'Contained Child',
-        start_time: new Date('2020-06-01T00:00:00Z'),
-        end_time: new Date('2020-10-01T00:00:00Z'),
-        level: 1
-      });
-
-      await expect(
-        repository.update(parent.id, {
-          end_time: new Date('2020-08-01T00:00:00Z')
-        })
-      ).rejects.toThrow(/Temporal boundary violation.*Contained Child/);
+    it('rejects updating a parent arc so that it shrinks inside its child', async () => {
+      const parent = await repository.create({ name: 'Shrinking Parent', start_time: new Date('2020-01-01T00:00:00Z'), end_time: new Date('2020-12-31T23:59:59Z'), level: 0 });
+      await repository.create({ name: 'Contained Child', start_time: new Date('2020-06-01T00:00:00Z'), end_time: new Date('2020-10-01T00:00:00Z'), level: 1, metadata: { parentArcId: parent.id } });
+      await expect(repository.update(parent.id, { end_time: new Date('2020-08-01T00:00:00Z') })).rejects.toThrow(/Temporal boundary violation.*Contained Child/);
     });
 
     // The parent the CLI, MCP and the generator record in `metadata.parentArcId`
@@ -209,7 +143,7 @@ describe('ArcRepository Unit Tests', () => {
     describe('the recorded parent (metadata.parentArcId)', () => {
       async function parentAndChild(): Promise<{ parentId: string; childId: string }> {
         const parent = await repository.create({ name: 'Age', start_time: new Date('2020-01-01T00:00:00Z'), end_time: new Date('2020-12-31T00:00:00Z'), level: 0 });
-        const child = await repository.create({ name: 'Reign', start_time: new Date('2021-02-01T00:00:00Z'), end_time: new Date('2021-03-01T00:00:00Z'), level: 1, metadata: { parentArcId: parent.id, note: 'kept' } });
+        const child = await repository.create({ name: 'Reign', start_time: new Date('2020-02-01T00:00:00Z'), end_time: new Date('2020-03-01T00:00:00Z'), level: 1, metadata: { parentArcId: parent.id, note: 'kept' } });
         return { parentId: parent.id, childId: child.id };
       }
 
@@ -230,6 +164,15 @@ describe('ArcRepository Unit Tests', () => {
         const { parentId, childId } = await parentAndChild();
         await repository.delete(parentId);
         expect((await repository.update(childId, { level: 3 }))?.metadata).toEqual({ parentArcId: parentId, note: 'kept' });
+      });
+
+      it('is judged when an edit changes it, and not when it only repeats it', async () => {
+        const { parentId, childId } = await parentAndChild();
+        const other = await repository.create({ name: 'Elsewhere', start_time: new Date('2030-01-01T00:00:00Z'), end_time: new Date('2030-12-31T00:00:00Z'), level: 0 });
+        // Naming a different parent the arc does not lie within is refused.
+        await expect(repository.update(childId, { metadata: { parentArcId: other.id } })).rejects.toThrow(/Temporal boundary violation.*Reign.*Elsewhere/);
+        // Naming the parent it has is no change, even for an arc stored outside it.
+        await expect(repository.update(childId, { metadata: { parentArcId: parentId, note: 'again' } })).resolves.toBeDefined();
       });
 
       it('is left alone by an edit that does not change the level', async () => {

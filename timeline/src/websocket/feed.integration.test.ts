@@ -417,7 +417,7 @@ describe('the live change feed over the WebSocket', () => {
           operations: [
             { type: 'update_event', data: { id: existing, description: 'Changed by the transaction' } },
             { type: 'create_event', data: { description: 'Rolled back', actor: 'A', target: 'B', timestamp: '1310-01-01T00:00:00Z' } },
-            { type: 'create_relationship', data: { cause_event_id: existing, effect_event_id: 'no-such-event' } },
+            { type: 'create_relationship', data: { cause_event_id: existing, effect_event_id: 'no-such-event', evidence: 'Seen' } },
           ],
         })
         .expect(400);

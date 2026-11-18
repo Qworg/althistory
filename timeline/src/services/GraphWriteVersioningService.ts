@@ -252,6 +252,11 @@ export interface BatchLiveState {
    * batch that only creates or edits needs just the links it touched.
    */
   deletesLinks?: boolean;
+  /**
+   * The parent the arc hierarchy decided for each arc it wrote (null: none), so
+   * the version records what was decided and not what the overlay can infer.
+   */
+  parents?: ReadonlyMap<string, string | null>;
 }
 
 /** A value as stored (JSON), with every object's keys in order, so two spellings of one value compare equal. */
@@ -268,7 +273,13 @@ function canonical(value: unknown): string {
 
 /** Whether a written entity's data is the data the head already holds, whatever the key order. */
 function sameData(head: Record<string, unknown>, written: Record<string, unknown>): boolean {
-  return canonical(head) === canonical(written);
+  // No metadata and empty metadata say the same thing: an entity put back as it
+  // was (from the live model, which holds `{}`) is not an edit.
+  const bare = (data: Record<string, unknown>): Record<string, unknown> => {
+    const { metadata, ...rest } = data;
+    return metadata && typeof metadata === 'object' && Object.keys(metadata).length === 0 ? rest : data;
+  };
+  return canonical(bare(head)) === canonical(bare(written));
 }
 
 /**
@@ -295,6 +306,15 @@ function consistentParent(parent: unknown, level: unknown, named: unknown): unkn
   const current = typeof named === 'string' && named !== '' ? named : parent;
   if (typeof current !== 'string' || current === '') return current;
   return level === 0 ? null : current;
+}
+
+/**
+ * An arc's `parent_arc_id` as the hierarchy decided it: written where the head
+ * records one, or wherever the arc now has a parent.
+ */
+function decideParent(data: Record<string, unknown>, parent: string | null | undefined): void {
+  if (parent === undefined) return;
+  if ('parent_arc_id' in data || parent !== null) data.parent_arc_id = parent;
 }
 
 /**
@@ -363,6 +383,25 @@ function describeChanges(changes: EntityChanges): string {
   if (parts.length === 0) return 'Changed nothing';
   const text = parts.join(', ');
   return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
+ * An edit of the arc hierarchy as the live store now holds it: arcs written
+ * (an arc and the descendants whose level moved with it, children lifted by a
+ * delete), arcs removed, and the events a deleted arc let go of.
+ */
+export interface ArcEdit {
+  updated: Arc[];
+  deleted: string[];
+  events?: Event[];
+  /** The Version history line. */
+  summary: string;
+  /**
+   * The parent each written arc ends with (null: none). Written to the
+   * version's `parent_arc_id` where the head records one, so the version never
+   * disagrees with the hierarchy that was decided.
+   */
+  parents?: ReadonlyMap<string, string | null>;
 }
 
 export class GraphWriteVersioningService {
@@ -474,6 +513,70 @@ export class GraphWriteVersioningService {
   }
 
   /**
+   * A pressure that names a deleted arc lets go of it: the export refuses a
+   * pressure whose `affected_arc_ids` names an arc that is not there.
+   */
+  private releasePressures(changes: EntityChanges, pressures: Record<string, Record<string, unknown>>): void {
+    const gone = new Set(changes.deleted.filter((entity) => entity.type === 'arc').map((entity) => entity.id));
+    if (gone.size === 0) return;
+    for (const [id, pressure] of Object.entries(pressures)) {
+      const named = pressure.affected_arc_ids;
+      if (!Array.isArray(named) || !named.some((arcId) => gone.has(String(arcId)))) continue;
+      changes.modified.push({ type: 'pressure', id, data: { ...pressure, affected_arc_ids: named.filter((arcId) => !gone.has(String(arcId))) } });
+    }
+  }
+
+  /**
+   * Some arcs as the head holds them, by id; an arc the head lacks is absent.
+   * Reads only those arcs, never the whole head. Unless `strict`, it never fails: the
+   * caller (the arc hierarchy) treats an unreadable arc as one with no recorded parent.
+   */
+  async headArcs(graphId: string, ids: string[], { strict = false }: { strict?: boolean } = {}): Promise<Record<string, Record<string, unknown>>> {
+    return strict ? this.requireHeadEntities(graphId, 'arc', ids) : this.headEntities(graphId, 'arc', ids);
+  }
+
+  /**
+   * Record an arc hierarchy edit as one version: the arcs written, the arcs
+   * deleted, the events a deleted arc let go of. Reads from the head only the
+   * entities it names (not the whole head, as a batch does), so a run of
+   * single edits costs what the single arc write costs. A head read that
+   * fails fails the version, as for any edit (`commitWrite`).
+   */
+  async recordArcEdit(graphId: string, edit: ArcEdit, options: WriteOptions = {}): Promise<void> {
+    const changes: EntityChanges = { added: [], modified: [], deleted: [] };
+    try {
+      const headArcs = await this.requireHeadEntities(graphId, 'arc', edit.updated.map((arc) => arc.id));
+      const headEvents = await this.requireHeadEntities(graphId, 'event', (edit.events ?? []).map((event) => event.id));
+      for (const arc of edit.updated) {
+        const head = headArcs[arc.id];
+        const data = overlay('arc', head, arcToVersionData(arc));
+        decideParent(data, edit.parents?.get(arc.id));
+        if (!head) changes.added.push({ type: 'arc', id: arc.id, data });
+        else if (!sameData(head, data)) changes.modified.push({ type: 'arc', id: arc.id, data });
+      }
+      for (const event of edit.events ?? []) {
+        const head = headEvents[event.id];
+        const data = overlay('event', head, eventToVersionData(event));
+        if (!head) changes.added.push({ type: 'event', id: event.id, data });
+        else if (!sameData(head, data)) changes.modified.push({ type: 'event', id: event.id, data });
+      }
+      for (const id of edit.deleted) changes.deleted.push({ type: 'arc', id });
+      if (edit.deleted.length > 0) {
+        const ids = await this.graphRepository.getHeadIds?.(graphId, 'pressure');
+        const pressures = await this.requireHeadEntities(graphId, 'pressure', ids ?? []);
+        this.releasePressures(changes, pressures);
+      }
+    } catch (error) {
+      this.logger.error(`Could not read the head to version an arc edit in graph ${graphId}`, error);
+      if (!options.undoneOnFailure) this.announceNotVersioned(graphId, 'update', 'arc', edit.updated[0]?.id ?? edit.deleted[0] ?? '', {});
+      throw error;
+    }
+    if (changes.added.length + changes.modified.length + changes.deleted.length === 0) return;
+    const operation: EntityWriteOperation | 'delete' = changes.deleted.length > 0 ? 'delete' : changes.added.length > 0 && changes.modified.length === 0 ? 'create' : 'update';
+    await this.commit(graphId, changes, operation, edit.summary, options);
+  }
+
+  /**
    * Record what a batch left in the live store as one version, and announce it.
    *
    * A batch (`/api/batch/*`) runs many writes, some of which a failure or an
@@ -503,10 +606,10 @@ export class GraphWriteVersioningService {
     graphId: string,
     state: BatchLiveState,
     steps: BatchStep[],
-    { announceIfNotVersioned = true }: { announceIfNotVersioned?: boolean } = {}
+    { announceIfNotVersioned = true, summary, userId }: { announceIfNotVersioned?: boolean; summary?: string; userId?: string } = {}
   ): Promise<void> {
     try {
-      await this.commitBatch(graphId, state);
+      await this.commitBatch(graphId, state, summary, userId);
     } catch (error) {
       this.logger.error(`Failed to version a batch in graph ${graphId}`, error);
       // The live store holds the batch, and it is what the app reads.
@@ -517,7 +620,7 @@ export class GraphWriteVersioningService {
   }
 
   /** The difference a batch made from the head, committed as one version (nothing when it made none). */
-  private async commitBatch(graphId: string, state: BatchLiveState): Promise<void> {
+  private async commitBatch(graphId: string, state: BatchLiveState, describeAs?: string, userId?: string): Promise<void> {
     // Strict only where leaving an unreadable object out would lose data:
     //   - an event or arc the batch edited (it would read as one the head never
     //     had, and be versioned as the bare projection);
@@ -548,6 +651,7 @@ export class GraphWriteVersioningService {
     };
     const write = (type: EntityType, id: string, projection: Record<string, unknown>, current: Record<string, unknown> | undefined): void => {
       const data = overlay(type, current, projection);
+      if (type === 'arc') decideParent(data, state.parents?.get(id));
       if (!current) changes.added.push({ type, id, data });
       else if (!sameData(current, data)) changes.modified.push({ type, id, data });
     };
@@ -561,15 +665,24 @@ export class GraphWriteVersioningService {
       if (arc) write('arc', id, arcToVersionData(arc), head.arcs[id]);
       else if (inHead('arc', head.arcs, id)) remove('arc', id);
     }
+    // The head's links by their two events, read once: a scan of every head link
+    // per pair made a batch of N pairs cost N times the size of the graph.
+    const headLinksByPair = new Map<string, string[]>();
+    if ((state.links ?? []).length > 0) {
+      for (const [id, link] of Object.entries(head.relationships)) {
+        const key = `${link.cause_event_id}\u0000${link.effect_event_id}`;
+        const ids = headLinksByPair.get(key);
+        if (ids) ids.push(id);
+        else headLinksByPair.set(key, [id]);
+      }
+    }
     for (const pair of state.links ?? []) {
       for (const link of pair.live) {
         liveLinkIds.add(link.id);
         write('relationship', link.id, relationshipToVersionData(link), head.relationships[link.id]);
       }
-      for (const [id, link] of Object.entries(head.relationships)) {
-        if (link.cause_event_id === pair.cause_event_id && link.effect_event_id === pair.effect_event_id && !liveLinkIds.has(id)) {
-          remove('relationship', id);
-        }
+      for (const id of headLinksByPair.get(`${pair.cause_event_id}\u0000${pair.effect_event_id}`) ?? []) {
+        if (!liveLinkIds.has(id)) remove('relationship', id);
       }
     }
     // The live store detached every link of a deleted event.
@@ -584,7 +697,9 @@ export class GraphWriteVersioningService {
       if (goneEvents.has(String(link.cause_event_id)) || goneEvents.has(String(link.effect_event_id))) remove('relationship', id);
     }
 
-    const summary = `${describeChanges(changes)} in a batch`;
+    this.releasePressures(changes, head.pressures);
+
+    const summary = describeAs ?? `${describeChanges(changes)} in a batch`;
     const operation: EntityWriteOperation | 'delete' =
       changes.modified.length === 0 && changes.deleted.length === 0
         ? 'create'
@@ -593,7 +708,7 @@ export class GraphWriteVersioningService {
           : 'update';
 
     const empty = changes.added.length + changes.modified.length + changes.deleted.length === 0;
-    if (!empty) await this.graphRepository.commitChanges(graphId, changes, operation, summary);
+    if (!empty) await this.graphRepository.commitChanges(graphId, changes, operation, summary, userId);
   }
 
   /**
@@ -781,7 +896,12 @@ export class GraphWriteVersioningService {
     summary: string
   ): void {
     if (!this.changeFeed) return;
-    const touched = operation === 'create' ? changes.added : operation === 'update' ? changes.modified : changes.deleted;
+    const touched = operation === 'create'
+      ? changes.added
+      : operation === 'update'
+        ? changes.modified
+        // An arc's delete also moves its children and unassigns its events.
+        : [...changes.deleted, ...changes.modified];
     const entities: ChangedEntity[] = touched.map((entity) => ({ type: entity.type, id: entity.id }));
     if (entities.length === 0) return;
     try {

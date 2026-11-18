@@ -37,8 +37,9 @@
  *   (last write wins by replay order).
  * - No idempotency keys: if the server applied a write but the response was
  *   lost, replay can apply it twice.
- * - No Backoff-After / `Retry-After` honouring: a 429 is retried on the
- *   schedule in `offlineSync.ts`, not on the delay the server asked for.
+ * - `Retry-After` is honoured by the sender in `offlineSync.ts`, not here: a
+ *   429 is retried on its backoff schedule, but never sooner than the delay the
+ *   server asked for.
  * - No Background Sync API and no cross-tab locking.
  */
 

@@ -173,6 +173,8 @@ interface RawUpgradeResult {
   raw: string;
 }
 
+const APP_KEY = `ak_stream_app_${'q'.repeat(32)}`;
+
 describe('WebSocket streaming (requirement 16)', () => {
   let container: Container;
   let app: express.Application;
@@ -361,6 +363,7 @@ describe('WebSocket streaming (requirement 16)', () => {
     process.env.LOCAL_BACKUP_ENABLED = 'false';
     process.env.LOCAL_MAX_MEMORY_MB = '64';
 
+    process.env.ADMIN_API_KEY = APP_KEY;
     const config = loadConfig();
     const dbManager = initializeDatabaseManager(config.database);
     container = initializeContainer(dbManager, config);
@@ -422,6 +425,7 @@ describe('WebSocket streaming (requirement 16)', () => {
   });
 
   afterAll(async () => {
+    delete process.env.ADMIN_API_KEY;
     await handler.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await cleanupContainer();
@@ -1029,7 +1033,7 @@ describe('WebSocket streaming (requirement 16)', () => {
             name: 'Renaissance',
             start_time: '1400-01-01T00:00:00.000Z',
             end_time: '1600-01-01T00:00:00.000Z',
-            level: 1,
+            level: 0,
           },
         });
 
@@ -1045,6 +1049,32 @@ describe('WebSocket streaming (requirement 16)', () => {
         const persisted = await scoped.arcRepository.findById(ack.entityId as string);
         expect(persisted).not.toBeNull();
         expect(persisted?.name).toBe('Renaissance');
+      } finally {
+        await harness.close();
+      }
+    });
+
+    it('writes an arc through the arc hierarchy: a parent, a level and a span that fit, or a refusal', async () => {
+      const token = await requestToken(writerKey);
+      const harness = await connectAccepted(token);
+      try {
+        const send = async (requestId: string, data: Record<string, unknown>): Promise<Record<string, unknown>> => {
+          sendJson(harness, { type: 'arc', requestId, data });
+          return harness.next();
+        };
+        const parent = await send('p', { name: 'Age', start_time: '1400-01-01T00:00:00.000Z', end_time: '1600-01-01T00:00:00.000Z', level: 0 });
+        expect(parent.success).toBe(true);
+        const within = { start_time: '1450-01-01T00:00:00.000Z', end_time: '1550-01-01T00:00:00.000Z' };
+        // A root above level 0, a missing parent, a level that does not fit, and a span outside the parent: all refused.
+        expect((await send('r1', { name: 'Root1', ...within, level: 1 })).success).toBe(false);
+        expect((await send('r2', { name: 'Orphan', ...within, level: 1, parent_arc_id: 'nowhere' })).success).toBe(false);
+        expect((await send('r3', { name: 'Skip', ...within, level: 2, parent_arc_id: parent.entityId })).success).toBe(false);
+        expect((await send('r4', { name: 'Outside', start_time: '1300-01-01T00:00:00.000Z', end_time: '1500-01-01T00:00:00.000Z', level: 1, parent_arc_id: parent.entityId })).success).toBe(false);
+        const child = await send('ok', { name: 'Reign', ...within, level: 1, parent_arc_id: parent.entityId });
+        expect(child.success).toBe(true);
+        const scoped = await container.graphScopedRepositories(graphId);
+        expect((await scoped.arcRepository.findById(child.entityId as string))?.metadata?.parentArcId).toBe(parent.entityId);
+        expect((await scoped.arcRepository.findAll()).map((arc) => arc.name)).not.toEqual(expect.arrayContaining(['Root1', 'Orphan', 'Skip', 'Outside']));
       } finally {
         await harness.close();
       }
@@ -1091,6 +1121,40 @@ describe('WebSocket streaming (requirement 16)', () => {
         expect(ack.requestId).toBe('rel-1');
         expect(ack.entityType).toBe('relationship');
         expect(typeof ack.entityId).toBe('string');
+      } finally {
+        await harness.close();
+      }
+    });
+
+    it.each([
+      ['missing', {}],
+      ['blank', { evidence: '   ' }],
+    ])('refuses a relationship whose evidence is %s, and writes no link (#31)', async (_name, extra) => {
+      const scoped = await container.graphScopedRepositories(graphId);
+      const cause = await scoped.eventRepository.create({
+        description: 'Cause without evidence',
+        actor: 'Cause Actor',
+        target: 'Target',
+        timestamp: new Date('1450-01-01T00:00:00.000Z'),
+      });
+      const effect = await scoped.eventRepository.create({
+        description: 'Effect without evidence',
+        actor: 'Effect Actor',
+        target: 'Target',
+        timestamp: new Date('1455-01-01T00:00:00.000Z'),
+      });
+
+      const token = await requestToken(writerKey);
+      const harness = await connectAccepted(token);
+      try {
+        sendJson(harness, {
+          type: 'relationship',
+          requestId: 'rel-no-evidence',
+          data: { causeEventId: cause.id, effectEventId: effect.id, weight: 0.7, confidence: 0.9, ...extra },
+        });
+        const ack = await harness.next();
+        expect(ack).toMatchObject({ type: 'ack', success: false, code: 'INVALID_MESSAGE', requestId: 'rel-no-evidence' });
+        expect(String(ack.error)).toMatch(/evidence is required/);
       } finally {
         await harness.close();
       }
@@ -1213,6 +1277,52 @@ describe('WebSocket streaming (requirement 16)', () => {
       const third = await connectAccepted(thirdToken);
       await third.close();
       await waitForSessionCount(limitedKeyId, 0);
+    });
+  });
+
+  describe('the app\'s own key (ADMIN_API_KEY)', () => {
+    it('holds more streams than its stored limit and writes past its request budget; a minted admin key does not', async () => {
+      // Lower the app key's stored limits well below what the test does: the
+      // exemption, not a generous default, is what lets it through.
+      const keys = await container.authService.listApiKeys();
+      const appKey = keys.find((k) => k.rateLimitExempt);
+      expect(appKey).toBeDefined();
+      await container.authService.updateApiKey(appKey!.id, {
+        rateLimit: { concurrentStreams: 1, requestsPerMinute: 2 },
+      });
+
+      const open: SocketHarness[] = [];
+      try {
+        for (let i = 0; i < 3; i += 1) {
+          const harness = await openHarness(streamUrl(`?token=${encodeURIComponent(await requestToken(APP_KEY))}`));
+          const auth = await harness.next();
+          expect(auth).toMatchObject({ type: 'auth_result', success: true, concurrentStreams: null });
+          open.push(harness);
+        }
+        expect(sessionManager.countFor(appKey!.id)).toBe(3);
+
+        for (let i = 0; i < 6; i += 1) {
+          sendJson(open[0]!, { type: 'event', requestId: `app-${i}`, data: eventData(`App key write ${i}`) });
+          const ack = await open[0]!.next();
+          expect(ack).toMatchObject({ requestId: `app-${i}`, success: true });
+        }
+      } finally {
+        await Promise.all(open.map((h) => h.close()));
+      }
+
+      // The same limits on a minted admin key are enforced.
+      const minted = await container.authService.createApiKey({
+        name: 'Minted admin, one stream',
+        permissions: ['admin', 'write:events'],
+        rateLimit: { concurrentStreams: 1 },
+      });
+      const first = await connectAccepted(await requestToken(minted.key));
+      try {
+        const rejection = await expectUpgradeRejected(`?token=${encodeURIComponent(await requestToken(minted.key))}`);
+        expect(rejection.code).toBe('CONCURRENT_LIMIT');
+      } finally {
+        await first.close();
+      }
     });
   });
 

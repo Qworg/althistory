@@ -82,6 +82,9 @@ function recordingSession(recorded: RecordedQuery[]) {
       // The assertions are about the Cypher, not the rows. Reads answer with an
       // empty result set so no mapper has to invent data; the create answers with
       // one row because the service treats an empty result as "endpoints missing".
+      if (query.includes('deletedId')) {
+        return { records: [{ get: () => 'link_1' }] };
+      }
       if (query.includes('deletedCount')) {
         return { records: [{ get: () => 1 }] };
       }
@@ -105,6 +108,7 @@ function event(id: string, timestamp: string): Event {
 }
 
 const relationship = {
+  id: 'link_1',
   weight: 0.8,
   confidence: 0.9,
   evidence: 'because',
@@ -134,8 +138,10 @@ describe('graph-scoped causal queries (#59)', () => {
 
     await service.getAllRelationships();
 
+    // One read, in this graph, and no write: naming links is the startup migration's job.
     expect(recorded).toHaveLength(1);
     expect(recorded[0]!.query).toContain('r.graphId = $graphId');
+    expect(recorded[0]!.query).not.toMatch(/\bSET\b/);
     expect(recorded[0]!.parameters.graphId).toBe(GRAPH_ID);
   });
 

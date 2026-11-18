@@ -19,16 +19,24 @@ import {
   filterPressuresInWindow
 } from './timelineVirtualization'
 import { formatHistoricalTimestamp, formatEventDate, formatHistoricalEnd } from '@/utils/historicalTime'
-import { layoutEventLabels, LABEL_FONT_SIZE, TIMELINE_LABEL_CONFIG } from './eventLabelLayout'
+import { measureLabelWidth } from './labelWidth'
+import { useFontEpoch } from './useFontEpoch'
+import { PLATE_ONLY_ASCENT, PLATE_PAD, type PlacedLabelBox } from './pinnedLabel'
+import { planSelectionPlate, type PlateLink } from './selectionPlate'
+import { layoutEventLabels, truncateLabel, PRIORITY_LABEL_MAX_CHARS, BESIDE_PX, LABEL_FONT_SIZE, TIMELINE_BELOW_ROW_OFFSETS, TIMELINE_LABEL_CONFIG } from './eventLabelLayout'
 import { tooltipPlacement } from './tooltipPlacement'
 import { useLiveChangesStore } from '@/stores/liveChangesStore'
 import {
   ARC_BAR_HEIGHT,
   DEFAULT_TIMELINE_MARGIN,
+  mainAxisMaxTicks,
   DIVERGENCE_BAND_HEIGHT,
   EVENT_STEM_LENGTH,
   arcRowY,
   computeTimelineLayout,
+  DOCKED_SHEET_BELOW_PX,
+  NARROW_ARC_PX,
+  PLATE_ONLY_ROWS,
 } from './timelineLayout'
 import {
   computeRipple,
@@ -37,6 +45,7 @@ import {
   restingLinkOpacity,
   linkPath,
   linkStrokeWidth,
+  linkSpansInBands,
   LINK_DASH,
   type TimelineLink,
 } from './timelineLinks'
@@ -69,6 +78,8 @@ export interface TimelineGhost {
   label: string
   events: Event[]
   divergence?: Date | null
+  /** The id of the event the point of divergence names, when this graph has it: its label is protected. */
+  divergenceEventId?: string | null
 }
 
 export interface TimelineProps {
@@ -360,6 +371,8 @@ const Timeline = memo(function Timeline({
     1 // Always fit to view for original extent
   )
   const { eventY, axisY } = layout
+  // The clip's top: the plot's, or (no arcs, no band) the margin the plate rises into.
+  const clipTop = layout.plateTopLimit < 0 ? layout.plateTopLimit - 2 : 0
 
   // Narrow canvases open zoomed in (see the zoom effect); applied once per extent.
   const narrowZoomAppliedRef = useRef<string | null>(null)
@@ -406,6 +419,28 @@ const Timeline = memo(function Timeline({
       .domain([currentRange.start, currentRange.end])
       .range([0, innerWidth])
   }, [currentRange, innerWidth])
+
+  // The axis's ticks and day caption. Ticks and labels in UTC, as the event
+  // labels read every date (local-time ticks put 1 January 1843 (UTC) on the
+  // wrong side of the "1843" tick west of Greenwich); in a world calendar, on
+  // its own years, months, days and hours. Labelled as a set, so two ticks
+  // never share a label. A set before 1 CE writes long labels ("9000-03-01
+  // BCE"): an end label is anchored inside the SVG, ticks that would overprint
+  // are dropped, and times of day get a caption naming their day. Any other
+  // set is drawn whole, as it always was. Memoised on the scale, so it is
+  // fitted again when the view zooms or pans, not on every render.
+  const marginLeft = margin.left
+  const marginRight = margin.right
+  const { ticks: axisTickMarks, caption: axisCaption, captionFull: axisCaptionFull, captionX: axisCaptionX } = useMemo(() => {
+    const maxTicks = mainAxisMaxTicks(innerWidth)
+    const [start, end] = xScale.domain()
+    return fitAxis(
+      axisTicks([start!, end!], maxTicks > 0 ? maxTicks : 5, worldCalendar).map((tick) => ({ ...tick, x: xScale(tick.date) })),
+      worldCalendar,
+      { left: -marginLeft, right: innerWidth + marginRight },
+      [start!, end!]
+    )
+  }, [xScale, innerWidth, marginLeft, marginRight, worldCalendar])
 
   // Windowing: render only the marks whose time falls inside the current
   // viewport (plus a fixed multiple of the visible span either side). This
@@ -488,30 +523,6 @@ const Timeline = memo(function Timeline({
     [hasLinks, reach, maxReach, markScale]
   )
 
-  // Which visible events get a label, and where. The selected and highlighted
-  // events are placed first so they are always named; the rest are labelled
-  // only where there is room (see eventLabelLayout.ts).
-  const eventLabels = useMemo(
-    () =>
-      layoutEventLabels(
-        visibleEvents.map(ev => ({
-          id: ev.id,
-          x: xScale(toInstant(ev.timestamp)),
-          description: ev.description,
-          // The selection's ripple is named first, so the trace reads as words.
-          priority:
-            ev.id === selectedEventId ||
-            (highlightedEventIds?.has(ev.id) ?? false) ||
-            ripple.causes.has(ev.id) ||
-            ripple.effects.has(ev.id),
-          weight: reach.get(ev.id) ?? 0,
-        })),
-        innerWidth,
-        TIMELINE_LABEL_CONFIG
-      ),
-    [visibleEvents, xScale, innerWidth, selectedEventId, highlightedEventIds, ripple, reach]
-  )
-
   // ── Branch baseline (ghost) ──────────────────────────────────────────────
   // A baseline event has a counterpart in the branch when the branch holds the
   // same id, or the same instant and description (a copy with a new id).
@@ -551,6 +562,172 @@ const Timeline = memo(function Timeline({
   const navModel = useMemo(() => buildNavModel(events, arcHierarchy), [events, arcHierarchy])
   const eventsById = useMemo(() => new Map(events.map(ev => [ev.id, ev])), [events])
   const arcsById = useMemo(() => new Map(arcHierarchy.map(arc => [arc.id, arc])), [arcHierarchy])
+
+  // The rows under the track, where the causal links hang: a label may take
+  // one when the rows above are full, but never over a link's curve (a link is
+  // structure, a label can go elsewhere). Without links there is no band under
+  // the track, so no rows. Each row's blocked spans are where some link's
+  // curve passes through the row's height.
+  const labelBelowRows = useMemo(() => {
+    const band = layout.linkBand
+    if (!band) return undefined
+    const ends: Array<{ x1: number; x2: number }> = []
+    for (const link of drawableLinks) {
+      const cause = eventsById.get(link.causeId)
+      const effect = eventsById.get(link.effectId)
+      if (!cause || !effect) continue
+      const x1 = xScale(toInstant(cause.timestamp))
+      const x2 = xScale(toInstant(effect.timestamp))
+      if (Math.max(x1, x2) < -40 || Math.min(x1, x2) > innerWidth + 40) continue
+      ends.push({ x1, x2 })
+    }
+    // A row's text runs from about its ascent above the baseline to a descender below it, measured from the band's top (the stem's end).
+    const bands = TIMELINE_BELOW_ROW_OFFSETS.map((offset): [number, number] => [
+      offset - EVENT_STEM_LENGTH - LABEL_FONT_SIZE,
+      offset - EVENT_STEM_LENGTH + 4,
+    ])
+    const blocked = linkSpansInBands(ends, band.height, innerWidth, bands)
+    return TIMELINE_BELOW_ROW_OFFSETS.map((offset, index) => ({ offset, blocked: blocked[index] ?? [] }))
+  }, [layout.linkBand, drawableLinks, eventsById, xScale, innerWidth])
+
+  // Which visible events get a label, and where: where there is room, the
+  // rows above the track first, then those under it (see eventLabelLayout.ts).
+  // The layout does not depend on the selection, highlight or trace, so
+  // selecting an event never moves a label: the selection is shown by styling
+  // the label in place (TimelineEvent), and by dimming the rest.
+  const eventLabels = useMemo(
+    () =>
+      layoutEventLabels(
+        visibleEvents.map(ev => ({
+          id: ev.id,
+          x: xScale(toInstant(ev.timestamp)),
+          description: ev.description,
+          weight: reach.get(ev.id) ?? 0,
+        })),
+        innerWidth,
+        { ...TIMELINE_LABEL_CONFIG, belowRows: labelBelowRows }
+      ),
+    [visibleEvents, xScale, innerWidth, reach, labelBelowRows]
+  )
+
+  // The selected event's name where the layout had no room for it: on a plate
+  // over the marks, in its own layer (so nothing paints over it), inside the
+  // plot, in the selection's style. The layout is not run again, so no label
+  // moves; the plate goes where it hides least (see pinnedLabel.ts), and a
+  // label it would cover by half or more is hidden whole rather than left as a
+  // fragment. Highlighted and traced events with no room stay unnamed on the
+  // canvas (the inspector lists them, and each mark has a tooltip).
+  const fontEpoch = useFontEpoch()
+  const pinned = useMemo(() => {
+    void fontEpoch
+    const selected = selectedEventId ? visibleEvents.find((ev) => ev.id === selectedEventId) : undefined
+    if (!selected || eventLabels.has(selected.id)) return null
+    const x = xScale(toInstant(selected.timestamp))
+    if (!(x >= 0 && x <= innerWidth)) return null
+    const labels: PlacedLabelBox[] = []
+    for (const ev of visibleEvents) {
+      const placement = eventLabels.get(ev.id)
+      if (!placement) continue
+      const markX = xScale(toInstant(ev.timestamp))
+      const emphasised = highlightedEventIds?.has(ev.id) ?? false
+      const labelWidth = measureLabelWidth(placement.text, LABEL_FONT_SIZE, emphasised ? 600 : 400)
+      const anchorX = markX + (placement.dx ?? 0)
+      const left = placement.anchor === 'start' ? anchorX : placement.anchor === 'end' ? anchorX - labelWidth : anchorX - labelWidth / 2
+      labels.push({
+        id: ev.id,
+        left,
+        right: left + labelWidth,
+        top: eventY + placement.offset - LABEL_FONT_SIZE * 0.8,
+        bottom: eventY + placement.offset + 3,
+        length: placement.text.length,
+        // The traced and highlighted labels, and the point of divergence event's (named by the ghost): the one a branch view turns on.
+        protectedLabel:
+          emphasised || ripple.causes.has(ev.id) || ripple.effects.has(ev.id) || ev.id === ghost?.divergenceEventId,
+        // The hairline a label above the first row hangs from (drawn with the leaders below).
+        leader:
+          placement.offset < (TIMELINE_LABEL_CONFIG.rowOffsets[0] ?? -20)
+            ? { x: markX, top: eventY + placement.offset + 4, bottom: eventY - markBaseRadius(ev.id) - 2 }
+            : placement.offset > TIMELINE_BELOW_ROW_OFFSETS[0]
+              ? { x: markX, top: eventY + EVENT_STEM_LENGTH, bottom: eventY + placement.offset - LABEL_FONT_SIZE + 1 }
+              : undefined,
+      })
+    }
+    // The label rows above the track, a plate-only row above them (the empty band the layout leaves under the arcs),
+    // then under it (two rows where links hang there, one in the room a link-less track keeps). Below 1024px the
+    // inspector's sheet is docked over the bottom of the page, so the rows above are tried alone first.
+    const links: PlateLink[] = []
+    for (const link of drawableLinks) {
+      const cause = eventsById.get(link.causeId)
+      const effect = eventsById.get(link.effectId)
+      if (!cause || !effect) continue
+      const x1 = xScale(toInstant(cause.timestamp))
+      const x2 = xScale(toInstant(effect.timestamp))
+      if (Math.max(x1, x2) < -40 || Math.min(x1, x2) > innerWidth + 40) continue
+      links.push({ id: link.id, x1, x2, traced: ripple.links.has(link.id) })
+    }
+    // A narrow arc bar is not to be mistaken for the plate's label: a bar narrower than a plate is an obstacle (to the first pass).
+    const softObstacles: PlacedLabelBox[] = []
+    for (const arc of visibleArcs) {
+      const left = xScale(toInstant(arc.start_time))
+      const right = xScale(toInstant(arc.end_time))
+      if (right - left >= NARROW_ARC_PX) continue
+      const top = yScale(arc.renderLevel)
+      softObstacles.push({ id: `arc:${arc.id}`, left, right, top, // One px past the bar's foot: a plate that only touches the foot (the plate-only row's top is exactly there) reads as the bar's label.
+        bottom: top + ARC_BAR_HEIGHT + 1, length: 0, protectedLabel: true, obstacle: true })
+    }
+    // The divergence band's diamond and label, and each branch mark's: landmarks a plate is not to cover (the
+    // plate may reach into the band only where they are not).
+    const bandObstacles: PlacedLabelBox[] = []
+    {
+      const midY = DIVERGENCE_BAND_HEIGHT / 2
+      const landmark = (id: string, cx: number, label: string | null, labelBefore: boolean, weight: number) => {
+        bandObstacles.push({ id: `band:${id}:diamond`, left: cx - 7, right: cx + 7, top: midY - 7, bottom: midY + 7, length: 0, protectedLabel: true, obstacle: true })
+        if (!label) return
+        const width = measureLabelWidth(label, LABEL_FONT_SIZE, weight)
+        const left = labelBefore ? cx - 10 - width : cx + 10
+        bandObstacles.push({ id: `band:${id}:label`, left, right: left + width, top: midY + 4 - LABEL_FONT_SIZE * 0.8, bottom: midY + 7, length: 0, protectedLabel: true, obstacle: true })
+      }
+      if (divergence) {
+        const cx = xScale(divergence)
+        landmark('divergence', cx, `Diverges ${formatHistoricalTimestamp(divergence)}`, cx > innerWidth * 0.6, 600)
+      }
+      for (const mark of branchMarks ?? []) {
+        const cx = xScale(mark.date)
+        landmark(mark.id, cx, mark.label, cx > innerWidth * 0.7, 400)
+      }
+    }
+    // The full name if a plate fits; else the shorter forms the layout uses.
+    const found = planSelectionPlate({
+      x,
+      selectedId: selected.id,
+      markY: eventY,
+      innerWidth,
+      aboveRows: TIMELINE_LABEL_CONFIG.rowOffsets,
+      // Only a row whose whole plate lies in the plot, under the arc band and the divergence band's labels.
+      plateOnlyRows: PLATE_ONLY_ROWS.filter((row) => eventY + row - PLATE_ONLY_ASCENT >= layout.plateTopLimit),
+      belowRows: layout.linkBand ? TIMELINE_BELOW_ROW_OFFSETS : [24],
+      linkBandHeight: layout.linkBand ? layout.linkBand.height : null,
+      stemLength: EVENT_STEM_LENGTH,
+      labels: [...labels, ...bandObstacles],
+      softObstacles,
+      marks: visibleEvents.map((other) => ({ id: other.id, x: xScale(toInstant(other.timestamp)) })),
+      links,
+      texts: [PRIORITY_LABEL_MAX_CHARS, 24, 18, 14].map((chars) => {
+        const text = truncateLabel(selected.description, chars)
+        return { text, width: measureLabelWidth(text, LABEL_FONT_SIZE, 600) }
+      }),
+      preferAbove: typeof window !== 'undefined' && window.innerWidth < DOCKED_SHEET_BELOW_PX,
+    })
+    return found ? { id: selected.id, x, text: found.text, plan: found.plan } : null
+    // fontEpoch: widths are measured again once the fonts have loaded.
+  }, [eventLabels, visibleEvents, selectedEventId, highlightedEventIds, ripple, xScale, innerWidth, eventY, markBaseRadius, layout.linkBand, layout.plateTopLimit, visibleArcs, yScale, drawableLinks, eventsById, ghost?.divergenceEventId, divergence, branchMarks, fontEpoch])
+
+  // The labels drawn: the layout's, less any the selection's plate hides whole.
+  const shownLabels = useMemo(() => {
+    if (!pinned || pinned.plan.hidden.length === 0) return eventLabels
+    const hidden = new Set(pinned.plan.hidden)
+    return new Map([...eventLabels].filter(([id]) => !hidden.has(id)))
+  }, [eventLabels, pinned])
 
   // The mark that last had focus; the tab stop follows it.
   const [activeMarkKey, setActiveMarkKey] = useState<MarkKey | null>(null)
@@ -1311,7 +1488,8 @@ const Timeline = memo(function Timeline({
         {/* Clip path to constrain content to inner area */}
         <defs>
           <clipPath id={clipId}>
-            <rect x={0} y={0} width={innerWidth} height={axisY} />
+            {/* With no arcs and no band the plate may rise into the top margin (layout.plateTopLimit < 0); otherwise the clip is the plot. */}
+            <rect x={0} y={clipTop} width={innerWidth} height={axisY - clipTop} />
           </clipPath>
         </defs>
         <g transform={`translate(${margin.left},${margin.top})`}>
@@ -1577,26 +1755,80 @@ const Timeline = memo(function Timeline({
                 down to its mark. One layer under every mark and label, so a
                 label's halo knocks out any leader that passes behind it. */}
             <g className="timeline-label-leaders" aria-hidden="true" pointerEvents="none">
+              {/* The selection's plate hangs from its mark by a leader in the accent,
+                  beneath every label (they carry a card-coloured halo, so it passes
+                  behind them legibly). */}
+              {pinned && (
+                <line
+                  className="event-label-plate-leader"
+                  data-pinned-leader-for={pinned.id}
+                  x1={pinned.x}
+                  x2={pinned.x}
+                  y1={pinned.plan.offset < 0 ? eventY + pinned.plan.offset + pinned.plan.descent : eventY + markBaseRadius(pinned.id) + 4}
+                  y2={pinned.plan.offset < 0 ? eventY - markBaseRadius(pinned.id) - 4 : Math.max(eventY + markBaseRadius(pinned.id) + 4, eventY + pinned.plan.offset - pinned.plan.ascent)}
+                  stroke="var(--accent-selected)"
+                  strokeWidth={1.75}
+                />
+              )}
               {visibleEvents.map(ev => {
-                const placement = eventLabels.get(ev.id)
+                const placement = shownLabels.get(ev.id)
                 const firstRow = TIMELINE_LABEL_CONFIG.rowOffsets[0] ?? -20
-                if (!placement || placement.offset >= firstRow) return null
-                const base = markBaseRadius(ev.id)
-                const radius =
-                  base + ((highlightedEventIds?.has(ev.id) ?? false) ? 3 : selectedEventId === ev.id ? 2 : 0)
+                if (!placement) return null
                 const x = xScale(toInstant(ev.timestamp))
                 const dimmed =
                   isTracing && ev.id !== selectedEventId && !ripple.causes.has(ev.id) && !ripple.effects.has(ev.id)
+                // Beside its mark (a linked one's title clears the link): a dash from the mark's line to the text.
+                if (placement.beside) {
+                  const side = placement.anchor === 'start' ? 1 : -1
+                  const dx = placement.dx ?? side * BESIDE_PX
+                  return (
+                    <line
+                      key={ev.id}
+                      className="event-label-leader"
+                      data-leader-for={ev.id}
+                      x1={x + side}
+                      x2={x + dx - side}
+                      y1={eventY + placement.offset - 4}
+                      y2={eventY + placement.offset - 4}
+                      stroke="var(--text-muted)"
+                      strokeOpacity={dimmed ? 0.3 : 1}
+                      strokeWidth={1}
+                    />
+                  )
+                }
+                // Below the track, past the first row: from the stem's end down to the label.
+                const firstBelow = TIMELINE_BELOW_ROW_OFFSETS[0]
+                if (placement.offset > firstBelow) {
+                  return (
+                    <line
+                      key={ev.id}
+                      className="event-label-leader"
+                      data-leader-for={ev.id}
+                      x1={x}
+                      x2={x}
+                      y1={eventY + EVENT_STEM_LENGTH}
+                      y2={eventY + placement.offset - LABEL_FONT_SIZE + 1}
+                      stroke="var(--text-muted)"
+                      strokeOpacity={dimmed ? 0.3 : 0.45}
+                      strokeWidth={1}
+                    />
+                  )
+                }
+                if (placement.offset >= firstRow) return null
+                const base = markBaseRadius(ev.id)
+                const radius =
+                  base + ((highlightedEventIds?.has(ev.id) ?? false) ? 3 : selectedEventId === ev.id ? 2 : 0)
                 return (
                   <line
                     key={ev.id}
                     className="event-label-leader"
+                    data-leader-for={ev.id}
                     x1={x}
                     x2={x}
                     y1={eventY + placement.offset + 4}
                     y2={eventY - radius - 2}
                     stroke="var(--text-muted)"
-                    strokeOpacity={dimmed ? 0.12 : 0.45}
+                    strokeOpacity={dimmed ? 0.3 : 0.45}
                     strokeWidth={1}
                   />
                 )
@@ -1615,6 +1847,7 @@ const Timeline = memo(function Timeline({
                   isHighlighted={highlightedEventIds?.has(ev.id) ?? false}
                   isSelected={selectedEventId === ev.id}
                   isFresh={fresh.event[ev.id] !== undefined}
+                  isTraced={isTracing && (ripple.causes.has(ev.id) || ripple.effects.has(ev.id))}
                   isDimmed={
                     isTracing &&
                     ev.id !== selectedEventId &&
@@ -1625,7 +1858,9 @@ const Timeline = memo(function Timeline({
                   reach={reach.get(ev.id) ?? 0}
                   baseRadius={markBaseRadius(ev.id)}
                   isTabStop={tabStopKey === eventMarkKey(ev.id)}
-                  label={eventLabels.get(ev.id) ?? null}
+                  // No room for its title: null (the mark keeps its tooltip and
+                  // name; the selection and highlights are named in the pinned layer).
+                  label={shownLabels.get(ev.id) ?? null}
                   onClick={handleEventClick}
                   onContextMenu={handleEventContextMenu}
                   onDragStart={handleEventDragStart}
@@ -1634,6 +1869,36 @@ const Timeline = memo(function Timeline({
                 />
               )
             })}
+
+            {/* The selection's name pinned over the rest (see `pinned`).
+                Decorative: the mark carries its own accessible name. */}
+            {pinned && (
+              <g className="timeline-pinned-labels" aria-hidden="true" pointerEvents="none">
+                <g data-pinned-label-for={pinned.id}>
+                  <rect
+                    className="event-label-plate"
+                    x={pinned.plan.left - PLATE_PAD}
+                    y={eventY + pinned.plan.offset - pinned.plan.ascent}
+                    width={pinned.plan.right - pinned.plan.left + 2 * PLATE_PAD}
+                    height={pinned.plan.ascent + pinned.plan.descent}
+                    rx={3}
+                    style={{ fill: 'var(--surface-card)', stroke: 'var(--accent-selected)' }}
+                    strokeWidth={1}
+                  />
+                  <text
+                    className="event-label event-label-pinned"
+                    x={pinned.plan.anchor === 'start' ? pinned.plan.left : pinned.plan.anchor === 'end' ? pinned.plan.right : pinned.x}
+                    y={eventY + pinned.plan.offset}
+                    textAnchor={pinned.plan.anchor}
+                    fontSize={LABEL_FONT_SIZE}
+                    fontWeight={600}
+                    style={{ fill: 'var(--accent-selected)' }}
+                  >
+                    {pinned.text}
+                  </text>
+                </g>
+              </g>
+            )}
 
             {/* Pressure indicators */}
             {showPressureIndicators && visiblePressures.length > 0 && (
@@ -1717,54 +1982,33 @@ const Timeline = memo(function Timeline({
           {/* Time axis */}
           <g transform={`translate(0,${axisY})`}>
             <line x1={0} y1={0} x2={innerWidth} y2={0} style={{ stroke: 'var(--text-muted)' }} strokeWidth={1} />
-            {(() => {
-              // 12px monospace labels need about 96px each.
-              const maxTicks = Math.min(10, Math.floor(innerWidth / 96))
-              // Ticks and labels in UTC, as the event labels read every date
-              // (local-time ticks put 1 January 1843 (UTC) on the wrong side
-              // of the "1843" tick west of Greenwich); in a world calendar, on
-              // its own years, months, days and hours. Labelled as a set, so
-              // two ticks never share a label.
-              // A set before 1 CE writes long labels ("9000-03-01 BCE"): an end
-              // label is anchored inside the SVG, ticks that would overprint are
-              // dropped, and times of day get a caption naming their day. Any
-              // other set is drawn whole, as it always was.
-              const { ticks, caption } = fitAxis(
-                axisTicks(xScale.domain(), maxTicks > 0 ? maxTicks : 5, worldCalendar).map((tick) => ({ ...tick, x: xScale(tick.date) })),
-                worldCalendar,
-                { left: -margin.left, right: innerWidth + margin.right },
-                [xScale.domain()[0]!, xScale.domain()[1]!]
-              )
-              return (
-                <>
-                  {ticks.map(({ x, label, anchor }, i) => (
-                    <g key={i} transform={`translate(${x},0)`}>
-                      <line y1={0} y2={6} style={{ stroke: 'var(--text-muted)' }} strokeWidth={1} />
-                      <text
-                        y={20}
-                        textAnchor={anchor}
-                        fontSize={LABEL_FONT_SIZE}
-                        className="font-mono-code axis-tick"
-                        style={{ fill: 'var(--text-muted)' }}
-                      >
-                        {label}
-                      </text>
-                    </g>
-                  ))}
-                  {caption && (
-                    <text
-                      y={35}
-                      textAnchor="start"
-                      fontSize={LABEL_FONT_SIZE}
-                      className="axis-day-caption"
-                      style={{ fill: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}
-                    >
-                      {caption}
-                    </text>
-                  )}
-                </>
-              )
-            })()}
+            {axisTickMarks.map(({ x, label, anchor }, i) => (
+              <g key={i} transform={`translate(${x},0)`}>
+                <line y1={0} y2={6} style={{ stroke: 'var(--text-muted)' }} strokeWidth={1} />
+                <text
+                  y={20}
+                  textAnchor={anchor}
+                  fontSize={LABEL_FONT_SIZE}
+                  className="font-mono-code axis-tick"
+                  style={{ fill: 'var(--text-muted)' }}
+                >
+                  {label}
+                </text>
+              </g>
+            ))}
+            {axisCaption && (
+              <text
+                x={axisCaptionX ?? 0}
+                y={35}
+                aria-label={axisCaptionFull}
+                textAnchor="start"
+                fontSize={LABEL_FONT_SIZE}
+                className="axis-day-caption"
+                style={{ fill: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}
+              >
+                {axisCaption}
+              </text>
+            )}
           </g>
         </g>
       </svg>

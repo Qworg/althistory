@@ -6,6 +6,7 @@ import { ValidationError, NotFoundError, DatabaseError } from '@/utils/errors';
 import { RequestWithContainer, requireGraphId, resolveGraphContext } from '@/api/middleware';
 import { entityPermission, mountEntityAccessGuard, mountEntityGraphAccess } from '@/api/entityAuth';
 import { createLogger } from '@/utils/logger';
+import { ArcHierarchyService, describeMoves } from '@/services/ArcHierarchyService';
 
 const logger = createLogger('ArcRoutes');
 
@@ -56,8 +57,13 @@ arcRoutes.post('/', ...entityPermission('write:arcs'), async (req: RequestWithCo
     }
 
     // Repositories bound to this request's graph; never the global store.
-    const { arcRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));
-    const arc = await repository.create(arcData);
+    const { arcRepository: repository, eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
+    // A parent that is not an arc, or a level that does not fit it, is a 400
+    // before anything is written. A parent named as `parent_arc_id` is recorded
+    // where the CLI records one, in `metadata.parentArcId`.
+    const hierarchy = new ArcHierarchyService(req.container.graphWriteVersioningService).open(requireGraphId(req), { arcRepository: repository, eventRepository });
+    await hierarchy.preflight([{ kind: 'create', data: arcData }]);
+    const arc = await hierarchy.create(arcData);
 
     // Mirror the write into the active graph's version store so version history
     // and ExportService see UI-created arcs (not only imported ones).
@@ -319,7 +325,7 @@ arcRoutes.put('/:id', ...entityPermission('write:arcs'), async (req: RequestWith
       if (updates.end_time) updates.end_time = (await readRequestTime(updates.end_time, 'end_time', calendarOf, 'end')).date;
     }
 
-    const { arcRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));
+    const { arcRepository: repository, eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
     
     // Check if arc exists first
     const existingArc = await repository.findById(id);
@@ -327,26 +333,18 @@ arcRoutes.put('/:id', ...entityPermission('write:arcs'), async (req: RequestWith
       throw new NotFoundError(`Arc with ID ${id} not found`, 'Arc', id);
     }
 
-    const updatedArc = await repository.update(id, updates);
+    // The hierarchy decides the arc's level and parent, and moves its subtree
+    // with it. An impossible parent, or a level that does not fit it, is a 400
+    // and nothing is written. Undone, and not announced, if it cannot be versioned.
+    const updatedArc = await new ArcHierarchyService(req.container.graphWriteVersioningService).updateArc(
+      requireGraphId(req),
+      { arcRepository: repository, eventRepository },
+      id,
+      updates
+    );
     
     if (!updatedArc) {
       throw new DatabaseError('Failed to update arc', 'update');
-    }
-
-    try {
-      // Undone below if it cannot be versioned, so not announced then.
-      await req.container.graphWriteVersioningService.recordArc(requireGraphId(req), updatedArc, 'update', { undoneOnFailure: true });
-    } catch (versionError) {
-      try {
-        await repository.update(id, existingArc);
-      } catch (rollbackError) {
-        logger.error('Compensating rollback failed for updated arc', {
-          arcId: id,
-          rollbackError,
-        });
-        req.container.graphWriteVersioningService.announceNotVersioned(requireGraphId(req), 'update', 'arc', id, { name: updatedArc.name });
-      }
-      throw versionError;
     }
 
     res.json({
@@ -375,7 +373,7 @@ arcRoutes.delete('/:id', ...entityPermission('write:arcs'), async (req: RequestW
       throw new ValidationError('Arc ID is required', 'id', id);
     }
 
-    const { arcRepository: repository } = await req.container.graphScopedRepositories(requireGraphId(req));
+    const { arcRepository: repository, eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
     
     // Check if arc exists first
     const existingArc = await repository.findById(id);
@@ -383,18 +381,22 @@ arcRoutes.delete('/:id', ...entityPermission('write:arcs'), async (req: RequestW
       throw new NotFoundError(`Arc with ID ${id} not found`, 'Arc', id);
     }
 
-    const deleted = await repository.delete(id);
+    // Its child arcs move to its parent (or to the top), each with its own
+    // subtree one level up; its events stay, unassigned from it.
+    const { deleted, moved, unassigned } = await new ArcHierarchyService(req.container.graphWriteVersioningService).deleteArc(
+      requireGraphId(req),
+      { arcRepository: repository, eventRepository },
+      id
+    );
     
     if (!deleted) {
       throw new DatabaseError('Failed to delete arc', 'delete');
     }
 
-    await req.container.graphWriteVersioningService.recordDeletion(requireGraphId(req), 'arc', id);
-
     res.json({
       success: true,
-      message: 'Arc deleted successfully',
-      data: { id },
+      message: moved.length > 0 || unassigned.length > 0 ? describeMoves(existingArc.name, 'delete', moved.length, unassigned.length) : 'Arc deleted successfully',
+      data: { id, movedChildArcs: moved, unassignedEvents: unassigned },
       requestId: req.requestId
     });
   } catch (error) {
@@ -422,11 +424,12 @@ arcRoutes.post('/:id/validate-hierarchy', ...entityPermission('read:arcs'), asyn
       throw new NotFoundError(`Arc with ID ${id} not found`, 'Arc', id);
     }
 
-    // Validate hierarchy boundaries against overlapping arcs at lower/higher levels
-    const [overlappingArcs, parentArcs, childArcs] = await Promise.all([
-      repository.findOverlappingArcs({ start: arc.start_time, end: arc.end_time }),
+    // The temporal rule is parent-based: the arc lies within its own parent's
+    // span, and its children lie within its. Arcs of other branches may overlap.
+    const [parentArcs, childArcs, found] = await Promise.all([
       repository.findParentArcs(id),
-      repository.findDirectChildren(id)
+      repository.findDirectChildren(id),
+      new ArcHierarchyService(req.container.graphWriteVersioningService).open(requireGraphId(req), { arcRepository: repository }).containment(id)
     ]);
 
     const violations: Array<{
@@ -437,32 +440,16 @@ arcRoutes.post('/:id/validate-hierarchy', ...entityPermission('read:arcs'), asyn
       message: string;
     }> = [];
 
-    for (const existing of overlappingArcs) {
-      if (existing.id === arc.id) continue;
-
-      if (
-        existing.level < arc.level &&
-        !(compareInstants(arc.start_time, existing.start_time) >= 0 && compareInstants(arc.end_time, existing.end_time) <= 0)
-      ) {
-        violations.push({
-          arcId: existing.id,
-          arcName: existing.name,
-          level: existing.level,
-          type: 'exceeds_parent_bounds',
-          message: `Arc "${arc.name}" (level ${arc.level}) extends beyond overlapping parent arc "${existing.name}" (level ${existing.level})`
-        });
-      } else if (
-        existing.level > arc.level &&
-        !(compareInstants(existing.start_time, arc.start_time) >= 0 && compareInstants(existing.end_time, arc.end_time) <= 0)
-      ) {
-        violations.push({
-          arcId: existing.id,
-          arcName: existing.name,
-          level: existing.level,
-          type: 'fails_to_contain_child',
-          message: `Arc "${arc.name}" (level ${arc.level}) does not fully contain overlapping child arc "${existing.name}" (level ${existing.level})`
-        });
-      }
+    for (const problem of found) {
+      const other = await repository.findById(problem.kind === 'time-parent' ? (problem.other ?? '') : problem.id);
+      if (!other) continue;
+      violations.push({
+        arcId: other.id,
+        arcName: other.name,
+        level: other.level,
+        type: problem.kind === 'time-parent' ? 'exceeds_parent_bounds' : 'fails_to_contain_child',
+        message: problem.message
+      });
     }
 
     const validation = {

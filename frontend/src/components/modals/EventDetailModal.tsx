@@ -8,7 +8,7 @@ import { formatHistoricalDateAt, formatEventDate } from '@/utils/historicalTime'
 import { Portal } from '@/components/ui/Portal'
 
 /** The fields checked on save, in the order they appear (and are focused). */
-const VALIDATED_FIELDS = ['description', 'actor', 'target', 'timestamp'] as const
+const VALIDATED_FIELDS = ['description', 'actor', 'target', 'timestamp', 'cause-evidence'] as const
 type ValidatedField = (typeof VALIDATED_FIELDS)[number]
 
 const PARTY_SUGGESTIONS_ID = 'event-party-suggestions'
@@ -46,13 +46,19 @@ function PartySuggestions() {
 function CausePicker({
   causeId,
   causeType,
+  causeEvidence,
+  evidenceError,
   timestampText,
   onChange,
+  onEvidenceChange,
 }: {
   causeId: string
   causeType: CausalLinkType
+  causeEvidence: string
+  evidenceError?: string
   timestampText: string
   onChange: (causeId: string, causeType: CausalLinkType) => void
+  onEvidenceChange: (evidence: string) => void
 }) {
   const { data: events } = useEvents({ limit: 1000 })
   const parsed = timestampText.trim() ? fromDateField(timestampText) : null
@@ -110,6 +116,31 @@ function CausePicker({
           <option value="contributory">Contributory</option>
         </select>
       </div>
+      {causeId && (
+        <div className="sm:col-span-2">
+          <label htmlFor="cause-evidence" className="block text-sm font-medium text-ink-secondary">
+            Why it caused this <span aria-hidden="true" className="text-danger">*</span>
+            <span className="sr-only"> (required)</span>
+          </label>
+          <textarea
+            id="cause-evidence"
+            rows={2}
+            value={causeEvidence}
+            onChange={(e) => onEvidenceChange(e.target.value)}
+            required
+            aria-required="true"
+            aria-invalid={!!evidenceError}
+            aria-describedby={evidenceError ? 'cause-evidence-error' : undefined}
+            className={`mt-1 block w-full border rounded-md shadow-sm px-3 py-2 bg-card text-ink focus:outline-none focus:ring-2 focus:ring-selected focus:border-selected ${
+              evidenceError ? 'border-danger' : 'border-line'
+            }`}
+            placeholder="The evidence that this event led to the new one..."
+          />
+          {evidenceError && (
+            <p id="cause-evidence-error" role="alert" className="mt-1 text-sm text-danger">{evidenceError}</p>
+          )}
+        </div>
+      )}
       <p className="sm:col-span-2 text-xs text-ink-muted">
         {limit === null
           ? 'Lists every event; give the date to list only those up to it.'
@@ -165,7 +196,8 @@ export type CausalLinkType = 'direct' | 'indirect' | 'contributory'
 
 /** What the form asks for beyond the event itself: the link to its cause, when one was picked. */
 export interface EventSaveExtras {
-  cause?: { eventId: string; type: CausalLinkType }
+  /** `evidence` is why the cause led to the new event: required, a link has none without it. */
+  cause?: { eventId: string; type: CausalLinkType; evidence: string }
 }
 
 interface EventDetailModalProps {
@@ -198,6 +230,8 @@ interface EventFormData {
   /** The event that caused this one (create only), and how. */
   causeId: string
   causeType: CausalLinkType
+  /** Why that event caused this one: required once a cause is picked. */
+  causeEvidence: string
 }
 
 const EMPTY_FORM: EventFormData = {
@@ -210,6 +244,7 @@ const EMPTY_FORM: EventFormData = {
   evidence: '',
   causeId: '',
   causeType: 'direct',
+  causeEvidence: '',
 }
 
 export function EventDetailModal({
@@ -356,6 +391,12 @@ export function EventDetailModal({
       }
     }
 
+    // A cause is a link, and a link says why: refused here, before the event is
+    // made, so the event is never created and then its link refused.
+    if (!event && formData.causeId && !formData.causeEvidence.trim()) {
+      newErrors['cause-evidence'] = 'Evidence is required: say why that event caused this one.'
+    }
+
     setErrors(newErrors)
     const firstInvalid = VALIDATED_FIELDS.find((field) => newErrors[field])
     if (firstInvalid) setPendingFocus(firstInvalid)
@@ -415,7 +456,7 @@ export function EventDetailModal({
         metadata,
       }
       const extras: EventSaveExtras | undefined =
-        !event && formData.causeId ? { cause: { eventId: formData.causeId, type: formData.causeType } } : undefined
+        !event && formData.causeId ? { cause: { eventId: formData.causeId, type: formData.causeType, evidence: formData.causeEvidence.trim() } } : undefined
       await (extras ? onSave(eventData, extras) : onSave(eventData))
       onClose()
     } catch (error) {
@@ -659,8 +700,14 @@ export function EventDetailModal({
                         <CausePicker
                           causeId={formData.causeId}
                           causeType={formData.causeType}
+                          causeEvidence={formData.causeEvidence}
+                          evidenceError={errors['cause-evidence'] || undefined}
                           timestampText={formData.timestamp}
                           onChange={(causeId, causeType) => setFormData((prev) => ({ ...prev, causeId, causeType }))}
+                          onEvidenceChange={(causeEvidence) => {
+                            setFormData((prev) => ({ ...prev, causeEvidence }))
+                            if (errors['cause-evidence'] && causeEvidence.trim()) setErrors((prev) => ({ ...prev, 'cause-evidence': '' }))
+                          }}
                         />
                       )}
 

@@ -23,7 +23,9 @@ import { IArc } from '@/models/Arc';
 import type { EventRepository } from '@/repositories/EventRepository';
 import type { ArcRepository } from '@/repositories/ArcRepository';
 import { CausalService, StoredCausalRelationship } from '@/services/CausalService';
+import { hasLinkEvidence, LINK_EVIDENCE_REQUIRED } from '@/utils/linkEvidence';
 import { createLogger } from '@/utils/logger';
+import { ArcHierarchyService, type ArcHierarchySession, type PlanStep } from '@/services/ArcHierarchyService';
 import type { BatchLiveState, BatchStep } from '@/services/GraphWriteVersioningService';
 
 const logger = createLogger('BatchRoutes');
@@ -41,6 +43,8 @@ class Touched {
   readonly links = new Map<string, LinkPair>();
   /** An event or a link was deleted: the version must read every head link (`BatchLiveState.deletesLinks`). */
   deletesLinks = false;
+  /** The parent the arc hierarchy decided for each arc it wrote (`BatchLiveState.parents`). */
+  parents?: ReadonlyMap<string, string | null>;
 
   link(pair: LinkPair): void {
     this.links.set(JSON.stringify([pair.cause_event_id, pair.effect_event_id]), {
@@ -95,7 +99,7 @@ async function versionBatch(
 /** What the live store now holds of what a batch touched. */
 async function readBack(live: LiveReaders, touched: Touched): Promise<BatchLiveState> {
   const { eventRepository, arcRepository, causalService } = live;
-  const state: BatchLiveState = { deletesLinks: touched.deletesLinks };
+  const state: BatchLiveState = { deletesLinks: touched.deletesLinks, parents: touched.parents };
   if (touched.events.size > 0 && eventRepository) {
     state.events = new Map();
     for (const id of touched.events) state.events.set(id, await eventRepository.findById(id));
@@ -205,6 +209,66 @@ function stepsOf(
   });
 }
 
+/**
+ * The arc steps of a transaction, as the hierarchy plan runs them. Their dates
+ * are read as the steps will read them (a date the plan cannot read is left
+ * out of the plan, and the step itself fails on it).
+ */
+async function arcPlanSteps(operations: BatchOperation[], calendarOf: ReturnType<typeof calendarLookup>): Promise<PlanStep[]> {
+  const dated = async (data: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    try {
+      return await readStepDates(data, calendarOf, 'arc');
+    } catch {
+      const { start_time: _s, end_time: _e, ...rest } = data;
+      return rest;
+    }
+  };
+  const steps: PlanStep[] = [];
+  for (const op of operations) {
+    const data = (op.data ?? {}) as Record<string, unknown>;
+    if (op.type === 'create_arc') steps.push({ kind: 'create', data: (await dated(data)) as never });
+    else if (op.type === 'update_arc') {
+      const { id, ...rest } = data;
+      if (typeof id === 'string') steps.push({ kind: 'update', id, data: (await dated(rest)) as never });
+    } else if (op.type === 'delete_arc' && typeof data.id === 'string') steps.push({ kind: 'delete', id: data.id });
+  }
+  return steps;
+}
+
+/**
+ * What the arc hierarchy wrote beyond the steps the caller named (a subtree
+ * that moved, children lifted by a delete, events a deleted arc let go of),
+ * to read back for the version and to announce.
+ */
+function absorbArcMoves(touched: Touched, session: ArcHierarchySession, steps: BatchStep[]): BatchStep[] {
+  session.arcIds().forEach((id) => touched.arcs.add(id));
+  touched.parents = session.parents();
+  session.eventIds().forEach((id) => touched.events.add(id));
+  const named = new Set(steps.map((step) => `${step.type}:${step.id}`));
+  const extra: BatchStep[] = [];
+  for (const id of session.moved()) if (!named.has(`arc:${id}`)) extra.push({ operation: 'update', type: 'arc', id });
+  for (const id of session.eventIds()) if (!named.has(`event:${id}`)) extra.push({ operation: 'update', type: 'event', id });
+  return [...steps, ...extra];
+}
+
+/**
+ * The arc ids each event step that succeeded named (`metadata.arcId` or `arc_id` of its data), by
+ * event id: the references the batch itself wrote, which are the only ones undoing an arc clears.
+ */
+function arcRefsWrittenBy(operations: BatchOperation[], steps: Array<{ index: number; type: string; id?: string; success: boolean }>): Map<string, Set<string>> {
+  const refs = new Map<string, Set<string>>();
+  for (const step of steps) {
+    if (!step.success || step.id === undefined || !/_event$/.test(step.type)) continue;
+    const metadata = ((operations[step.index]?.data ?? {}) as { metadata?: Record<string, unknown> }).metadata;
+    const named = [metadata?.arcId, metadata?.arc_id].filter((ref): ref is string => typeof ref === 'string');
+    if (named.length > 0) refs.set(step.id, new Set([...(refs.get(step.id) ?? []), ...named]));
+  }
+  return refs;
+}
+
+/** Why an arc step that was fine on its own was not applied. */
+const ARC_STEPS_TOGETHER = 'not applied: another arc step in this batch failed';
+
 export const batchRoutes = Router();
 
 /**
@@ -244,7 +308,8 @@ interface BatchRelationshipRequest {
     cause_event_id: string;
     effect_event_id: string;
     weight?: number;
-    evidence?: string;
+    /** Required: a non-empty string. A link without it is refused with a 400. */
+    evidence: string;
     confidence?: number;
     relationship_type?: 'direct' | 'indirect' | 'contributory';
   }>;
@@ -281,7 +346,7 @@ interface BatchResult {
 
 interface TransactionResult {
   success: boolean;
-  results: Array<{ index: number; type: string; id?: string; success: boolean; error?: string }>;
+  results: Array<{ index: number; type: string; id?: string; success: boolean; error?: string; warning?: string }>;
   rollbackPerformed?: boolean;
 }
 
@@ -458,9 +523,33 @@ batchRoutes.post(
       validationWarnings: [],
     };
 
-    const { arcRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
+    const { arcRepository, eventRepository } = await req.container.graphScopedRepositories(requireGraphId(req));
+
+    // Every arc's parent and level is judged once, against the state the whole
+    // batch ends in (a child may come before its parent), before any is made.
+    const arcSession = new ArcHierarchyService(req.container.graphWriteVersioningService).open(requireGraphId(req), { arcRepository, eventRepository });
+    try {
+      const calendar = calendarLookup(req);
+      const planned: PlanStep[] = [];
+      for (const data of arcs) {
+        let read: Record<string, unknown> = data as unknown as Record<string, unknown>;
+        try {
+          read = (await readDates(read, calendar, 'arc')).data;
+        } catch {
+          // A date that cannot be read fails its own item below.
+        }
+        planned.push({ kind: 'create', data: read as never });
+      }
+      await arcSession.preflight(planned);
+    } catch (error) {
+      if (error instanceof ValidationError) return res.status(400).json(createBatchError('VALIDATION_ERROR', error.message));
+      throw error;
+    }
 
     const calendarOf = calendarLookup(req);
+    const createdAt = new Map<string, number>();
+    /** The arcs that were not made and are not in `failed` yet (skipped, or left out by lenient validation), with why. */
+    const notMade = new Map<number, string>();
     for (let i = 0; i < arcs.length; i++) {
       let arcData = arcs[i];
 
@@ -473,22 +562,24 @@ batchRoutes.post(
         if (warnings.length > 0) {
           result.validationWarnings!.push(...warnings.map((w) => ({ index: i, warning: w })));
           if (validation === 'lenient') {
+            notMade.set(i, `Validation failed: ${warnings.join(', ')}`);
             continue;
           }
           throw new Error(`Validation failed: ${warnings.join(', ')}`);
         }
 
         // Create the arc
-        const createdArc = await arcRepository.create({
+        const createdArc = await arcSession.create({
           ...arcData,
           metadata: {
             ...(arcData as Record<string, unknown>).metadata as Record<string, unknown>,
             graphId,
             batchImport: true,
           },
-        } as Parameters<typeof arcRepository.create>[0]);
+        } as Parameters<typeof arcSession.create>[0]);
 
         result.created.push(createdArc.id);
+        createdAt.set(createdArc.id, i);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
@@ -512,6 +603,7 @@ batchRoutes.post(
         }
 
         if (onError === 'skip') {
+          notMade.set(i, errorMessage);
           continue;
         }
 
@@ -520,7 +612,16 @@ batchRoutes.post(
       }
     }
 
-    result.success = result.failed.length === 0;
+    // The arcs of a batch are judged as one end state, so they land or fail
+    // together: if any was not made, none is.
+    // An arc left out says why under its own index, whatever onError is.
+    for (const [index, error] of notMade) result.failed.push({ index, error });
+    if (result.created.length < arcs.length && result.created.length > 0) {
+      await arcSession.undo();
+      for (const id of result.created) result.failed.push({ index: createdAt.get(id) ?? -1, error: ARC_STEPS_TOGETHER });
+      result.created = [];
+    }
+    result.success = result.failed.length === 0 && result.created.length === arcs.length;
 
     await versionCreated(req, 'arcs', result.created, arcRepository);
     res.status(result.success ? 201 : 207).json(result);
@@ -546,6 +647,17 @@ batchRoutes.post(
     const validationError = validateBatchRequest(request, 'relationships');
     if (validationError) {
       return res.status(400).json(createBatchError('VALIDATION_ERROR', validationError));
+    }
+
+    // Evidence is required of every link and cannot be waived by `validation`
+    // or `onError`: the whole batch is refused, with nothing written.
+    const evidenceProblems = linksWithoutEvidence(request.relationships);
+    if (evidenceProblems.length > 0) {
+      return res.status(400).json(createBatchError(
+        'VALIDATION_ERROR',
+        `${LINK_EVIDENCE_REQUIRED} (relationships at index ${evidenceProblems.join(', ')})`,
+        { failedIndex: evidenceProblems[0] }
+      ));
     }
 
     const validation = request.validation || 'strict';
@@ -602,7 +714,7 @@ batchRoutes.post(
           effectEvent,
           {
             weight: relData.weight || 0.5,
-            evidence: relData.evidence || '',
+            evidence: relData.evidence,
             confidence: relData.confidence || 0.5,
             relationship_type: relData.relationship_type || 'direct',
           }
@@ -749,6 +861,17 @@ batchRoutes.post(
       ));
     }
 
+    // Every link a transaction creates needs evidence: refuse the lot before
+    // the first step runs, so nothing is written and nothing needs undoing.
+    const evidenceProblems = createLinksWithoutEvidence(request.operations);
+    if (evidenceProblems.length > 0) {
+      return res.status(400).json(createBatchError(
+        'VALIDATION_ERROR',
+        `${LINK_EVIDENCE_REQUIRED} (create_relationship at operation index ${evidenceProblems.join(', ')})`,
+        { failedIndex: evidenceProblems[0] }
+      ));
+    }
+
     const atomic = request.atomic !== false; // Default to atomic
     const { operations } = request;
 
@@ -767,6 +890,19 @@ batchRoutes.post(
     const touched = new Touched();
 
     const calendarOf = calendarLookup(req);
+
+    // The arc hierarchy is judged once, against the state the whole
+    // transaction ends in, and before anything is written: an end state with
+    // an impossible parent, or a level that does not fit its parent, refuses
+    // the whole transaction, atomic or not.
+    const arcSession = new ArcHierarchyService(req.container.graphWriteVersioningService).open(requireGraphId(req), { arcRepository, eventRepository });
+    try {
+      await arcSession.preflight(await arcPlanSteps(operations, calendarOf));
+    } catch (error) {
+      if (error instanceof ValidationError) return res.status(400).json(createBatchError('VALIDATION_ERROR', error.message));
+      throw error;
+    }
+
     for (let i = 0; i < operations.length; i++) {
       const op = operations[i];
       let opResult: { success: boolean; id?: string; error?: string } = { success: false };
@@ -784,8 +920,8 @@ batchRoutes.post(
           }
 
           case 'create_arc': {
-            const arc = await arcRepository.create(
-              (await readStepDates(op.data as Record<string, unknown>, calendarOf, 'arc')) as unknown as Parameters<typeof arcRepository.create>[0]
+            const arc = await arcSession.create(
+              (await readStepDates(op.data as Record<string, unknown>, calendarOf, 'arc')) as unknown as Parameters<typeof arcSession.create>[0]
             );
             opResult = { success: true, id: arc.id };
             createdIds.push({ type: 'arc', id: arc.id });
@@ -806,7 +942,7 @@ batchRoutes.post(
 
           case 'update_arc': {
             const { id: arcId, ...arcUpdates } = op.data as { id: string } & Record<string, unknown>;
-            const updatedArc = await arcRepository.update(arcId, await readStepDates(arcUpdates, calendarOf, 'arc'));
+            const updatedArc = await arcSession.update(arcId, (await readStepDates(arcUpdates, calendarOf, 'arc')) as Parameters<typeof arcSession.update>[1]);
             if (updatedArc) touched.arcs.add(arcId);
             opResult = { success: !!updatedArc, id: arcId };
             break;
@@ -826,7 +962,8 @@ batchRoutes.post(
 
           case 'delete_arc': {
             const deleteArcId = (op.data as { id: string }).id;
-            const deletedArc = await arcRepository.delete(deleteArcId);
+            // Its children move up to its parent; its events stay, unassigned.
+            const deletedArc = await arcSession.delete(deleteArcId);
             if (deletedArc) touched.arcs.add(deleteArcId);
             opResult = { success: deletedArc, id: deleteArcId };
             break;
@@ -837,7 +974,7 @@ batchRoutes.post(
               cause_event_id: string;
               effect_event_id: string;
               weight?: number;
-              evidence?: string;
+              evidence: string;
               confidence?: number;
               relationship_type?: 'direct' | 'indirect' | 'contributory';
             };
@@ -847,7 +984,7 @@ batchRoutes.post(
             if (!effectEvent) throw new Error(`Effect event not found: ${relData.effect_event_id}`);
             const stored = await causalService.createCausalLink(causeEvent, effectEvent, {
               weight: relData.weight || 0.5,
-              evidence: relData.evidence || '',
+              evidence: relData.evidence,
               confidence: relData.confidence || 0.5,
               relationship_type: relData.relationship_type || 'direct',
             });
@@ -884,6 +1021,9 @@ batchRoutes.post(
             throw new Error(`Unknown operation type: ${op.type}`);
         }
 
+        // A step that did not apply (an id that is not there) is a failed step, so an
+        // atomic transaction rolls back and the arc steps fail together.
+        if (!opResult.success) throw new Error(opResult.error ?? `Not found: ${op.type}${opResult.id ? ` ${opResult.id}` : ''}`);
         result.results.push({ index: i, type: op.type, ...opResult });
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -893,7 +1033,27 @@ batchRoutes.post(
         if (atomic) {
           // Rollback all created entities
           const rolledBack = new Set<string>();
+          // The arcs go back as they were, whatever the transaction did to them
+          // (created, moved, lifted, deleted), so nothing of them lands.
+          const arcIds = arcSession.arcIds();
+          arcIds.forEach((id) => touched.arcs.add(id));
+          let arcsRestored = false;
+          try {
+            const made = arcSession.createdArcIds();
+            await arcSession.undo();
+            arcsRestored = true;
+            // An event a step of this transaction put in an arc that is now gone no longer names it.
+            await arcSession.clearReferences(made, arcRefsWrittenBy(operations, result.results));
+            arcSession.clearedEventIds().forEach((id) => touched.events.add(id));
+          } catch (rollbackError) {
+            logger.error('Rollback of the arc hierarchy failed', rollbackError);
+          }
+          if (arcsRestored) {
+            for (const step of result.results) if (/_arc$/.test(step.type) && step.id !== undefined) rolledBack.add(step.id);
+            arcIds.forEach((id) => rolledBack.add(id));
+          }
           for (const created of createdIds.reverse()) {
+            if (created.type === 'arc' && arcsRestored) continue;
             try {
               switch (created.type) {
                 case 'event':
@@ -916,6 +1076,15 @@ batchRoutes.post(
 
           result.rollbackPerformed = true;
 
+          // A step that stays (an update_event) and put an event in an arc that is gone says so; an
+          // event the rollback has just deleted (made earlier in this transaction) is not one that stays.
+          const cleared = new Set(arcSession.clearedEventIds());
+          for (const step of result.results) {
+            if (step.success && step.id !== undefined && step.type === 'update_event' && cleared.has(step.id) && !rolledBack.has(step.id)) {
+              step.warning = 'its arc was not applied (the transaction failed), so the event is in no arc';
+            }
+          }
+
           // The rollback undoes only what the transaction created. The updates
           // and deletes that ran before the failing step stay in the store, and
           // so does anything whose rollback failed: version them, and tell
@@ -925,9 +1094,13 @@ batchRoutes.post(
             req,
             { eventRepository, arcRepository, causalService },
             touched,
-            stepsOf(
-              result.results.filter((step) => !(step.id !== undefined && rolledBack.has(step.id))),
-              liveIds
+            absorbArcMoves(
+              touched,
+              arcSession,
+              stepsOf(
+                result.results.filter((step) => !(step.id !== undefined && rolledBack.has(step.id))),
+                liveIds
+              )
             )
           );
 
@@ -943,10 +1116,45 @@ batchRoutes.post(
       }
     }
 
+    // The arc steps are one end state: they land or fail together, atomic or
+    // not. If any failed, every arc write is put back and every arc step that
+    // had succeeded is reported as not applied (the other steps keep their own
+    // results). Otherwise the arcs the steps moved with the ones they named are
+    // written now, as the end state has them.
+    try {
+      const arcStep = (step: { type: string }): boolean => /_arc$/.test(step.type);
+      if (result.results.some((step) => arcStep(step) && !step.success)) {
+        absorbArcMoves(touched, arcSession, []);
+        const made = arcSession.createdArcIds();
+        await arcSession.undo();
+        // An event a step put in an arc that was not made no longer names it.
+        await arcSession.clearReferences(made, arcRefsWrittenBy(operations, result.results));
+        const cleared = new Set(arcSession.clearedEventIds());
+        cleared.forEach((id) => touched.events.add(id));
+        for (const step of result.results) {
+          if (step.success && step.id !== undefined && /_event$/.test(step.type) && cleared.has(step.id)) {
+            step.warning = 'its arc was not applied (another arc step in this batch failed), so the event is in no arc';
+          }
+        }
+        for (const step of result.results) {
+          if (arcStep(step) && step.success) {
+            step.success = false;
+            step.error = ARC_STEPS_TOGETHER;
+          }
+        }
+        result.success = false;
+      } else {
+        await arcSession.finish();
+      }
+    } catch (error) {
+      await arcSession.undo().catch((rollbackError) => logger.error('Rollback of the arc hierarchy failed', rollbackError));
+      throw error;
+    }
+
     // A transaction whose version cannot be committed is not undone (its
     // updates and deletes have no before-image here): the error propagates and
     // the feed says the change is not versioned, as for a single update.
-    await versionBatch(req, { eventRepository, arcRepository, causalService }, touched, stepsOf(result.results, liveIds));
+    await versionBatch(req, { eventRepository, arcRepository, causalService }, touched, absorbArcMoves(touched, arcSession, stepsOf(result.results, liveIds)));
     res.status(result.success ? 200 : 207).json(result);
   })
 );
@@ -1083,6 +1291,30 @@ function validateArcData(data: Partial<IArc>): string[] {
   }
 
   return warnings;
+}
+
+/** The indices of the relationships in a batch that carry no usable evidence. */
+function linksWithoutEvidence(relationships: unknown): number[] {
+  if (!Array.isArray(relationships)) return [];
+  const missing: number[] = [];
+  relationships.forEach((rel: unknown, index: number) => {
+    const evidence = typeof rel === 'object' && rel !== null ? (rel as { evidence?: unknown }).evidence : undefined;
+    if (!hasLinkEvidence(evidence)) missing.push(index);
+  });
+  return missing;
+}
+
+/** The indices of the `create_relationship` operations of a transaction that carry no usable evidence. */
+function createLinksWithoutEvidence(operations: unknown): number[] {
+  if (!Array.isArray(operations)) return [];
+  const missing: number[] = [];
+  operations.forEach((op: unknown, index: number) => {
+    if (typeof op !== 'object' || op === null || (op as { type?: unknown }).type !== 'create_relationship') return;
+    const data = (op as { data?: unknown }).data;
+    const evidence = typeof data === 'object' && data !== null ? (data as { evidence?: unknown }).evidence : undefined;
+    if (!hasLinkEvidence(evidence)) missing.push(index);
+  });
+  return missing;
 }
 
 function validateRelationshipData(data: {

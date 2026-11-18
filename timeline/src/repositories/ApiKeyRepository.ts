@@ -71,6 +71,7 @@ export class ApiKeyRepository {
 
     // Check for admin key in env and create if needed
     await this.ensureAdminKey();
+    await this.markConfiguredAdminKey();
 
     this.initialized = true;
   }
@@ -297,6 +298,27 @@ export class ApiKeyRepository {
   async hasAdminKey(): Promise<boolean> {
     const keys = await this.findAll({ hasPermission: 'admin' });
     return keys.some((k) => k.isValid());
+  }
+
+  /**
+   * Mark the one key that is the configured `ADMIN_API_KEY` as exempt from rate
+   * limits, and clear the mark on every other key. The mark is recomputed on
+   * every start from the environment (prefix, then a hash comparison), so
+   * changing or unsetting the variable withdraws the exemption, and a key
+   * minted through `/api/keys` can never carry it. A revoked or expired
+   * configured key is not authenticated at all, so the mark is moot for it.
+   */
+  private async markConfiguredAdminKey(): Promise<void> {
+    for (const key of this.keys.values()) key.rateLimitExempt = false;
+
+    const envAdminKey = process.env[this.adminKeyEnvVar]?.trim();
+    if (!envAdminKey) return;
+
+    const prefix = envAdminKey.substring(0, KEY_PREFIX_LENGTH + 3).padEnd(KEY_PREFIX_LENGTH + 3, '_');
+    const stored = await this.findByPrefix(prefix);
+    if (stored && (await bcrypt.compare(envAdminKey, stored.keyHash))) {
+      stored.rateLimitExempt = true;
+    }
   }
 
   // Private methods

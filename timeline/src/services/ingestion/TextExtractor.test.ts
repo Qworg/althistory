@@ -197,6 +197,26 @@ describe('TextExtractor (LLM relationships)', () => {
     });
   });
 
+  it.each([['empty', ''], ['whitespace', '   ']])(
+    'does not suggest a relationship the model gave %s reasoning for: a link needs evidence',
+    async (_name, reasoning) => {
+      const first = fakeEvent({ tempId: 'llm-1' });
+      const second = fakeEvent({ tempId: 'llm-2', timestamp: '1067-01-01T00:00:00Z' });
+      const third = fakeEvent({ tempId: 'llm-3', timestamp: '1068-01-01T00:00:00Z' });
+      const llm = fakeLLMClient({
+        extractEvents: vi.fn().mockResolvedValue([first, second, third]),
+        suggestRelationships: vi
+          .fn()
+          .mockResolvedValue([fakeRelationship(first, second, { reasoning }), fakeRelationship(second, third)]),
+      });
+
+      const result = await new TextExtractor({ llmClient: llm }).extract({ text: 'anything' });
+
+      expect(result.relationships.map((r) => [r.causeEventTempId, r.effectEventTempId])).toEqual([['llm-2', 'llm-3']]);
+      expect(result.events).toHaveLength(3);
+    }
+  );
+
   it('drops a suggested relationship that names an event outside the extraction', async () => {
     const first = fakeEvent({ tempId: 'llm-1' });
     const second = fakeEvent({ tempId: 'llm-2', timestamp: '1067-01-01T00:00:00Z' });

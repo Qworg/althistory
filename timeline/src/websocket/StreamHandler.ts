@@ -91,6 +91,7 @@
  *     reading.
  */
 
+import { LINK_EVIDENCE_REQUIRED, readLinkEvidence } from '@/utils/linkEvidence';
 import { type WorldCalendarSet, storedCalendarSet, toInstant } from '@althistory/calendar';
 import { type RequestTime, newDateMetadata, readRequestTime } from '../api/worldDates';
 import type { IncomingMessage, Server as HttpServer } from 'http';
@@ -107,6 +108,7 @@ import { StreamSessionManager } from './StreamSession';
 import type { StreamSession, StreamSessionRefusalReason } from './StreamSession';
 import type { CreateEventRequest } from '@/models/Event';
 import type { CreateArcRequest } from '@/models/Arc';
+import { ArcHierarchySession } from '@/services/ArcHierarchyService';
 import type { CausalRelationshipType } from '@/models/relationships';
 import type { StoredCausalRelationship } from '@/services/CausalService';
 import {
@@ -248,6 +250,8 @@ export interface StreamWriteDeps {
     recordEvent(graphId: string, event: Awaited<ReturnType<GraphScopedRepositories['eventRepository']['create']>>, operation: 'create'): Promise<void>;
     recordArc(graphId: string, arc: Awaited<ReturnType<GraphScopedRepositories['arcRepository']['create']>>, operation: 'create'): Promise<void>;
     recordRelationship?(graphId: string, relationship: StoredCausalRelationship, operation: 'create'): Promise<void>;
+    /** The head's copy of some arcs, so a new arc's parent is read as the hierarchy reads it (an imported parent is only there). */
+    headArcs?(graphId: string, ids: string[]): Promise<Record<string, Record<string, unknown>>>;
   };
   /**
    * When present, every write message is charged against the key's request rate
@@ -568,7 +572,7 @@ export class StreamHandler {
     const opened = this.sessionManager.tryOpen(
       result.apiKey.id,
       result.graphId,
-      result.apiKey.rateLimit.concurrentStreams
+      result.apiKey.maxConcurrentStreams()
     );
     if (!opened.ok) {
       this.logger.warn('Stream connection refused', {
@@ -773,7 +777,7 @@ export class StreamHandler {
       sessionId: session.id,
       apiKeyId: apiKey.id,
       graphId,
-      concurrentStreams: apiKey.rateLimit.concurrentStreams,
+      concurrentStreams: apiKey.rateLimitExempt ? null : apiKey.rateLimit.concurrentStreams,
       mode: context.mode,
     });
 
@@ -1089,7 +1093,7 @@ export class StreamHandler {
 
     // Charge the same per-key request budget the HTTP routes use. Skipping it
     // here would make the socket a way around the limit.
-    const limiter = this.deps.rateLimitService;
+    const limiter = apiKey.rateLimitExempt ? undefined : this.deps.rateLimitService;
     if (limiter) {
       const result = limiter.recordRequest(apiKey.id, apiKey.rateLimit);
       if (!result.allowed) {
@@ -1212,7 +1216,7 @@ export class StreamHandler {
       return;
     }
 
-    const limiter = this.deps.rateLimitService;
+    const limiter = apiKey.rateLimitExempt ? undefined : this.deps.rateLimitService;
     if (limiter) {
       const charged = limiter.recordRequest(apiKey.id, apiKey.rateLimit);
       if (!charged.allowed) {
@@ -1427,7 +1431,12 @@ export class StreamHandler {
       if (!this.mayPersist(ws, context, 'arc', requestId)) {
         return;
       }
-      const arc = await arcRepository.create(converted.value);
+      // As every write of an arc: its parent must be an arc of the graph, a child sits
+      // one level below it and within its span, and an arc with no parent is level 0.
+      const versioning = this.deps.graphWriteVersioningService;
+      const hierarchy = new ArcHierarchySession(context.graphId, { arcRepository }, { headArcs: versioning.headArcs?.bind(versioning) });
+      await hierarchy.preflight([{ kind: 'create', data: converted.value }]);
+      const arc = await hierarchy.create(converted.value);
       await this.ackPersistedEntity(
         ws,
         context,
@@ -1942,6 +1951,10 @@ async function toCreateArcRequest(
   if (isRecord(data.metadata)) {
     value.metadata = data.metadata;
   }
+  // A parent named as `parent_arc_id` is recorded where the CLI records one.
+  if (typeof data.parent_arc_id === 'string' && data.parent_arc_id !== '') {
+    value.metadata = { ...(value.metadata ?? {}), parentArcId: data.parent_arc_id };
+  }
   return { ok: true, value };
 }
 
@@ -1961,10 +1974,8 @@ function toCreateCausalRelationshipInput(
   const effectEventId = readNonEmptyString(data, 'effect_event_id') ?? readNonEmptyString(data, 'effectEventId');
   const weight = typeof data.weight === 'number' && !Number.isNaN(data.weight) ? data.weight : 0.5;
   const confidence = typeof data.confidence === 'number' && !Number.isNaN(data.confidence) ? data.confidence : 0.8;
-  const evidence =
-    readNonEmptyString(data, 'evidence') ??
-    readNonEmptyString(data, 'reasoning') ??
-    'Streamed relationship';
+  // Required, as at every door: `reasoning` is accepted as an older name for it.
+  const evidence = readLinkEvidence(data.evidence) ?? readLinkEvidence(data.reasoning);
   const rawType = typeof data.relationship_type === 'string' ? data.relationship_type : 'direct';
   const relationshipType =
     rawType === 'direct' || rawType === 'indirect' || rawType === 'contributory'
@@ -1977,6 +1988,9 @@ function toCreateCausalRelationshipInput(
       ...(!effectEventId ? ['effect_event_id'] : []),
     ];
     return { ok: false, error: `Missing required fields: ${missing.join(', ')}` };
+  }
+  if (evidence === undefined) {
+    return { ok: false, error: LINK_EVIDENCE_REQUIRED };
   }
 
   return {

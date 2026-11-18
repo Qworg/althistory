@@ -27,6 +27,11 @@ export function useCreateEventWithCause() {
 
   return useCallback(
     async (data: CreateEventRequest, extras?: EventSaveExtras): Promise<CreateEventOutcome> => {
+      // A link says why. Checked before the event is made, so a cause without
+      // evidence does not leave an event whose link was then refused.
+      if (extras?.cause && !extras.cause.evidence.trim()) {
+        throw new Error('Evidence is required: say why that event caused this one.')
+      }
       const outcome = await createEvent.mutateAsync(data)
       if (outcome.delivery === 'queued') return { status: 'queued', linkSkipped: Boolean(extras?.cause) }
       const event = outcome.value
@@ -40,7 +45,7 @@ export function useCreateEventWithCause() {
           relationship_type: cause.type,
           weight: DEFAULT_LINK_WEIGHT[cause.type],
           confidence,
-          evidence: '',
+          evidence: cause.evidence.trim(),
         },
       })
       return { status: 'created', event, linked: true }

@@ -29,7 +29,7 @@
 import * as d3 from 'd3'
 import { Event, Arc, GraphCalendar } from '@/types'
 import { getActiveCalendar } from '@/stores/worldCalendarStore'
-import { axisOf, calendarIn, compareInstants, formatBoundAt, gregorianTicks, instantOfAxisTime, msApart, toInstant, worldTicks } from '@althistory/calendar'
+import { axisOf, calendarIn, compareInstants, formatBoundAt, gregorianTicks, instantOfAxisTime, labelsDistinctPerDay, msApart, toInstant, worldTicks } from '@althistory/calendar'
 import { type InstantScale, type PositionScale, instantScale, usesArithmeticTicks } from '@/utils/timeScale'
 import { type LabelAnchor, anchorInward, thinTickLabels } from '@/utils/axisLabelFit'
 import { ArcWithUIState } from '@/components/timeline/arcHierarchyUtils'
@@ -302,7 +302,7 @@ export function formatTimeAxisTickSet(ticks: Date[], timeSpanMs: number, utc = f
   const name = getTimeAxisFormat(timeSpanMs)
   if (!beforeCommonEra(ticks, utc)) return ticks.map((tick) => formatAxisLabel(name, tick, utc))
   const labels = typedAxisLabels(name, ticks, utc)
-  return new Set(labels).size === labels.length ? labels : typedDateTimes(ticks, utc)
+  return labelsDistinctPerDay(labels) ? labels : typedDateTimes(ticks, utc)
 }
 
 function formatAxisLabel(name: string, tick: Date, utc: boolean): string {
@@ -417,6 +417,14 @@ export interface FittedAxis<T> {
    * labels name their dates.
    */
   caption: string | null
+  /**
+   * The caption in full ("44-03-14 BCE – 44-03-15 BCE"), where {@link caption}
+   * is its short form because the full one would not fit the room. Present
+   * with a caption; the one to read back and to name to a screen reader.
+   */
+  captionFull?: string
+  /** Where the caption starts, in the plot's coordinates: 0 unless it would run past the room's right edge. */
+  captionX?: number
   /** Whether the set was fitted (a typed set): its labels are anchored and thinned, never turned. */
   fitted: boolean
 }
@@ -443,9 +451,24 @@ export function fitAxis<T extends { date: Date; x: number; label: string }>(
   if (!isTypedSet([...domain, ...ticks.map((tick) => tick.date)], calendar)) {
     return { ticks: ticks.map((tick) => ({ ...tick, anchor: 'middle' as const })), caption: null, fitted: false }
   }
-  const times = ticks.length === 0 || ticks.some((tick) => isBareTime(tick.label))
+  const times = ticks.length === 0 || ticks.some((tick) => isBareTime(tick.label)) || namesNoDay(ticks, domain)
   const kept = thinTickLabels(anchorInward(ticks, charPx, room), { charPx, gapPx: AXIS_LABEL_GAP_PX }, (tick) => times && !isBareTime(tick.label))
-  return { ticks: kept, caption: times ? dayCaption(domain) : null, fitted: true }
+  if (!times) return { ticks: kept, caption: null, fitted: true }
+  const full = dayCaption(domain)
+  // A two-day caption shares its era and year where it must to fit ("66000000-06-30 – 07-01 BCE").
+  const caption = full.length * charPx <= room.right - room.left ? full : shortDayCaption(domain)
+  const captionX = Math.max(room.left, Math.min(0, room.right - caption.length * charPx))
+  return { ticks: kept, caption, captionFull: full, captionX, fitted: true }
+}
+
+/**
+ * Whether a view of a day or less has no tick that names a day or a time (a
+ * narrow axis may keep only a month's first midnight, "66000000-07 BCE"): the
+ * axis then names its day in a caption, as it does for times of day.
+ */
+function namesNoDay(ticks: ReadonlyArray<{ label: string }>, [start, end]: readonly [Date, Date]): boolean {
+  if (!(Math.abs(+end - +start) <= 86_400_000)) return false
+  return !ticks.some((tick) => /^\d+-\d{2}-\d{2}( BCE)?( \d{2}:\d{2}.*)?$/.test(tick.label))
 }
 
 /** The day (or the first and last days) a span falls on, in the typed syntax. */
@@ -453,6 +476,19 @@ function dayCaption([start, end]: readonly [Date, Date]): string {
   const first = formatBoundAt(start, 'day')
   const last = formatBoundAt(end, 'day')
   return first === last ? first : `${first} – ${last}`
+}
+
+/** The first and last day of a span with what they share said once: "66000000-06-30 – 07-01 BCE", "44-12-31 – 43-01-01 BCE". */
+function shortDayCaption([start, end]: readonly [Date, Date]): string {
+  const first = formatBoundAt(start, 'day')
+  const last = formatBoundAt(end, 'day')
+  if (first === last) return first
+  const era = / BCE$/.test(first) && / BCE$/.test(last) ? ' BCE' : ''
+  const bare = (day: string) => day.replace(/ BCE$/, '')
+  if (era === '' && !(first.length === bare(first).length && last.length === bare(last).length)) return `${first} – ${last}`
+  const [a, b] = [bare(first), bare(last)]
+  const yearOf = (day: string) => day.slice(0, day.length - 6)
+  return yearOf(a) === yearOf(b) ? `${a} – ${b.slice(-5)}${era}` : `${a} – ${b}${era}`
 }
 
 /** The axis label formats from coarsest to finest. */
@@ -476,7 +512,7 @@ export function formatTimeAxisTicks(ticks: Date[], timeSpanMs: number, utc = fal
   const label = (name: string) => (typed ? typedAxisLabels(name, ticks, utc) : ticks.map((tick) => formatAxisLabel(name, tick, utc)))
   for (const name of TIME_AXIS_FORMAT_LADDER.slice(start)) {
     const labels = label(name)
-    if (new Set(labels).size === labels.length) return labels
+    if (typed ? labelsDistinctPerDay(labels) : new Set(labels).size === labels.length) return labels
   }
   return typed ? typedDateTimes(ticks, utc) : label('%H:%M:%S')
 }

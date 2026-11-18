@@ -559,8 +559,12 @@ export class Container implements ServiceContainer {
           this.changeFeedService.publish(graphId, {
             kind: 'replaced',
             reason,
-            summary: replacedSummary(reason),
+            summary:
+              replacedSummary(reason) +
+              (result.skipped.length > 0 ? ` (${result.skipped.length} ${result.skipped.length === 1 ? 'entity' : 'entities'} could not be restored)` : ''),
             counts: { events: result.events, arcs: result.arcs, relationships: result.relationships },
+            ...(result.skipped.length > 0 ? { skipped: result.skipped.length } : {}),
+            ...(result.warnings && result.warnings.length > 0 ? { warnings: result.warnings.length } : {}),
           });
         },
       });

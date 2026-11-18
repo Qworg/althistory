@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { CausalSuggestion, CausalRelationshipData } from '@/types'
 import { useGlobalStore } from '@/stores/globalStore'
+import { reportApiError } from '@/services/rateLimitNotice'
 import { apiClient } from '@/services/api'
 import { isTemporalInversion } from '@/utils/causalOrder'
 import { compareInstants, toInstant } from '@althistory/calendar'
@@ -155,10 +156,7 @@ export const useCausalSuggestions = (initialFilters?: Partial<SuggestionFilters>
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load suggestions'
       setError(errorMessage)
-      addError({
-        message: errorMessage,
-        type: 'network'
-      })
+      reportApiError(null, err, 'network', addError)
       hasLoadedRef.current = false
     } finally {
       setIsLoading(false)
@@ -230,10 +228,7 @@ export const useCausalSuggestions = (initialFilters?: Partial<SuggestionFilters>
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to accept suggestion'
       setError(errorMessage)
-      addError({
-        message: errorMessage,
-        type: 'validation'
-      })
+      reportApiError(null, err, 'validation', addError)
 
       // Remove processing state
       setSuggestions(prev => prev.map(s => 

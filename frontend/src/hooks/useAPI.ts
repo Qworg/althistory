@@ -28,6 +28,8 @@ import {
   TimeRange
 } from '@/types'
 
+import { CAUSAL_QUERY_KEY } from './causalQueryKey'
+
 // Query keys for React Query
 export const queryKeys = {
   events: {
@@ -49,7 +51,7 @@ export const queryKeys = {
     childArcs: (parentId: string) => [...queryKeys.arcs.all, 'childArcs', parentId] as const,
   },
   causal: {
-    all: ['causal'] as const,
+    all: CAUSAL_QUERY_KEY,
     relationships: (eventId?: string) => [...queryKeys.causal.all, 'relationships', eventId] as const,
     chains: (startEventId: string, maxDepth?: number) => [...queryKeys.causal.all, 'chains', startEventId, maxDepth] as const,
     suggestions: (eventId: string) => [...queryKeys.causal.all, 'suggestions', eventId] as const,
@@ -276,6 +278,8 @@ export function useDeleteArc(options?: UseMutationOptions<OfflineWriteOutcome<vo
       
       // Invalidate and refetch related queries
       queryClient.invalidateQueries({ queryKey: queryKeys.arcs.all })
+      // The events it held are unassigned from it
+      queryClient.invalidateQueries({ queryKey: queryKeys.events.all })
       // Every write is a new version: refresh the graph's metadata and version head
       queryClient.invalidateQueries({ queryKey: graphKeys.all })
     },
@@ -338,16 +342,16 @@ export function useCreateCausalLink(options?: UseMutationOptions<CausalRelations
   })
 }
 
-export function useUpdateCausalLink(options?: UseMutationOptions<CausalRelationship, APIError, { causeEventId: string; effectEventId: string; data: Partial<CausalRelationshipData> }>) {
+export function useUpdateCausalLink(options?: UseMutationOptions<CausalRelationship, APIError, { causeEventId: string; effectEventId: string; data: Partial<CausalRelationshipData>; linkId?: string }>) {
   const queryClient = useQueryClient()
   const updateCausalRelationship = useGlobalStore(state => state.updateCausalRelationship)
 
   return useMutation({
-    mutationFn: ({ causeEventId, effectEventId, data }: { causeEventId: string; effectEventId: string; data: Partial<CausalRelationshipData> }) =>
-      apiClient.causal.updateLink(causeEventId, effectEventId, data),
-    onSuccess: (updatedRelationship, { causeEventId, effectEventId }) => {
-      // Update local state
-      const id = `${causeEventId}_${effectEventId}`
+    mutationFn: ({ causeEventId, effectEventId, data, linkId }: { causeEventId: string; effectEventId: string; data: Partial<CausalRelationshipData>; linkId?: string }) =>
+      apiClient.causal.updateLink(causeEventId, effectEventId, data, linkId),
+    onSuccess: (updatedRelationship, { causeEventId, effectEventId, linkId }) => {
+      // Update local state, under the link's own id (two links can join one pair)
+      const id = linkId ?? updatedRelationship.id ?? `${causeEventId}_${effectEventId}`
       updateCausalRelationship(id, updatedRelationship)
 
       // Invalidate and refetch related queries
@@ -359,16 +363,16 @@ export function useUpdateCausalLink(options?: UseMutationOptions<CausalRelations
   })
 }
 
-export function useDeleteCausalLink(options?: UseMutationOptions<void, APIError, { causeEventId: string; effectEventId: string }>) {
+export function useDeleteCausalLink(options?: UseMutationOptions<void, APIError, { causeEventId: string; effectEventId: string; linkId?: string }>) {
   const queryClient = useQueryClient()
   const deleteCausalRelationship = useGlobalStore(state => state.deleteCausalRelationship)
 
   return useMutation({
-    mutationFn: ({ causeEventId, effectEventId }: { causeEventId: string; effectEventId: string }) =>
-      apiClient.causal.deleteLink(causeEventId, effectEventId),
-    onSuccess: (_, { causeEventId, effectEventId }) => {
-      // Update local state
-      const id = `${causeEventId}_${effectEventId}`
+    mutationFn: ({ causeEventId, effectEventId, linkId }: { causeEventId: string; effectEventId: string; linkId?: string }) =>
+      apiClient.causal.deleteLink(causeEventId, effectEventId, linkId),
+    onSuccess: (_, { causeEventId, effectEventId, linkId }) => {
+      // Update local state, under the link's own id (two links can join one pair)
+      const id = linkId ?? `${causeEventId}_${effectEventId}`
       deleteCausalRelationship(id)
 
       // Invalidate and refetch related queries

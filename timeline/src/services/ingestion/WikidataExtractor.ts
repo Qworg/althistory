@@ -28,7 +28,7 @@
  * start, not its conclusion.
  */
 
-import { compareAxisTime, parseIsoInstant, toAxisTime } from '@althistory/calendar';
+import { compareAxisTime, isoBeyondRange, parseIsoInstant, toAxisTime } from '@althistory/calendar';
 import { DataSource } from '../ExportService';
 import { HttpClient, JsonValue, parseJsonBody, wikimediaUserAgent } from './http';
 import { newTempId } from './ids';
@@ -40,6 +40,7 @@ import {
   Extractor,
   WikidataExtractionInput,
 } from './types';
+import { DroppedRowCounts, countDropped, describeDroppedRows } from './droppedRows';
 
 const WIKIDATA_ENDPOINT = 'https://query.wikidata.org/sparql';
 const DEFAULT_LIMIT = 50;
@@ -92,11 +93,31 @@ export interface WikidataFact {
  * which year a BCE date is (see {@link readWikidataTime}); the statement's
  * value node (`psv:`) carries `timePrecision` too. `wikibase:BestRank` keeps
  * what `wdt:` keeps: the preferred statements, or the normal ones when none
- * is preferred. Measured on query.wikidata.org on 2026-11-15, for the broad
- * `historical-events` query with LIMIT 25: the `wdt:`-only query answered in
- * 3.4 s, this form in 7 s; `?statement a wikibase:BestRank` outside the
- * branches in 11 s once and timed out once (60 s), and joining the value node
- * to the `wdt:` value took 51 s.
+ * is preferred.
+ *
+ * Measured on query.wikidata.org, for the broad `historical-events` query with
+ * LIMIT 25, one request every 8 s.
+ *
+ * On 2026-11-15, during a rate-limiting outage: the `wdt:`-only query 3.4 s,
+ * this form 7 s; `?statement a wikibase:BestRank` outside the branches 11 s
+ * once and a timeout (60 s) once; joining the value node to the `wdt:` value
+ * 51 s.
+ *
+ * On 2026-11-16, a healthy service (seconds per run, four runs each; the service caches,
+ * so the first run of a form is not the slowest):
+ *
+ * | Form | Runs | Same rows as this form? |
+ * | :-- | :-- | :-- |
+ * | the old `wdt:`-only query (no precision) | 1.2, 2.4, 2.8, 1.9; again 2.6, 3.8, 1.2, 0.8 | no precision, so BCE and coarse dates are wrong |
+ * | this form (`BestRank` in each branch) | 2.2, 4.1, 1.2, 4.4; again 4.7, 1.4, 1.9, 1.6 | -- |
+ * | `wdt:` date joined to `psv:` for the precision | 35.4, 65 (HTTP 504), 57.0, 65 (HTTP 504) | not usable |
+ * | `p:`/`psv:` with `FILTER(?rank != wikibase:DeprecatedRank)` | 2.3, 4.5, 9.2, 6.0 | not equivalent (a normal statement beside a preferred one stays); same rows on Thermopylae and the Norman conquest; slower |
+ * | `VALUES (?p ?psv)`-driven, `BestRank` | 6.2, 5.8, 2.7, 5.2 | same rows on Thermopylae and the Norman conquest; slower |
+ *
+ * So the 7 s of the outage was mostly the outage: this form runs in 1 to 5 s,
+ * about half a second behind the form that cannot read a BCE year (means of
+ * 2.7 s and 2.1 s over the eight runs each), and no other form
+ * that keeps the best-rank rule is faster. It stays.
  */
 function datedBy(subject: string, property: string): string {
   return `?${subject} p:${property} ?statement . ?statement a wikibase:BestRank ; psv:${property} [ wikibase:timeValue ?date ; wikibase:timePrecision ?precision ] .`;
@@ -200,15 +221,33 @@ function bindingValue(binding: { [key: string]: JsonValue }, key: string): strin
  * ("66000000 BCE"), not one of our own rounding. A date beyond the timeline
  * (the Big Bang, -13787000000) is null.
  */
-export function readWikidataTime(value: string, precision?: number): { timestamp: string; precision: 'day' | 'month' | 'year' } | null {
+export function readWikidataTime(value: string, precision?: number): WikidataTime | null {
+  const read = classifyWikidataTime(value, precision);
+  return read.ok ? read.time : null;
+}
+
+export type WikidataTime = { timestamp: string; precision: 'day' | 'month' | 'year' };
+
+/** Why a Wikidata date value is no date on the timeline. */
+export type UnreadableWikidataTime = 'no-date' | 'unreadable' | 'before-timeline' | 'after-timeline';
+
+/** {@link readWikidataTime}, saying why when the value cannot be read. */
+export function classifyWikidataTime(
+  value: string,
+  precision?: number
+): { ok: true; time: WikidataTime } | { ok: false; reason: UnreadableWikidataTime } {
+  const fail = (reason: UnreadableWikidataTime) => ({ ok: false as const, reason });
+  // Nothing, or Wikidata's "unknown value": a blank node, which the query service writes as a URI.
+  if (value.trim() === '' || /^https?:\/\/.*genid/i.test(value.trim())) return fail('no-date');
   const match = value.trim().match(/^([+-]?)(\d{4,})-(\d{2})-(\d{2})(?:T[\d:.]+Z?)?$/);
-  if (!match) return null;
+  if (!match) return fail('unreadable');
   const [, sign, yearText, monthText, dayText] = match;
   const known = precision !== undefined && Number.isInteger(precision) && precision >= 0 && precision <= 14 ? precision : undefined;
-  if (precision !== undefined && known === undefined) return null;
+  if (precision !== undefined && known === undefined) return fail('unreadable');
   const stated: 'day' | 'month' | 'year' = known === undefined || known >= 11 ? 'day' : known === 10 ? 'month' : 'year';
   const digits = Number(yearText);
-  if (!Number.isSafeInteger(digits)) return null;
+  // Too many digits for a number is far beyond the timeline, whichever way it points.
+  if (!Number.isSafeInteger(digits)) return fail(sign === '-' ? 'before-timeline' : 'after-timeline');
   // XSD 1.1 (0 is 1 BCE) at a year or finer, and without a precision; counted back from 1 CE (no year 0) coarser than that.
   const year = sign !== '-' ? digits : known !== undefined && known <= 8 ? 1 - digits : -digits;
   const month = stated === 'year' ? 1 : Number(monthText);
@@ -217,9 +256,13 @@ export function readWikidataTime(value: string, precision?: number): { timestamp
   // ISO 8601: four digits within 0000-9999, else a sign and six or more.
   const isoYear = year >= 0 && year <= 9999 ? String(year).padStart(4, '0') : `${year < 0 ? '-' : '+'}${String(Math.abs(year)).padStart(6, '0')}`;
   const timestamp = `${isoYear}-${pad2(month)}-${pad2(day)}T00:00:00Z`;
-  // A month or a day that does not exist, or a moment beyond the timeline, is no date.
-  if (!parseIsoInstant(timestamp)) return null;
-  return { timestamp, precision: stated };
+  if (!parseIsoInstant(timestamp)) {
+    // A moment past the axis's bound (even within its last year), or a month or day that does not exist.
+    // A year with too many digits for ISO to scan has no first day on the axis either.
+    if (isoBeyondRange(timestamp) || !parseIsoInstant(`${isoYear}-01-01T00:00:00Z`)) return fail(year < 0 ? 'before-timeline' : 'after-timeline');
+    return fail('unreadable');
+  }
+  return { ok: true, time: { timestamp, precision: stated } };
 }
 
 /** A Wikidata date value as an ISO-8601 instant, or null if unusable (see {@link readWikidataTime}). */
@@ -231,10 +274,15 @@ export function normalizeWikidataDate(value: string, precision?: number): string
  * Read `results.bindings` from a SPARQL JSON result set into facts.
  * `entityType` distinguishes the two predefined queries' label semantics.
  */
-export function parseWikidataResponse(
+export function parseWikidataResponse(payload: unknown, entityType: 'event' | 'person'): WikidataFact[] {
+  return readWikidataRows(payload, entityType).facts;
+}
+
+/** {@link parseWikidataResponse}, and the rows it left out, counted by reason. */
+export function readWikidataRows(
   payload: unknown,
   entityType: 'event' | 'person'
-): WikidataFact[] {
+): { facts: WikidataFact[]; dropped: DroppedRowCounts } {
   if (!isJsonObject(payload)) {
     throw new Error('Wikidata response was not a JSON object');
   }
@@ -244,12 +292,20 @@ export function parseWikidataResponse(
   }
 
   const facts: WikidataFact[] = [];
+  const dropped: DroppedRowCounts = {};
+  const idKey = entityType === 'event' ? 'event' : 'person';
   for (const rawBinding of results.bindings) {
-    if (!isJsonObject(rawBinding)) continue;
+    if (!isJsonObject(rawBinding)) {
+      countDropped(dropped, 'unreadable', '');
+      continue;
+    }
     const precisionText = bindingValue(rawBinding, 'precision');
-    const read = readWikidataTime(bindingValue(rawBinding, 'date'), precisionText === '' ? undefined : Number(precisionText));
-    if (!read) continue;
-    const { timestamp: date, precision: datePrecision } = read;
+    const read = classifyWikidataTime(bindingValue(rawBinding, 'date'), precisionText === '' ? undefined : Number(precisionText));
+    if (!read.ok) {
+      countDropped(dropped, read.reason, (bindingValue(rawBinding, idKey).split('/').pop() ?? ''));
+      continue;
+    }
+    const { timestamp: date, precision: datePrecision } = read.time;
 
     if (entityType === 'event') {
       const entityUrl = bindingValue(rawBinding, 'event');
@@ -280,7 +336,7 @@ export function parseWikidataResponse(
     }
   }
 
-  return facts;
+  return { facts, dropped };
 }
 
 export class WikidataExtractor implements Extractor<WikidataExtractionInput> {
@@ -315,8 +371,10 @@ export class WikidataExtractor implements Extractor<WikidataExtractionInput> {
     });
 
     const payload = parseJsonBody(response.body, 'Wikidata');
-    const facts = parseWikidataResponse(payload, entityType);
+    const { facts, dropped } = readWikidataRows(payload, entityType);
     const filtered = this.applyTimeRange(facts, context);
+    for (const fact of facts) if (!filtered.includes(fact)) countDropped(dropped, 'outside-range', fact.entityId);
+    const droppedRows = describeDroppedRows(dropped);
     const extractedAt = this.now().toISOString();
 
     const events = filtered.map((fact) => this.toEvent(fact, extractedAt));
@@ -335,6 +393,7 @@ export class WikidataExtractor implements Extractor<WikidataExtractionInput> {
       relationships: [],
       sources: events.length > 0 ? [source] : [],
       overallConfidence: events.length > 0 ? 0.9 : 0,
+      ...(droppedRows ? { droppedRows } : {}),
     };
   }
 

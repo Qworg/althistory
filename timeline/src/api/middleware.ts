@@ -736,6 +736,13 @@ export function rateLimit(customConfig?: Partial<RateLimitConfig>) {
       return;
     }
 
+    // The app's own key (the configured ADMIN_API_KEY) is not limited on any
+    // route; every other key, admin permission or not, is.
+    if (req.apiKey.rateLimitExempt) {
+      next();
+      return;
+    }
+
     const config = customConfig
       ? { ...req.apiKey.rateLimit, ...customConfig }
       : req.apiKey.rateLimit;

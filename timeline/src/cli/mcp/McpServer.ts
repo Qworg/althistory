@@ -1,4 +1,5 @@
 import * as readline from 'readline';
+import { LINK_EVIDENCE_REQUIRED, readLinkEvidence } from '@/utils/linkEvidence';
 import { IEngine } from '../engine/IEngine';
 import { MCP_TOOLS } from './toolDefinitions';
 import { MCP_PROMPTS, renderPrompt } from './prompts';
@@ -277,12 +278,17 @@ export class McpServer {
           ) {
             throw new Error('weight must be a number from 0 to 1');
           }
+          // `reasoning` is the older name for `evidence`; one of the two must have something in it.
+          const evidence = readLinkEvidence(args.evidence) ?? readLinkEvidence(args.reasoning);
+          if (evidence === undefined) {
+            throw new Error(LINK_EVIDENCE_REQUIRED);
+          }
           toolOutput = await this.engine.createCausalLink(String(args.graphId), {
             causeId: String(args.causeId),
             effectId: String(args.effectId),
             type,
             weight: typeof args.weight === 'number' ? args.weight : undefined,
-            reasoning: optionalString(args.reasoning),
+            reasoning: evidence,
           });
           break;
         }

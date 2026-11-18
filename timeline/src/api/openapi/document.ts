@@ -480,7 +480,12 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
             description: 'Alias of `strength`; the name the link is stored under.',
           },
           confidence: { type: 'number', minimum: 0, maximum: 1 },
-          evidence: { type: 'string', minLength: 1, description: 'Why the link holds. Must not be empty.' },
+          evidence: {
+            type: 'string',
+            minLength: 1,
+            pattern: '\\S',
+            description: 'Required. Why the link holds. Missing, empty or whitespace-only evidence is refused with a 400.',
+          },
         },
         required: ['confidence', 'evidence'],
       },
@@ -492,7 +497,23 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: {
       causeEventId: { type: 'string' },
       effectEventId: { type: 'string' },
-      relationship: { type: 'object' },
+      id: {
+        type: 'string',
+        description:
+          'Optional. The id of the link to change (from `GET /api/causal/relationships`). Without it the oldest link between the two events is changed. A link that is not between these two events in this graph is a 404.',
+      },
+      relationship: {
+        type: 'object',
+        description:
+          'The fields to change. `evidence` may be changed but not taken away: an empty or whitespace-only value is refused with a 400.',
+        properties: {
+          type: { type: 'string', enum: ['direct', 'indirect', 'contributory'] },
+          relationship_type: { type: 'string', enum: ['direct', 'indirect', 'contributory'] },
+          weight: { type: 'number', minimum: 0, maximum: 1 },
+          confidence: { type: 'number', minimum: 0, maximum: 1 },
+          evidence: { type: 'string', minLength: 1, pattern: '\\S' },
+        },
+      },
     },
     required: ['causeEventId', 'effectEventId'],
   },
@@ -501,6 +522,11 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: {
       causeEventId: { type: 'string' },
       effectEventId: { type: 'string' },
+      id: {
+        type: 'string',
+        description:
+          'Optional. The id of the link to remove. Without it the oldest link between the two events is removed. A link that is not between these two events in this graph is a 404.',
+      },
     },
     required: ['causeEventId', 'effectEventId'],
   },
@@ -589,6 +615,11 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: {
       keyId: { type: 'string' },
       rateLimit: { $ref: '#/components/schemas/ApiKeyRateLimit' },
+      rateLimitExempt: {
+        type: 'boolean',
+        description:
+          'True for the app\'s own key, the one configured as ADMIN_API_KEY: it is not rate limited on any route and holds any number of streams, so its currentUsage windows are always empty and rateLimit is not applied. Every other key, admin permission or not, is limited.',
+      },
       currentUsage: {
         type: 'object',
         required: ['minute', 'hour', 'day'],
@@ -677,9 +708,47 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
   IngestPreview: {
     type: 'object',
     properties: {
-      id: { type: 'string' },
+      jobId: { type: 'string' },
       status: { type: 'string' },
-      extraction: { type: 'object' },
+      extraction: {
+        type: 'object',
+        properties: {
+          events: { type: 'array', items: { type: 'object' } },
+          arcs: { type: 'array', items: { type: 'object' } },
+          relationships: { type: 'array', items: { type: 'object' } },
+          sources: { type: 'array', items: { type: 'object' } },
+          overallConfidence: { type: 'number' },
+          skippedSentences: { type: 'integer', description: 'Text extraction: sentences with no recognised date.' },
+          skippedSentenceTexts: { type: 'array', items: { type: 'string' } },
+          droppedRows: {
+            type: 'object',
+            description:
+              'Wikidata: results of the query that became no event, counted by reason. Absent when none were left out.',
+            properties: {
+              total: { type: 'integer', description: 'Results left out (one per binding, so one per place of an item).' },
+              reasons: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    reason: {
+                      type: 'string',
+                      enum: ['no-date', 'unreadable', 'before-timeline', 'after-timeline', 'outside-range', 'below-confidence'],
+                    },
+                    count: { type: 'integer' },
+                    items: { type: 'integer', description: 'Distinct Wikidata items among the results.' },
+                    itemIds: { type: 'array', items: { type: 'string' }, description: 'The first ten item ids.' },
+                    description: { type: 'string' },
+                  },
+                  required: ['reason', 'count', 'items', 'itemIds', 'description'],
+                },
+              },
+            },
+            required: ['total', 'reasons'],
+          },
+        },
+      },
+      validationIssues: { type: 'array', items: { type: 'object' } },
     },
   },
   Error: {
@@ -941,7 +1010,7 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
         enum: ['write', 'feed'],
         description: '`write`: a session that may write entities. `feed`: a read-only session for the live change feed.',
       },
-      concurrentStreams: { type: 'number' },
+      concurrentStreams: { type: 'number', nullable: true, description: 'The key\'s cap on concurrent streams; null for the app\'s own key (ADMIN_API_KEY), which has none.' },
     },
     required: ['token', 'expiresIn', 'graphId', 'permissions', 'mode'],
   },
@@ -969,7 +1038,27 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     type: 'object',
     properties: {
       graphId: { type: 'string' },
-      relationships: { type: 'array', items: { type: 'object' } },
+      relationships: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            cause_event_id: { type: 'string' },
+            effect_event_id: { type: 'string' },
+            weight: { type: 'number', minimum: 0, maximum: 1 },
+            confidence: { type: 'number', minimum: 0, maximum: 1 },
+            relationship_type: { type: 'string', enum: ['direct', 'indirect', 'contributory'] },
+            evidence: {
+              type: 'string',
+              minLength: 1,
+              pattern: '\\S',
+              description:
+                'Required. Why the link holds. If any relationship lacks it (missing, empty or whitespace-only) the whole batch is refused with a 400 and nothing is written.',
+            },
+          },
+          required: ['cause_event_id', 'effect_event_id', 'evidence'],
+        },
+      },
       validation: { type: 'string', enum: ['strict', 'lenient', 'skip'] },
       onError: { type: 'string', enum: ['abort', 'continue'] },
     },
@@ -979,7 +1068,12 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     type: 'object',
     properties: {
       graphId: { type: 'string' },
-      operations: { type: 'array', items: { type: 'object' } },
+      operations: {
+        type: 'array',
+        description:
+          'Each is `{ type, data }`. A `create_relationship` needs `data.evidence` (non-empty, not whitespace-only); a transaction with one that lacks it is refused with a 400 before any step runs.',
+        items: { type: 'object' },
+      },
       atomic: { type: 'boolean' },
     },
     required: ['graphId', 'operations'],

@@ -95,7 +95,9 @@ interface GlobalState {
   removeLoadingOperation: (operation: string) => void
   
   // Error handling actions
-  addError: (error: Omit<ErrorState, 'id' | 'timestamp'>) => void
+  /** Adds a notice and returns its id, for a caller that will take it down itself. */
+  addError: (error: Omit<ErrorState, 'id' | 'timestamp'>) => string
+  updateError: (id: string, patch: Partial<Pick<ErrorState, 'message' | 'retryAt'>>) => void
   clearErrors: () => void
   removeError: (id: string) => void
 
@@ -366,12 +368,19 @@ export const useGlobalStore = create<GlobalState>()(
       }),
       
       // Error handling actions
-      addError: (error) => set((state) => ({
-        errors: [...state.errors, {
-          ...error,
-          id: crypto.randomUUID(),
-          timestamp: new Date()
-        }]
+      addError: (error) => {
+        const id = crypto.randomUUID()
+        set((state) => ({
+          errors: [...state.errors, {
+            ...error,
+            id,
+            timestamp: new Date()
+          }]
+        }))
+        return id
+      },
+      updateError: (id, patch) => set((state) => ({
+        errors: state.errors.map((e) => (e.id === id ? { ...e, ...patch, timestamp: new Date() } : e))
       })),
       
       clearErrors: () => set({ errors: [] }),

@@ -135,7 +135,7 @@ describe('invented worlds', () => {
         effectId: war.id,
         type: 'indirect',
         weight: 0.6,
-        reasoning: 'The salt monopoly bred resentment',
+        evidence: 'The salt monopoly bred resentment',
       });
       expect(link.type).toBe('indirect');
       expect(link.weight).toBe(0.6);
@@ -166,13 +166,13 @@ describe('invented worlds', () => {
       const late = await engine.createEvent(graph.id, { description: 'Late', timestamp: '1002-01-01T00:00:00Z' });
 
       await expect(
-        callTool(server, 'althistory_link_events', { graphId: graph.id, causeId: late.id, effectId: early.id })
+        callTool(server, 'althistory_link_events', { graphId: graph.id, causeId: late.id, effectId: early.id, evidence: 'Seen' })
       ).rejects.toThrow(/Temporal ordering violation/);
       await expect(
-        callTool(server, 'althistory_link_events', { graphId: graph.id, causeId: early.id, effectId: late.id, type: 'magic' })
+        callTool(server, 'althistory_link_events', { graphId: graph.id, causeId: early.id, effectId: late.id, type: 'magic', evidence: 'Seen' })
       ).rejects.toThrow(/type must be one of/);
       await expect(
-        callTool(server, 'althistory_link_events', { graphId: graph.id, causeId: early.id, effectId: late.id, weight: 2 })
+        callTool(server, 'althistory_link_events', { graphId: graph.id, causeId: early.id, effectId: late.id, weight: 2, evidence: 'Seen' })
       ).rejects.toThrow(/weight must be a number from 0 to 1/);
     });
 
@@ -666,7 +666,7 @@ describe('invented worlds', () => {
       created.push(graph.id);
       const later = await engine.createEvent(graph.id, { description: 'The glassmakers join', timestamp: 'Seedtide 12, 152 AR' });
       const earlier = await engine.createEvent(graph.id, { description: 'The harbours close', timestamp: "Midyear's Day, 141 AR" });
-      await expect(engine.createCausalLink(graph.id, { causeId: later.id, effectId: earlier.id })).rejects.toThrow(
+      await expect(engine.createCausalLink(graph.id, { reasoning: 'Test evidence', causeId: later.id, effectId: earlier.id })).rejects.toThrow(
         /cause timestamp \(Seedtide 12, 152 AR, \d{4}-\d\d-\d\dT[^)]*\) must not be after effect timestamp \(Midyear's Day, 141 AR, /
       );
 

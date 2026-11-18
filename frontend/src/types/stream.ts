@@ -77,7 +77,8 @@ export interface ServerAuthResultMessage {
   sessionId?: string
   apiKeyId?: string
   graphId?: string
-  concurrentStreams?: number
+  /** The key's stream cap; null for the app's own key, which has none. */
+  concurrentStreams?: number | null
   mode?: 'write' | 'feed'
   error?: string
   code?: StreamErrorCode
@@ -129,6 +130,10 @@ export type LiveChangeBody =
       reason: string
       summary: string
       counts?: { events: number; arcs: number; relationships: number }
+      /** Entities the rebuild could not write to the live store. */
+      skipped?: number
+      /** Arcs kept though they lie outside their parent's time span. */
+      warnings?: number
     }
   | {
       kind: 'graph'
@@ -210,5 +215,6 @@ export interface StreamTokenResponse {
   graphId: string
   permissions: string[]
   mode?: 'write' | 'feed'
-  concurrentStreams: number
+  /** The key's stream cap; null for the app's own key, which has none. */
+  concurrentStreams: number | null
 }

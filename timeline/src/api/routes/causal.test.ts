@@ -263,4 +263,136 @@ describe('causal route graph scoping', () => {
       .expect(400);
     expect(response.body.error.message).toMatch(/type \(or relationship_type\)/);
   });
+  describe('evidence is required (#31)', () => {
+    async function pair(): Promise<{ graphId: string; cause: Event; effect: Event }> {
+      const graph = await container.graphRepository.create({ name: 'Graph' });
+      const cause = await seedEvent(graph.id, 'Cause', 'actor', new Date('2020-01-01T00:00:00Z'));
+      const effect = await seedEvent(graph.id, 'Effect', 'actor', new Date('2020-01-02T00:00:00Z'));
+      return { graphId: graph.id, cause, effect };
+    }
+
+    it.each([
+      ['missing', undefined],
+      ['empty', ''],
+      ['whitespace', '   \n\t'],
+      ['not a string', 7],
+    ])('refuses a new link whose evidence is %s, with a clear 400', async (_name, evidence) => {
+      const { graphId, cause, effect } = await pair();
+      const relationship: Record<string, unknown> = { type: 'direct', strength: 0.8, confidence: 0.9 };
+      if (evidence !== undefined) relationship.evidence = evidence;
+
+      const response = await request(app)
+        .post('/api/causal/link')
+        .set('X-Graph-Id', graphId)
+        .send({ causeEventId: cause.id, effectEventId: effect.id, relationship })
+        .expect(400);
+      expect(response.body.error.message).toMatch(/evidence is required/);
+
+      const listed = await request(app).get('/api/causal/relationships').set('X-Graph-Id', graphId).expect(200);
+      expect(listed.body.data).toEqual([]);
+    });
+
+    it('returns the id the link goes by', async () => {
+      const { graphId, cause, effect } = await pair();
+      const created = await request(app)
+        .post('/api/causal/link')
+        .set('X-Graph-Id', graphId)
+        .send({ causeEventId: cause.id, effectEventId: effect.id, relationship: RELATIONSHIP })
+        .expect(201);
+      const listed = await request(app).get('/api/causal/relationships').set('X-Graph-Id', graphId).expect(200);
+      expect(created.body.data.relationship.id).toBe(listed.body.data[0].id);
+    });
+
+    it('refuses an update that blanks the evidence, and keeps a change that does not', async () => {
+      const { graphId, cause, effect } = await pair();
+      await request(app)
+        .post('/api/causal/link')
+        .set('X-Graph-Id', graphId)
+        .send({ causeEventId: cause.id, effectEventId: effect.id, relationship: { ...RELATIONSHIP, evidence: 'A letter' } })
+        .expect(201);
+
+      for (const evidence of ['', '  ', null]) {
+        const refused = await request(app)
+          .put('/api/causal/link')
+          .set('X-Graph-Id', graphId)
+          .send({ causeEventId: cause.id, effectEventId: effect.id, relationship: { evidence } })
+          .expect(400);
+        expect(refused.body.error.message).toMatch(/evidence is required/);
+      }
+      await request(app)
+        .put('/api/causal/link')
+        .set('X-Graph-Id', graphId)
+        .send({ causeEventId: cause.id, effectEventId: effect.id, relationship: { weight: 0.3 } })
+        .expect(200);
+      const listed = await request(app).get('/api/causal/relationships').set('X-Graph-Id', graphId).expect(200);
+      expect(listed.body.data[0]).toMatchObject({ evidence: 'A letter', weight: 0.3 });
+    });
+  });
+  describe('naming a link by id on PUT and DELETE (#30)', () => {
+    async function twoLinks() {
+      const graph = await container.graphRepository.create({ name: 'Graph' });
+      const cause = await seedEvent(graph.id, 'Cause', 'actor', new Date('2020-01-01T00:00:00Z'));
+      const effect = await seedEvent(graph.id, 'Effect', 'actor', new Date('2020-01-02T00:00:00Z'));
+      for (const evidence of ['first', 'second']) {
+        await request(app)
+          .post('/api/causal/link')
+          .set('X-Graph-Id', graph.id)
+          .send({ causeEventId: cause.id, effectEventId: effect.id, relationship: { ...RELATIONSHIP, evidence } })
+          .expect(201);
+      }
+      const listed = await request(app).get('/api/causal/relationships').set('X-Graph-Id', graph.id).expect(200);
+      const byEvidence = Object.fromEntries(listed.body.data.map((l: { id: string; evidence: string }) => [l.evidence, l.id]));
+      return { graphId: graph.id, cause, effect, first: byEvidence.first as string, second: byEvidence.second as string };
+    }
+    const evidences = async (graphId: string): Promise<string[]> =>
+      (await request(app).get('/api/causal/relationships').set('X-Graph-Id', graphId).expect(200)).body.data
+        .map((l: { evidence: string }) => l.evidence)
+        .sort();
+
+    it('updates exactly the named link, not the oldest', async () => {
+      const { graphId, cause, effect, first, second } = await twoLinks();
+      expect(first).not.toBe(second);
+      const res = await request(app)
+        .put('/api/causal/link')
+        .set('X-Graph-Id', graphId)
+        .send({ causeEventId: cause.id, effectEventId: effect.id, id: second, relationship: { evidence: 'second, revised' } })
+        .expect(200);
+      expect(res.body.data.relationship.id).toBe(second);
+      expect(await evidences(graphId)).toEqual(['first', 'second, revised']);
+    });
+
+    it('deletes exactly the named link, and says which', async () => {
+      const { graphId, cause, effect, first, second } = await twoLinks();
+      const res = await request(app)
+        .delete('/api/causal/link')
+        .set('X-Graph-Id', graphId)
+        .send({ causeEventId: cause.id, effectEventId: effect.id, id: second })
+        .expect(200);
+      expect(res.body.data.id).toBe(second);
+      expect(await evidences(graphId)).toEqual(['first']);
+      const head = await container.graphRepository.checkout(graphId);
+      expect(Object.keys(head.relationships)).toEqual(expect.not.arrayContaining([second]));
+      expect(first).toBeTruthy();
+    });
+
+    it('is a 404 for an id that is not a link between those events in this graph', async () => {
+      const { graphId, cause, effect } = await twoLinks();
+      for (const method of ['put', 'delete'] as const) {
+        await request(app)[method]('/api/causal/link')
+          .set('X-Graph-Id', graphId)
+          .send({ causeEventId: cause.id, effectEventId: effect.id, id: 'no-such-link', relationship: { weight: 0.1 } })
+          .expect(404);
+      }
+      expect(await evidences(graphId)).toEqual(['first', 'second']);
+    });
+
+    it('is a 400 for an id that is not a string', async () => {
+      const { graphId, cause, effect } = await twoLinks();
+      await request(app)
+        .delete('/api/causal/link')
+        .set('X-Graph-Id', graphId)
+        .send({ causeEventId: cause.id, effectEventId: effect.id, id: 7 })
+        .expect(400);
+    });
+  });
 });

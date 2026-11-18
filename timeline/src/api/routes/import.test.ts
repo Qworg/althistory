@@ -976,6 +976,15 @@ describe('Import API Routes', () => {
 
       expect(response.body.error).toBe('Too many requests');
       expect(response.body.retryAfter).toBeGreaterThan(0);
+      expect(Number(response.headers['retry-after'])).toBeGreaterThan(0);
+    });
+
+    it('does not count job-status polling against the start/validate limit', async () => {
+      // The wizard polls every 500 ms; 3 is the limit for everything else.
+      for (let i = 0; i < 12; i++) {
+        const response = await request(rateLimitApp).get('/api/import/jobs/some-job');
+        expect(response.status).not.toBe(429);
+      }
     });
   });
 

@@ -232,6 +232,105 @@ states its own. Responses give each date's place on the
 timeline as ISO 8601; the query-string filters (`startTime`, `endTime`) and
 the temporal and inference routes take those ISO instants.
 
+## Arc hierarchy
+
+An arc can sit inside another. The parent is named in `metadata.parentArcId` (or
+as `parent_arc_id` on a create or update, which is recorded the same way), and a
+child is always exactly one level below its parent: level 0 is the top, and an
+arc with no parent is level 0. The arc routes and `POST /api/batch/*` keep that
+true:
+
+- **An impossible parent is a `400`.** An arc named as its own parent, one of its
+  own descendants named as its parent, or a parent that is not an arc of the
+  graph is refused on `POST /api/arcs`, `PUT /api/arcs/:id`, and the batch
+  `create_arc` and `update_arc` steps, at any level (an arc already at level 0
+  included). Naming a parent that is not the arc's current one is a move, whatever
+  the arc's metadata reads; clearing it (`parent_arc_id: null`, or
+  `metadata.parentArcId: null`) makes the arc top level.
+- **A level that cannot fit the parent is a `400`.** Level 2 under a level-0
+  parent, say, or a level above 0 with no parent. The message says why; name a new
+  parent that fits, or set `level` to 0 to make the arc top level. Changing an
+  arc's parent without a `level` moves it to its new parent's level + 1.
+- **An arc lies within its parent's time span** (start at or after the parent's,
+  end at or before it): otherwise `400`, naming the arc and the span. A root is
+  constrained by no other arc, and arcs of different branches overlap freely at
+  any level.
+- **Changing an arc's level or parent moves its subtree with it.** Every
+  descendant keeps being its parent's level + 1, three deep or more.
+- **Deleting an arc lifts its child arcs.** `DELETE /api/arcs/:id`, a batch
+  `delete_arc` and `althistory arc delete` move each child to the deleted arc's
+  parent (or make it top level, if the deleted arc was), each with its own subtree
+  one level up. If a child would not lie within its new parent's span (only
+  possible for data written before the span rule), the delete is refused with a
+  `400` that names the child and the span. The response's `data` lists
+  `movedChildArcs`. The events assigned to the deleted arc stay, without the arc
+  (`unassignedEvents`), and a pressure that named it lets go of it. The feed's
+  announcement says how many child arcs moved ("Deleted arc “Age of Sail”, moved
+  2 child arcs up a level"), and the graph's head, an export and the live store
+  all agree.
+
+A batch (`/api/batch/transaction`, `/api/batch/arcs`) is judged **once, against
+the state it ends in**, not step by step, and whatever the order of its steps: a
+batch that promotes B and then puts its old parent A under it is valid, and so is
+one that creates a child before its parent (name the parent's `id`), moves an
+arc under a parent created later in the batch, or widens a parent after making
+its child. If the end state is not a valid hierarchy the whole batch is refused
+with a `400` (`VALIDATION_ERROR`) before any step runs, atomic or not, so nothing
+lands.
+
+A create that names the id of an arc that already exists in the graph (or, in a
+Neo4j deployment, in another graph: an arc id is unique across them), or that an
+earlier step of the batch uses (a delete and a create of one id included), is
+refused with a `400` that names the id, before any step runs: a create never takes
+the place of another arc. Use an update, or another id. (One case is only caught
+when the step runs: in a Neo4j deployment, an id that only *another graph* holds.
+That step fails with a message that names the id, so a non-atomic transaction answers `207`
+with the other steps applied as for any failed step, and an atomic one `400`
+with what the failure undoes, as above.)
+
+**A step that does not apply is a failed step**, whatever its type: an `update_*`
+or `delete_*` of an id that is not there fails with the reason ("Not found: …"),
+as a step that throws does.
+
+- With `atomic` (the default), any failed step ends the transaction with a `400`
+  (`TRANSACTION_FAILED`, `rollbackPerformed: true`). What it **undoes**: the
+  entities it created (events, links and arcs) and every arc write (updates,
+  deletes, lifted children, unassigned events). What it **does not undo**: an
+  `update_event`, `delete_event` or link change made before the failing step; those
+  stay in the graph (and are versioned), except that an `update_event` that put an
+  event in an arc the failure undid loses that arc reference (with a `warning` on
+  its step). It is not a database transaction.
+- Without it, the other steps carry on, and a transaction with any failed step
+  answers `207` with `success: false` (before, a step that did not apply left it a
+  `200`).
+
+**The arc steps of a batch land or fail together.** If any arc step fails when it
+is carried out (a create the store refuses, say), every arc write the batch made
+is put back, whether `atomic` is set or not, and every arc step that had
+succeeded is reported as failed with "not applied: another arc step in this batch
+failed" (`207`; `400` for an atomic transaction, which undoes the arc writes and
+the entities it created, as above). Event and link steps of a non-atomic
+transaction keep their own per-step results. When the arc steps are undone, an
+event that a step had put in an arc that was then not made **loses that
+reference**: a kept `update_event` (in an atomic transaction too) that named the
+arc ends up in no arc, and its step carries a `warning` saying so. An event the
+batch only edited without naming the arc is left as it was, and so is one that
+named the id before the batch, unless a step of the batch writes that reference
+again (a step that restates the arc id is the batch's own reference, and goes with it). `POST /api/batch/arcs` is the same for every `onError` (`collect` or
+`skip`): either every arc is made or none is, and an arc that was skipped or left
+out by lenient validation is named in `failed` under its own index with its own
+error.
+
+A graph rebuilt from its history (rollback, branch, merge, import) keeps every
+arc, including one that lies outside its parent's span because it was stored
+before that rule. What it kept against the rule, and anything the live store
+refused, is reported three ways: the response of the rollback, merge or import
+carries `rebuild: { warnings: [...], skipped: [...] }` (absent when the graph was
+whole); the `replaced` message on the live feed carries `warnings` and `skipped`
+counts (with "could not be restored" in its summary); and the app shows a notice.
+Such an arc can still be renamed or described, but a change to its dates or
+parent is judged by the rule.
+
 ## Responses
 
 Most routes answer in an envelope:
@@ -306,6 +405,31 @@ A window that has already reset reads as unused; the reset timestamps are
 per-window, so the minute and the hour can be in different states.
 
 Limits are per key, not per endpoint, and reads and writes count the same.
+
+**The app's own key is exempt.** The key configured as `ADMIN_API_KEY` (the one
+`start-local.sh` puts in the browser bundle) is not rate limited on any route,
+and may hold any number of live streams, so a person with several tabs open is
+never refused live sync. The exemption belongs to that one key, found by
+comparing the stored keys with the environment at start-up, not to the `admin`
+permission: an admin key minted through `/api/keys`, and every scoped key given
+to an agent, keeps the limits above. Unsetting or changing `ADMIN_API_KEY`
+withdraws it. Costs that are not request rates still apply to it, such as the
+generation-job caps below. For an exempt key `GET /api/keys/:id/usage` answers
+`"rateLimitExempt": true` and empty `currentUsage` windows (its requests are not
+counted); `rateLimit` still shows the stored numbers, which are not applied.
+The same holds for the import routes' own limiter (10 a minute per key, per IP
+when there is no key; polling
+`GET /api/import/jobs/:id` has a separate 600 a minute), which skips the app key,
+and which sends `Retry-After` like every other `429`. The stream token and
+`auth_result` report `concurrentStreams: null` for the app key.
+
+**A minted key built into the bundled UI is not exempt.** The read-only key that
+[production-deployment.md](production-deployment.md) tells operators to bake
+into the browser bundle keeps the limits above, so size its `rateLimit` for the
+tabs and reloads you expect.
+
+Anything else that gets a `429` should show it to the person and honour
+`Retry-After`; the bundled UI does.
 
 ## Async jobs
 
@@ -590,6 +714,55 @@ curl -s -X POST http://localhost:3000/api/causal/link \
   -H "X-Graph-Id: $GRAPH" -H 'Content-Type: application/json' \
   -d '{"causeEventId":"evt-1","effectEventId":"evt-2","relationship":{"type":"direct","strength":0.9,"confidence":0.8,"evidence":"Contemporary account"}}'
 ```
+
+## Causal links
+
+A link says why. **`evidence` is required** at every door that makes or
+changes one, and a missing, empty or whitespace-only value is refused with a
+`400` and the message "evidence is required: …":
+
+| Door | Where `evidence` goes |
+| --- | --- |
+| `POST /api/causal/link` | `relationship.evidence` |
+| `PUT /api/causal/link` | `relationship.evidence`, optional here, but if given it must not be blank: evidence can be changed, not taken away |
+| `POST /api/batch/relationships` | `evidence` on each item. One item without it refuses the whole batch (`400`, nothing written), whatever `validation` and `onError` say |
+| `POST /api/batch/transaction` | `data.evidence` of each `create_relationship`. One without it refuses the whole transaction before any step runs |
+| a `relationship` message on the write WebSocket | `data.evidence` (`data.reasoning` is accepted as an older name) |
+| the CLI and MCP | `althistory causal link --evidence`, `althistory_link_events` `evidence` |
+
+There is no default: nothing fills in "Observed historical causality" or an
+empty string for you.
+
+**Importing is the exception.** An export made before the rule can hold a link
+with no evidence, and it must still import. `POST /api/import` and
+`althistory import` keep that link and store `(no evidence recorded)` as its
+evidence, and report it (a `MISSING_EVIDENCE` warning on `/api/import`, a line
+in the CLI's `warnings`). Edit the link to replace the placeholder.
+
+An export made in cloud mode before links had ids of their own can hold two
+links between one pair of events under one `cause->effect` id. It still
+imports: the first keeps the id, each later one is given `<id>~2`, `<id>~3`, ...,
+and `/api/import` reports each as a `RENAMED_ID` warning. (An id shared with an
+event or an arc is still refused as `DUPLICATE_ID`.)
+
+**Every link has an id of its own**, in local and cloud mode alike, so two
+links between the same two events are two links: each is versioned, announced
+on the live feed and deletable under its own id. `GET /api/causal/relationships`
+returns the ids, and `POST /api/causal/link` answers with the id of the link it
+made (`data.relationship.id`).
+
+`PUT` and `DELETE /api/causal/link` take an optional **`id`** in the body (next
+to `causeEventId` and `effectEventId`). With it, exactly that link is changed or
+removed, and a link that is not between those two events in this graph is a
+`404`. Without it they act on the oldest link of the pair. `DELETE` answers with
+the id it removed (`data.id`).
+
+In cloud mode, links stored before ids existed are named once, when the server
+starts (never by a read): for each pair of events the oldest such edge takes
+`cause->effect`, the id older versions already used in the version history and on
+the live feed, and any further edge between the same two events takes a new
+`link_<uuid>`; the version history is then updated so it holds each of them
+under its own id. Both id forms are accepted wherever an id is.
 
 ## What this API does not offer
 

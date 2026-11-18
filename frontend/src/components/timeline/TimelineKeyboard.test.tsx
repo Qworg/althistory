@@ -302,7 +302,7 @@ describe('Timeline event mark hit target', () => {
     const stem = group.querySelector('.event-stem')
     expect(stem).toHaveAttribute('pointer-events', 'none')
     // Painted under the dot, not over it.
-    const children = Array.from(group.children)
+    const children = Array.from(stem!.parentElement!.children)
     expect(children.indexOf(stem!)).toBeLessThan(children.indexOf(group.querySelector('.event-marker')!))
 
     fireEvent.click(hit!)

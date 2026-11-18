@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
+import { LINK_EVIDENCE_REQUIRED, readLinkEvidence } from '@/utils/linkEvidence';
 import { MAX_AXIS_MS, MIN_AXIS_MS, datePrecisionMetadata, isoOfAxisTime, storedCalendarSet, toInstant } from '@althistory/calendar';
 import type { CalendarInput } from '../../models/Graph';
 import { needsCalendar, precisionMetadata, readAgentTimestamp, withNewDatePrecision } from '../utils/timestamps';
@@ -744,6 +745,9 @@ export class RemoteEngine implements IEngine {
     graphId: string,
     data: { causeId: string; effectId: string; weight?: number; type?: string; reasoning?: string }
   ): Promise<CausalRelationshipDto> {
+    // Every link says why: refused here, as the daemon would refuse it.
+    const evidence = readLinkEvidence(data.reasoning);
+    if (evidence === undefined) throw new ValidationErrorCLI(LINK_EVIDENCE_REQUIRED);
     try {
       const res = await this.client.post(
         '/api/causal/link',
@@ -754,7 +758,7 @@ export class RemoteEngine implements IEngine {
             type: readRelationshipType(data.type),
             strength: data.weight ?? 1,
             confidence: 1,
-            evidence: data.reasoning || 'Observed historical causality',
+            evidence,
           },
         },
         { headers: this.graphHeaders(graphId) }
@@ -763,36 +767,29 @@ export class RemoteEngine implements IEngine {
       const echoed = isRecord(res.data) && isRecord(res.data.data) ? res.data.data.relationship : undefined;
       const echoedRecord = isRecord(echoed) ? echoed : undefined;
 
-      // The route echoes the relationship it was given, which carries no id, so
-      // the stored link is looked up to report the id the CLI's contract
-      // promises.
-      const stored = await this.findStoredRelationship(graphId, data.causeId, data.effectId);
-
+      // The route answers with the link it stored, id included. A lookup by
+      // the pair would find the oldest link of the two events, which is not
+      // this one when the pair already has another.
+      let id = readString(echoedRecord?.id, '');
+      if (id === '') {
+        // A daemon that does not echo the id: look the link up by its pair and
+        // the evidence just sent, and take the newest match. Unknown ('') if none.
+        const matches = (await this.listCausalLinks(graphId).catch(() => [])).filter(
+          (link) => link.causeId === data.causeId && link.effectId === data.effectId && link.reasoning === evidence
+        );
+        id = matches[matches.length - 1]?.id ?? '';
+      }
       return {
-        id: stored?.id ?? readString(echoedRecord?.id, ''),
+        id,
         graphId,
         causeId: data.causeId,
         effectId: data.effectId,
-        weight: stored?.weight ?? data.weight,
-        type: stored?.type ?? readRelationshipType(data.type),
-        reasoning: stored?.reasoning ?? data.reasoning,
+        weight: typeof echoedRecord?.weight === 'number' ? echoedRecord.weight : data.weight,
+        type: readOptionalString(echoedRecord?.relationship_type) ?? readRelationshipType(data.type),
+        reasoning: readOptionalString(echoedRecord?.evidence) ?? evidence,
       };
     } catch (err) {
       return this.handleError(err, 'creating causal link');
-    }
-  }
-
-  /** The stored relationship between two events, if the daemon has one. */
-  private async findStoredRelationship(
-    graphId: string,
-    causeId: string,
-    effectId: string
-  ): Promise<{ id: string; weight?: number; type?: string; reasoning?: string } | undefined> {
-    try {
-      const relationships = await this.listCausalLinks(graphId);
-      return relationships.find((r) => r.causeId === causeId && r.effectId === effectId);
-    } catch {
-      return undefined;
     }
   }
 
@@ -908,6 +905,8 @@ export class RemoteEngine implements IEngine {
         arcs: arcs.length,
         relationships: relationships.length,
       },
+      // What the extraction left out, as the server counted it.
+      ...(isRecord(extraction.droppedRows) ? { droppedRows: extraction.droppedRows as unknown as IngestResultDto['droppedRows'] } : {}),
       entities: {
         events: events.map((entry) => {
           const event = isRecord(entry) ? entry : {};

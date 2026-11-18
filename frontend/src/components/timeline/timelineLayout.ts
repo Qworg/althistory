@@ -31,6 +31,19 @@ export interface TimelineMargin {
 
 export const DEFAULT_TIMELINE_MARGIN: TimelineMargin = { top: 16, right: 16, bottom: 40, left: 56 }
 
+/** The actor timeline's default margin. */
+export const DEFAULT_ACTOR_MARGIN: TimelineMargin = { top: 20, right: 20, bottom: 60, left: 80 }
+
+/** The most ticks the main timeline's axis draws: 12px monospace labels need about 96px each. */
+export function mainAxisMaxTicks(innerWidth: number): number {
+  return Math.min(10, Math.floor(innerWidth / 96))
+}
+
+/** The most ticks the actor timeline's axis asks for over a plot of `plotWidth` px (at least 2). */
+export function actorAxisMaxTicks(plotWidth: number): number {
+  return Math.max(2, Math.floor(Math.abs(plotWidth) / 96))
+}
+
 /** Height of an arc bar. */
 export const ARC_BAR_HEIGHT = 16
 /** Pitch of the arc rows: a 12px label above a 16px bar, with clear space between rows. */
@@ -83,6 +96,15 @@ export interface TimelineLayout {
   ghostY: number | null
   /** Top and depth of the causal-link band, or null when there is none. */
   linkBand: { top: number; height: number } | null
+  /**
+   * The highest a plate may reach (its top, in plot y): the clip rect's top at
+   * the SVG's top margin (with no arcs and no band there is nothing above the
+   * labels, and the plate may rise into the margin), or 0 under a divergence
+   * band (whose diamonds and labels are obstacles), or, where arcs are drawn,
+   * the foot of the lowest arc bar. A plate whose top is above it would be cut
+   * off or cover a landmark.
+   */
+  plateTopLimit: number
   /** y of the time axis. */
   axisY: number
   /** The plot height the content needs (axisY; the tick labels sit in the bottom margin). */
@@ -121,6 +143,7 @@ export function computeTimelineLayout({
     eventY,
     ghostY,
     linkBand,
+    plateTopLimit: maxArcLevel >= 0 ? Math.max(0, arcsBottom - ARC_TO_LABELS_GAP) : hasDivergence ? 0 : -margin.top + 2,
     axisY,
     innerHeight: axisY,
     height: margin.top + axisY + margin.bottom,
@@ -151,3 +174,16 @@ export function timelineContentHeight(
     margin: options.margin,
   }).height
 }
+
+/** An arc bar narrower than this is an obstacle for a plate (a plate over a sliver arc would read as its label). */
+export const NARROW_ARC_PX = 120
+/**
+ * The row of a plate alone, above the top label row and under the arcs. Its
+ * plate (9px above the baseline, 3 below) fills the band the layout keeps there:
+ * its top is the lowest arc bar's foot, its bottom clears the top label row's
+ * text. Offered only where the whole plate lies in the SVG, clear of the
+ * divergence band's diamond and labels (`plateTopLimit`, and obstacles).
+ */
+export const PLATE_ONLY_ROWS = [-(EVENT_LABEL_CLEARANCE + ARC_TO_LABELS_GAP) + 9] as const
+/** Below this viewport width the inspector's sheet is docked over the bottom of the page. */
+export const DOCKED_SHEET_BELOW_PX = 1024

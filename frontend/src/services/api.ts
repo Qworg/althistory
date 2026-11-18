@@ -1,6 +1,7 @@
 import axios from 'axios'
 import type { AxiosInstance, AxiosResponse, AxiosError } from 'axios'
 import { toGraphVersion, type ServerVersionRef } from './graphVersions'
+import { noticeRateLimited, rateLimitedMessage, refusalStem, retryAfterSeconds } from './rateLimitNotice'
 import { CLIENT_ID, CLIENT_ID_HEADER, CLIENT_KIND_HEADER } from './clientIdentity'
 
 /** One entity a version added, changed or deleted, by kind and id. */
@@ -125,6 +126,7 @@ interface APIErrorPayload {
 // create reads `strength`/`type`, update reads `weight`/`relationship_type`.
 // Every field is therefore optional and both spellings are declared.
 interface LinkRelationshipPayload {
+  id?: string
   type?: CausalRelationship['relationship_type']
   relationship_type?: CausalRelationship['relationship_type']
   weight?: number
@@ -184,7 +186,10 @@ export class APIError extends Error {
     message: string,
     public status: number,
     public code?: string,
-    public details?: unknown
+    public details?: unknown,
+    /** Set on a 429: what was refused (see `refusalStem`), and how long to wait. */
+    public refusal?: string,
+    public retryAfter?: number | null
   ) {
     super(message)
     this.name = 'APIError'
@@ -201,10 +206,23 @@ function handleAPIError(error: AxiosError): never {
     // `message` made every server error read as axios's own
     // "Request failed with status code N", which hid the reason -- including
     // a validation message that says which field is wrong.
-    const message =
+    let message =
       payload?.error?.message || payload?.message || error.message
+    // A refused request says what was refused and when to retry, not the
+    // server's bare "Rate limit exceeded: 60/minute".
+    if (status === 429) message = rateLimitedMessage(error.config ?? {})
     const code = payload?.error?.code || payload?.code
     const details = payload?.error?.details ?? payload?.details
+    if (status === 429) {
+      throw new APIError(
+        message,
+        status,
+        code,
+        details,
+        refusalStem(error.config ?? {}),
+        retryAfterSeconds(error.response)
+      )
+    }
     throw new APIError(message, status, code, details)
   } else if (error.request) {
     // Network error
@@ -263,6 +281,9 @@ class APIClient {
                     localStorage.removeItem('api_key')
                 }
                 
+                // A refused request is told to the person, wherever it came from.
+                noticeRateLimited(error.response, error.config)
+
                 // Log error for debugging
                 console.error('API Error:', {
                     url: error.config?.url,
@@ -433,7 +454,8 @@ class APIClient {
                 // Transform response back to frontend format
                 const now = new Date().toISOString()
                 const result: CausalRelationship = {
-                    id: `${causeId}_${effectId}`,
+                    // The id the server gave the link; two links on one pair differ.
+                    id: response.data.data.relationship.id ?? `${causeId}_${effectId}`,
                     cause_event_id: causeId,
                     effect_event_id: effectId,
                     weight: response.data.data.relationship.strength || relationshipData.weight,
@@ -449,11 +471,13 @@ class APIClient {
             }
         },
 
-        updateLink: async (causeEventId: string, effectEventId: string, data: Partial<CausalRelationshipData>): Promise<CausalRelationship> => {
+        updateLink: async (causeEventId: string, effectEventId: string, data: Partial<CausalRelationshipData>, linkId?: string): Promise<CausalRelationship> => {
             try {
                 const requestData = {
                     causeEventId,
                     effectEventId,
+                    // Names the link when a pair has several; without it the server takes the oldest.
+                    ...(linkId ? { id: linkId } : {}),
                     relationship: {
                         type: data.relationship_type,
                         weight: data.weight,
@@ -465,7 +489,7 @@ class APIClient {
                 // Transform response back to frontend format
                 const now = new Date().toISOString()
                 const result: CausalRelationship = {
-                    id: `${causeEventId}_${effectEventId}`,
+                    id: response.data.data.relationship.id ?? linkId ?? `${causeEventId}_${effectEventId}`,
                     cause_event_id: causeEventId,
                     effect_event_id: effectEventId,
                     weight: response.data.data.relationship.weight ?? data.weight ?? 0,
@@ -481,12 +505,12 @@ class APIClient {
             }
         },
 
-        deleteLink: async (causeEventId: string, effectEventId: string): Promise<void> => {
+        deleteLink: async (causeEventId: string, effectEventId: string, linkId?: string): Promise<void> => {
             try {
                 await this.client.request({
                     method: 'DELETE',
                     url: '/causal/link',
-                    data: { causeEventId, effectEventId }
+                    data: { causeEventId, effectEventId, ...(linkId ? { id: linkId } : {}) }
                 })
             } catch (error) {
                 handleAPIError(error as AxiosError)
@@ -871,9 +895,17 @@ class APIClient {
         },
 
         // Switch active graph
-        switch: async (id: string): Promise<void> => {
+        /**
+         * `quiet`: the caller tells a refusal itself (the graph picker's own alert),
+         * so the client does not also raise a notice for a 429.
+         */
+        switch: async (id: string, options?: { quiet?: boolean }): Promise<void> => {
             try {
-                await this.client.post(`/graphs/${id}/activate`)
+                await this.client.post(
+                    `/graphs/${id}/activate`,
+                    undefined,
+                    options?.quiet ? ({ toldByCaller: true } as object) : undefined
+                )
             } catch (error) {
                 handleAPIError(error as AxiosError)
             }

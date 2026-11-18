@@ -21,7 +21,7 @@ import { Event, Arc } from '@/types'
 import { historicalYear } from '@/utils/historicalTime'
 import { VAEL } from '@/test/fixtures/worldCalendars'
 import { labelExtent } from '@/utils/axisLabelFit'
-import { readDateBound, readHistoricalText, toAxisTime, toInstant } from '@althistory/calendar'
+import { axisTimeOfCivil, instantOfAxisTime, labelsDistinctPerDay, readDateBound, readHistoricalText, toAxisTime, toInstant } from '@althistory/calendar'
 
 /**
  * Run `fn` as if the browser's locale were `locale`: every Intl formatter and
@@ -705,7 +705,7 @@ describe('axisTicks near a Date\'s lower bound', () => {
         for (const count of [3, 5, 8, 10]) {
           const ticks = axisTicks([new Date(a), new Date(b)], count, null)
           const labels = ticks.map((tick) => tick.label)
-          expect(new Set(labels).size, `${a}..${b} ${JSON.stringify(labels)}`).toBe(labels.length)
+          expect(labelsDistinctPerDay(labels), `${a}..${b} ${JSON.stringify(labels)}`).toBe(true)
           for (const tick of ticks) readsBack(tick.label, tick.date)
         }
       }
@@ -717,7 +717,7 @@ describe('axisTicks near a Date\'s lower bound', () => {
         const dates = d3.scaleUtc().domain([new Date(a), new Date(b)]).ticks(getTimeAxisInterval(span, true))
         if (dates.length === 0 || dates.length > 60) continue
         const labels = formatTimeAxisTickSet(dates, span, true)
-        expect(new Set(labels).size, `${a}..${b} ${JSON.stringify(labels)}`).toBe(labels.length)
+        expect(labelsDistinctPerDay(labels), `${a}..${b} ${JSON.stringify(labels)}`).toBe(true)
         dates.forEach((date, index) => readsBack(labels[index]!, date))
       }
     })
@@ -735,15 +735,47 @@ describe('axisTicks near a Date\'s lower bound', () => {
     it('names the day of a midnight tick at hour precision, and the time of the rest', () => {
       const day = d3.utcHour.every(6)!.range(new Date('-000043-03-15T00:00:00Z'), new Date('-000043-03-16T00:00:01Z'))
       expect(formatTimeAxisTicks(day, 86_400_000, true)).toEqual(['44-03-15 BCE', '06:00', '12:00', '18:00', '44-03-16 BCE'])
-      // Two noons would read the same: then every tick names its day and time.
+      // Two noons on either side of a dated midnight stay short: the dated tick tells them apart.
       const days = d3.utcHour.every(12)!.range(new Date('-000043-03-14T00:00:00Z'), new Date('-000043-03-16T00:00:01Z'))
-      expect(formatTimeAxisTicks(days, 2 * 86_400_000, true)).toEqual([
-        '44-03-14 BCE 00:00',
-        '44-03-14 BCE 12:00',
-        '44-03-15 BCE 00:00',
-        '44-03-15 BCE 12:00',
-        '44-03-16 BCE 00:00',
-      ])
+      expect(formatTimeAxisTicks(days, 2 * 86_400_000, true)).toEqual(['44-03-14 BCE', '12:00', '44-03-15 BCE', '12:00', '44-03-16 BCE'])
+      // Two noons with no dated tick between them would read the same: then every tick names its day and time.
+      const apart = [new Date('-000043-03-14T12:00:00Z'), new Date('-000043-03-15T12:00:00Z')]
+      expect(formatTimeAxisTicks(apart, 86_400_000, true)).toEqual(['44-03-14 BCE 12:00', '44-03-15 BCE 12:00'])
+    })
+
+    it('keeps short labels and a caption for a day-long view across midnight, every label reading back', () => {
+      const from = new Date('-000043-03-14T12:00:00Z')
+      const to = new Date('-000043-03-15T12:00:00Z')
+      for (const count of [3, 5, 8, 10]) {
+        const ticks = axisTicks([from, to], count, null)
+        const labels = ticks.map((tick) => tick.label)
+        // A noon at each end and a dated midnight between: short labels, never date-and-time.
+        expect(labels.filter((label) => /^\d{2}:\d{2}$/.test(label)).length, JSON.stringify(labels)).toBeGreaterThanOrEqual(2)
+        expect(labels.some((label) => / \d{2}:\d{2}$/.test(label)), JSON.stringify(labels)).toBe(false)
+        const fitted = fitAxis(ticks.map((tick, i) => ({ ...tick, x: i * 100 })), null, { left: -56, right: 4000 }, [from, to])
+        expect(fitted.caption).toBe('44-03-14 BCE – 44-03-15 BCE')
+        // A bare time reads as the day of the dated tick before it (or the caption's first day).
+        let day = '44-03-14 BCE'
+        for (const tick of ticks) {
+          if (/^\d{2}:\d{2}$/.test(tick.label)) {
+            const read = readHistoricalText(`${day} ${tick.label}`, 'start')
+            expect(read.ok && read.time, `${day} ${tick.label}`).toBe(toAxisTime(tick.date))
+          } else {
+            day = tick.label
+            const read = readDateBound(tick.label, 'start', null)
+            expect(read.ok && read.time, tick.label).toBe(toAxisTime(tick.date))
+          }
+        }
+      }
+    })
+
+    it('names the day of a narrow view that keeps only a month\'s first midnight', () => {
+      const from = instantOfAxisTime(axisTimeOfCivil(-65999999, 6, 30) + 23n * 3_600_000n)!
+      const to = instantOfAxisTime(axisTimeOfCivil(-65999999, 7, 1) + 5_400_000n)!
+      const placed = axisTicks([from, to], 2, null).map((tick, i) => ({ ...tick, x: i * 100 }))
+      expect(placed.map((t) => t.label)).toEqual(['66000000-07 BCE'])
+      const fitted = fitAxis(placed, null, { left: -56, right: 300 }, [from, to])
+      expect(fitted.caption, JSON.stringify(placed.map((t) => t.label))).not.toBeNull()
     })
   })
 

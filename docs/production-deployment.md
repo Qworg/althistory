@@ -50,6 +50,18 @@ admin key manages other keys, so shipping it in the bundle would give every
 visitor key-management rights over the deployment. The UI only needs to read;
 anything that writes should use a key held by the client, not the bundle.
 
+The browser key is a minted key, so it is **not** exempt from rate limits (only
+the key configured as `ADMIN_API_KEY` is; see
+[api-integration.md](api-integration.md#rate-limits)). And it is **one key shared
+by every visitor**: the same `VITE_API_KEY` is in everyone's bundle, so its
+budgets are shared too. With the defaults (60 requests a minute, 1 000 an hour,
+10 000 a day, 5 live streams) about six visitors loading the page at once, at
+about 10 requests per load, use up the minute; sustained use by a few people
+reaches the hourly cap within minutes. The UI then shows a message saying what
+was refused and when to retry. Raise **all three** request limits, and the
+streams, when you create it, for the number of visitors you expect, e.g.
+`"rateLimit":{"requestsPerMinute":600,"requestsPerHour":20000,"requestsPerDay":200000,"concurrentStreams":20}`.
+
 If no key is configured the UI still loads, but every entity request answers
 `401`, the interceptor discards the stored key, and each view shows its own
 error or empty state — there is no prompt asking for one.
@@ -221,6 +233,20 @@ to prevent, and it will pass the startup check if you set the variable.
   singleton has been resolved, and `200` once they all are. It is a diagnostic
   endpoint, not a liveness signal, which is why the compose healthcheck uses
   `/`.
+
+**The first start after upgrading from a version without link ids.** The server
+names every causal link that predates link ids (a one-off) before it starts
+listening, so neither `/` nor `/health` answers until it has finished, and it
+logs `Causal link ids: ...` progress lines (per graph, every 5,000 links) while
+it works. It reads the version history of the graphs that have such links and
+writes it only where it differs. Allow for it in the start period of the
+liveness probe: measured against Neo4j on a 1 GB heap, naming 300,000 links
+takes between 1 and 2 minutes (64 s on one machine, 125 s on a loaded one; most of it is reading the version history, so it depends on the machine and on the size of the head) and 10,000 pairs of two links about
+9 seconds. Every later start finds nothing to name and costs one read.
+If the process is stopped part-way it resumes (the plan is deterministic and the
+version history is written before the links are named). Startup does not fail
+for a graph whose history cannot be written: that graph is reported and tried
+again at the next start.
 
 ## 6. Cloud integration tests
 

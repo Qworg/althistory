@@ -505,6 +505,8 @@ graphRoutes.post('/:id/rollback/:version', ...writeGraphAuth, async (req: Reques
       throw new ValidationError('Version must be a non-negative integer', 'version', req.params.version);
     }
 
+    // A report a rebuild left that nobody collected is not this rollback's.
+    req.container.liveStoreSyncService?.takeReport?.(req.params.id);
     const versionRef = await service.rollbackGraph(req.params.id, version);
 
     // The client stores the response as the graph detail, so return the graph's
@@ -512,10 +514,14 @@ graphRoutes.post('/:id/rollback/:version', ...writeGraphAuth, async (req: Reques
     // record alone.
     const graph = await service.getGraph(req.params.id);
 
+    // What the rebuild could not write, or kept against a rule (an arc outside its parent's span).
+    const rebuild = req.container.liveStoreSyncService?.takeReport?.(req.params.id);
+
     res.json({
       success: true,
       data: graph,
       version: versionRef,
+      ...(rebuild ? { rebuild } : {}),
       message: `Rolled back to version ${version}`,
       requestId: req.requestId,
     });
@@ -626,6 +632,7 @@ graphRoutes.post(
         );
       }
 
+      req.container.liveStoreSyncService?.takeReport?.(req.params.id);
       const result = await service.mergeGraph(req.params.id, request);
 
       if (!result.success) {
@@ -643,6 +650,10 @@ graphRoutes.post(
         success: true,
         data: result.mergedGraph,
         newVersion: result.newVersion,
+        ...(result.dryRun === true ? {} : (() => {
+          const rebuild = req.container.liveStoreSyncService?.takeReport?.(req.params.id);
+          return rebuild ? { rebuild } : {};
+        })()),
         conflicts: result.conflicts,
         anomalies: result.anomalies,
         // Present (and true) only for a preview, so a client that asked for a dry

@@ -11,12 +11,14 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { readDateBound, readHistoricalText, toAxisTime } from '@althistory/calendar'
 import { ActorTimeline, type ActorEventData } from './ActorTimeline'
 import { Timeline } from './Timeline'
 import { CounterfactualTimelineCanvas } from '@/components/branch/CounterfactualTimelineCanvas'
-import { axisTicks, fitAxis, isBareTime } from '@/utils/d3Calculations'
+import { AXIS_LABEL_CHAR_PX, axisTicks, fitAxis, isBareTime } from '@/utils/d3Calculations'
+import { DEFAULT_ACTOR_MARGIN, DEFAULT_TIMELINE_MARGIN, mainAxisMaxTicks } from './timelineLayout'
+import { counterfactualMargin } from '@/components/branch/counterfactualAxis'
 import { labelExtent } from '@/utils/axisLabelFit'
 import type { Event } from '@/types'
 
@@ -55,7 +57,11 @@ interface Drawn {
   anchor: 'start' | 'middle' | 'end'
 }
 
-const WIDTHS = [360, 600, 1000, 1300]
+/** 280 and 310 are the SVG's widths on a phone of 320 to 390 px, where the page leaves the timeline less than its viewport. */
+const WIDTHS = [280, 310, 360, 600, 1000, 1300]
+
+/** The x the main timeline's SVG reaches each side of its plot at a width: its own margins. */
+const mainRoom = (width: number) => ({ left: -DEFAULT_TIMELINE_MARGIN.left, right: width - DEFAULT_TIMELINE_MARGIN.left })
 
 const HISTORIES: Array<[string, string[]]> = [
   ['one event in 44 BCE (its twenty-second view)', ['-000043-03-15T12:00:00.000Z']],
@@ -66,6 +72,8 @@ const HISTORIES: Array<[string, string[]]> = [
   ['a fortnight of 9000 BCE', ['-008999-03-01T00:00:00.000Z', '-008999-03-14T12:00:00.000Z']],
   ['one event in 50,000 BCE (deep time)', ['-049999-03-15T12:00:00.000Z']],
   ['three hours of 50,000 BCE', ['-049999-03-15T12:00:00.000Z', '-049999-03-15T15:00:00.000Z']],
+  ['an hour across a deep-time month start', ['-065999999-06-30T23:30:00.000Z', '-065999999-07-01T00:30:00.000Z']],
+  ['three hours from a deep-time month start', ['-065999999-07-01T00:00:00.000Z', '-065999999-07-01T03:00:00.000Z']],
   ['two hundred million years', ['-249999999-01-01T00:00:00.000Z', '-065999999-01-01T00:00:00.000Z']],
 ]
 
@@ -76,7 +84,14 @@ function readBack(label: string): bigint | null {
 }
 
 /** What every axis must hold to; `room` is the x the SVG reaches each side of the plot. */
-function expectReadable(axis: string, drawn: readonly Drawn[], caption: string | null, room: { left: number; right: number }, charPx: number) {
+function expectReadable(
+  axis: string,
+  drawn: readonly Drawn[],
+  caption: string | null,
+  room: { left: number; right: number },
+  charPx: number,
+  captionAt?: { full: string | null; x: number }
+) {
   const dated = drawn.filter((tick) => !isBareTime(tick.label))
   expect(dated.length > 0 || Boolean(caption), `${axis}: no date (${JSON.stringify(drawn.map((t) => t.label))})`).toBe(true)
   const sorted = [...drawn].sort((a, b) => a.x - b.x)
@@ -87,7 +102,13 @@ function expectReadable(axis: string, drawn: readonly Drawn[], caption: string |
     if (i > 0) expect(left, `${axis}: "${tick.label}" overprints "${sorted[i - 1]!.label}"`).toBeGreaterThanOrEqual(labelExtent(sorted[i - 1]!, charPx)[1])
   }
   for (const tick of dated) expect(readBack(tick.label), `${axis}: "${tick.label}" does not read back`).not.toBeNull()
-  for (const day of caption?.split(' – ') ?? []) expect(readDateBound(day, 'start', null).ok, `${axis}: caption "${day}"`).toBe(true)
+  // A caption shortened to fit ("66000000-06-30 – 07-01 BCE") names its days in full to a screen reader, and they read back.
+  for (const day of (captionAt?.full ?? caption)?.split(' – ') ?? []) expect(readDateBound(day, 'start', null).ok, `${axis}: caption "${day}"`).toBe(true)
+  if (caption) {
+    const x = captionAt?.x ?? 0
+    expect(x, `${axis}: caption "${caption}" starts left of the SVG`).toBeGreaterThanOrEqual(room.left - 0.5)
+    expect(x + caption.length * charPx, `${axis}: caption "${caption}" runs off the SVG`).toBeLessThanOrEqual(room.right + 0.5)
+  }
 }
 
 function drawnTicks(container: HTMLElement, selector: string): Drawn[] {
@@ -104,8 +125,9 @@ describe('every time axis before 1 CE and in deep time', () => {
       it(`main timeline, ${history}, at ${width} px`, () => {
         const { container } = render(<Timeline events={stamps.map((t, i) => event(`e${i}`, t))} arcs={[]} width={width} height={400} />)
         const drawn = drawnTicks(container, 'text.axis-tick')
-        const caption = container.querySelector('.axis-day-caption')?.textContent ?? null
-        expectReadable(`main ${history} ${width}`, drawn, caption, { left: -56, right: width - 56 }, 7.2)
+        const captionEl = container.querySelector('.axis-day-caption')
+        const caption = captionEl?.textContent ?? null
+        expectReadable(`main ${history} ${width}`, drawn, caption, mainRoom(width), AXIS_LABEL_CHAR_PX, { full: captionEl?.getAttribute('aria-label') ?? null, x: Number(captionEl?.getAttribute('x') ?? 0) })
       })
 
       it(`actor view, ${history}, at ${width} px`, () => {
@@ -114,8 +136,9 @@ describe('every time axis before 1 CE and in deep time', () => {
         const texts = Array.from(container.querySelectorAll('.x-axis text.axis-tick'))
         expect(texts.every((text) => !text.getAttribute('transform')), `actor ${history} ${width}: labels turned`).toBe(true)
         const drawn = drawnTicks(container, '.x-axis text.axis-tick')
-        const caption = container.querySelector('.x-axis .axis-day-caption')?.textContent ?? null
-        expectReadable(`actor ${history} ${width}`, drawn, caption, { left: -80, right: width - 80 }, 6.6)
+        const captionEl = container.querySelector('.x-axis .axis-day-caption')
+        const caption = captionEl?.textContent ?? null
+        expectReadable(`actor ${history} ${width}`, drawn, caption, { left: -DEFAULT_ACTOR_MARGIN.left, right: width - DEFAULT_ACTOR_MARGIN.left }, 6.6, { full: captionEl?.getAttribute('aria-label') ?? null, x: Number(captionEl?.getAttribute('x') ?? 0) })
       })
 
       it(`counterfactual canvas, ${history}, at ${width} px`, () => {
@@ -132,11 +155,36 @@ describe('every time axis before 1 CE and in deep time', () => {
           />
         )
         const drawn = drawnTicks(container, 'text.axis-tick')
-        const margin = width < 560 ? { left: 96, right: 16 } : { left: 140, right: 32 }
-        expectReadable(`counterfactual ${history} ${width}`, drawn, null, { left: -margin.left, right: width - margin.left }, 7.2)
+        const margin = counterfactualMargin(width)
+        expectReadable(`counterfactual ${history} ${width}`, drawn, null, { left: -margin.left, right: Math.max(100, width - margin.left - margin.right) + margin.right }, AXIS_LABEL_CHAR_PX)
       })
     }
   }
+
+  it('names the day under the main axis as the view zooms and pans', () => {
+    // A night of 44 BCE across midnight, 22:00 to 02:00.
+    const { container } = render(
+      <Timeline events={['-000043-03-14T22:00:00.000Z', '-000043-03-15T02:00:00.000Z'].map((t, i) => event(`n${i}`, t))} arcs={[]} width={1000} height={400} />
+    )
+    const svg = container.querySelector('svg')!
+    const caption = () => container.querySelector('.axis-day-caption')?.textContent ?? null
+    const labels = () => Array.from(container.querySelectorAll('text.axis-tick')).map((text) => text.textContent)
+    // Zoom in at the left end of the plot: the view shrinks onto the evening of the 14th.
+    act(() => {
+      svg.dispatchEvent(new WheelEvent('wheel', { deltaY: -200, clientX: 60, clientY: 200, ctrlKey: true, bubbles: true, cancelable: true }))
+    })
+    expect(caption(), JSON.stringify(labels())).toBe('44-03-14 BCE')
+    // Pan toward the later hours, a step at a time: the caption takes in midnight, then only the 15th.
+    const seen = new Set<string | null>()
+    for (let step = 0; step < 120; step++) {
+      fireEvent.keyDown(svg, { key: 'ArrowRight' })
+      seen.add(caption())
+    }
+    expect([...seen]).toContain('44-03-14 BCE – 44-03-15 BCE')
+    expect(caption(), JSON.stringify(labels())).toBe('44-03-15 BCE')
+    // Every label that names a date reads back as itself in the day the caption names.
+    for (const label of labels()) if (label && !isBareTime(label)) expect(readBack(label), label).not.toBeNull()
+  })
 
   it('fits the main timeline zoomed in to one second, before 1 CE and in deep time', () => {
     for (const [from, to] of [
@@ -145,14 +193,14 @@ describe('every time axis before 1 CE and in deep time', () => {
       ['-049999-03-15T11:59:59.500Z', '-049999-03-15T12:00:00.500Z'],
     ] as const) {
       for (const width of WIDTHS) {
-        const inner = width - 72
+        const inner = width - DEFAULT_TIMELINE_MARGIN.left - DEFAULT_TIMELINE_MARGIN.right
         const domain: [Date, Date] = [new Date(from), new Date(to)]
         const span = Number(toAxisTime(domain[1])! - toAxisTime(domain[0])!)
         const x = (date: Date) => (Number(toAxisTime(date)! - toAxisTime(domain[0])!) / span) * inner
-        const maxTicks = Math.min(10, Math.floor(inner / 96))
+        const maxTicks = mainAxisMaxTicks(inner)
         const ticks = axisTicks(domain, maxTicks > 0 ? maxTicks : 5, null).map((tick) => ({ ...tick, x: x(tick.date) }))
-        const fitted = fitAxis(ticks, null, { left: -56, right: inner + 16 }, domain)
-        expectReadable(`zoom ${from} ${width}`, fitted.ticks, fitted.caption, { left: -56, right: inner + 16 }, 7.2)
+        const fitted = fitAxis(ticks, null, mainRoom(width), domain)
+        expectReadable(`zoom ${from} ${width}`, fitted.ticks, fitted.caption, mainRoom(width), AXIS_LABEL_CHAR_PX, { full: fitted.captionFull ?? null, x: fitted.captionX ?? 0 })
         for (const tick of fitted.ticks) {
           if (!isBareTime(tick.label)) expect(readBack(tick.label), tick.label).toBe(toAxisTime(tick.date))
         }

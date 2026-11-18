@@ -50,6 +50,12 @@ describe('LiveChangeApplier', () => {
     vi.useRealTimers()
   })
 
+  it('tells the person when a rebuilt graph holds arcs outside their parent, or could not be restored', () => {
+    applier.push({ kind: 'replaced', graphId: 'g1', seq: ++seq, at: 'x', actor: { kind: 'cli' }, reason: 'import', summary: 'x', warnings: 2, skipped: 1 } as LiveChange)
+    vi.advanceTimersByTime(150)
+    expect(sink.setNotice).toHaveBeenCalledWith('rebuild:g1', expect.stringMatching(/2 arcs lie outside their parent.*1 entity could not be restored/))
+  })
+
   it('invalidates what a change made stale, so the active queries refetch', () => {
     applier.push(added('g1', 'event', 'e1'))
     expect(invalidated).toEqual([])

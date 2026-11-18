@@ -4,7 +4,8 @@ import { useLiveChangesStore } from '@/stores/liveChangesStore'
  * Says, for a few seconds, who changed what: "An agent (Claude) added 3 events
  * to “The Tide War”". The lines come from the live change feed
  * (`describeChanges`) and only for changes other writers made; your own edits
- * are not announced to you.
+ * are not announced to you. A warning (a graph rebuilt without parts of itself)
+ * stays until it is dismissed.
  *
  * Bottom centre: the notification center holds the bottom right, the sidebar's
  * footer the bottom left, and a notice up top covers the graph selector. On a
@@ -29,7 +30,7 @@ export function LiveChangeNotices() {
           data-testid="live-change-notice"
           className="pointer-events-auto flex items-start gap-3 rounded-lg border border-line bg-card px-4 py-3 text-ink shadow-lg"
         >
-          <span aria-hidden="true" className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-success" />
+          <span aria-hidden="true" className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${notice.warning ? 'bg-warning' : 'bg-success'}`} />
           <p className="min-w-0 flex-1 text-sm break-words">{notice.message}</p>
           <button
             type="button"

@@ -88,6 +88,10 @@ export type ChangeBody =
       summary: string;
       /** What the graph holds now. */
       counts?: { events: number; arcs: number; relationships: number };
+      /** Entities the rebuild could not write to the live store (their reasons are in the server log). */
+      skipped?: number;
+      /** Arcs kept though they break a hierarchy rule (an arc outside its parent's time span). */
+      warnings?: number;
     }
   | {
       kind: 'graph';

@@ -9,6 +9,7 @@ import {
   type EventLabelPlacement,
 } from './eventLabelLayout'
 import { EVENT_STEM_LENGTH } from './timelineLayout'
+import { DIMMED_OPACITY } from './dimmedOpacity'
 import { eventConfidence } from './eventInspectorUtils'
 import { confidenceTier } from './confidenceTier'
 
@@ -23,6 +24,7 @@ const HIT_RADIUS =
   typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches
     ? 22
     : 12
+
 
 export interface TimelineEventProps {
   event: Event
@@ -44,6 +46,8 @@ export interface TimelineEventProps {
   isFresh?: boolean
   /** Whether a selection's ripple is being traced and this event is not on it. */
   isDimmed?: boolean
+  /** Whether the event is on the traced ripple (a cause or effect of the selection): its label takes the primary ink. */
+  isTraced?: boolean
   /**
    * Whether the event exists only in this branch: it falls after the point of
    * divergence and has no counterpart in the ghosted baseline. Drawn in the
@@ -108,6 +112,7 @@ export const TimelineEvent = memo(function TimelineEvent({
   isSelected = false,
   isFresh = false,
   isDimmed = false,
+  isTraced = false,
   isBranchOwn = false,
   isTabStop = true,
   reach = 0,
@@ -186,7 +191,6 @@ export const TimelineEvent = memo(function TimelineEvent({
       data-confidence-tier={tier}
       data-dimmed={isDimmed ? 'true' : undefined}
       data-fresh={isFresh ? 'true' : undefined}
-      opacity={isDimmed ? 0.28 : undefined}
       transform={`translate(${x}, ${y})`}
       tabIndex={isTabStop ? 0 : -1}
       role="button"
@@ -205,6 +209,10 @@ export const TimelineEvent = memo(function TimelineEvent({
     >
       {/* Transparent hit area (at least 24px), under everything else. */}
       <circle className="event-hit-area" r={Math.max(HIT_RADIUS, markRadius + 3)} fill="transparent" pointerEvents="all" />
+      {/* The mark (stem, rings, dot) dims while another event's ripple is
+          traced; the label does not fade with it, it takes a muted ink that
+          still reads (DIMMED_OPACITY, and the label fill below). */}
+      <g className="event-mark" opacity={isDimmed ? DIMMED_OPACITY : undefined}>
       {/* The stem is drawn before the dot so the dot covers its top end. */}
       <line
         className="event-stem"
@@ -275,9 +283,11 @@ export const TimelineEvent = memo(function TimelineEvent({
           pointerEvents="none"
         />
       )}
+      </g>
       {placement && (
         <text
           className="event-label"
+          x={placement.dx}
           y={placement.offset}
           textAnchor={placement.anchor}
           fontSize={LABEL_FONT_SIZE}
@@ -286,9 +296,11 @@ export const TimelineEvent = memo(function TimelineEvent({
           fill={
             isSelected
               ? 'var(--accent-selected)'
-              : isHighlighted
+              : isHighlighted || isTraced
                 ? 'var(--text-primary)'
-                : 'var(--text-secondary)'
+                : isDimmed
+                  ? 'var(--text-muted)'
+                  : 'var(--text-secondary)'
           }
           // A card-coloured halo keeps the label legible where it crosses an
           // arc's dashed edge, another mark's stem, or a leader passing behind.

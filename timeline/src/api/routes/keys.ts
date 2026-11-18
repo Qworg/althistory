@@ -141,9 +141,12 @@ keyRoutes.get(
       } =>
         w ? currentUsageWindow(w, now) : { count: 0, resetAt: null };
 
+      // The app's own key (the configured ADMIN_API_KEY) is not counted, so its
+      // windows are always empty; say so rather than let a zero look like idleness.
       res.json({
         keyId: key.id,
         rateLimit: key.rateLimit,
+        rateLimitExempt: key.rateLimitExempt,
         currentUsage: {
           minute: window_(state?.minute),
           hour: window_(state?.hour),

@@ -280,6 +280,17 @@ export interface ErrorState {
   /** `info` is a notice, not a failure: the app changed something the user should know about. */
   type: 'network' | 'validation' | 'visualization' | 'general' | 'info'
   timestamp: Date
+  /**
+   * Set on a rate-limit notice: what was refused (its identity: a repeat
+   * refusal of the same kind updates this notice, it does not add one).
+   */
+  refusal?: string
+  /**
+   * Set on a rate-limit notice: when the server will take the request again
+   * (epoch ms). The notice shows the remaining wait counting down, and goes
+   * away a little after it.
+   */
+  retryAt?: number
 }
 
 // User preferences that should be persisted
@@ -891,6 +902,23 @@ export interface ExtractionResult {
   skippedSentences?: number
   /** The skipped sentences themselves (up to 20), to show and date them. */
   skippedSentenceTexts?: string[]
+  /** Wikidata: results that became no event, counted by reason. Absent when none were left out. */
+  droppedRows?: DroppedRows
+}
+
+export interface DroppedRows {
+  /** Wikidata results left out (one per place of an item, so possibly more than the items). */
+  total: number
+  reasons: Array<{
+    reason: 'no-date' | 'unreadable' | 'before-timeline' | 'after-timeline' | 'outside-range' | 'below-confidence'
+    count: number
+    /** Distinct Wikidata items among the results. */
+    items: number
+    /** Wikidata ids of those items, the first ten. */
+    itemIds: string[]
+    /** Completes "N Wikidata results were left out: ...". */
+    description: string
+  }>
 }
 
 export interface IngestionValidationIssue {

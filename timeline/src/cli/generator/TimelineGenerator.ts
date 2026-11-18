@@ -504,22 +504,33 @@ export class TimelineGenerator {
     // The parents are created first, so that a child arc can name the arc it
     // belongs to by its real id.
     const arcIdByTempId = new Map<string, string>();
+    const createdByTempId = new Map<string, Arc>();
     const orderedArcs = [...structuredArcs].sort((a, b) => a.level - b.level);
     for (const a of orderedArcs) {
       run.checkpoint();
-      const startTime = toInstant(a.start_time);
+      let startTime = toInstant(a.start_time);
       let endTime = toInstant(a.end_time);
       // Exactly, as the engine does: through a double an odd millisecond of a
       // deep end moves into the next year.
       if (compareInstants(startTime, endTime) >= 0) endTime = addInstantMs(startTime, MS_PER_DAY);
+      // The hierarchy obeys the rules whatever the plan proposed: a child is
+      // one level below a parent that exists, inside its span; an arc whose
+      // parent is missing, or cannot hold it, is top level.
+      let parentArc = a.parentArcId ? createdByTempId.get(a.parentArcId) : undefined;
+      if (parentArc) {
+        if (compareInstants(startTime, parentArc.start_time) < 0) startTime = parentArc.start_time;
+        if (compareInstants(endTime, parentArc.end_time) > 0) endTime = parentArc.end_time;
+        if (compareInstants(startTime, endTime) >= 0) parentArc = undefined;
+      }
       const created = await scoped.arcRepository.create({
         name: a.name,
         description: a.description || '',
         start_time: startTime,
         end_time: endTime,
-        level: a.level,
-        metadata: a.parentArcId ? { parentArcId: arcIdByTempId.get(a.parentArcId) } : {},
+        level: parentArc ? parentArc.level + 1 : 0,
+        metadata: parentArc ? { parentArcId: parentArc.id } : {},
       });
+      createdByTempId.set(a.tempId, created);
       arcIdByTempId.set(a.tempId, created.id);
       try {
         await container.graphWriteVersioningService.recordArc(graphId, created, 'create');
@@ -1237,15 +1248,29 @@ export class TimelineGenerator {
     run.plan({ events: intermediateEvents.length, arcs: 1, relationships: 0 });
     run.target(options.graphId, 'template');
     run.checkpoint();
+    // The expansion lies within the arc it belongs to: a window that spills
+    // over it is cut to it, and one that does not meet it stands alone.
+    let expansionStart = instantOfAxisTime(windowStart) ?? new Date(NaN);
+    let expansionEnd = instantOfAxisTime(windowEnd) ?? new Date(NaN);
+    let expansionParent = parentArc;
+    if (expansionParent) {
+      if (compareInstants(expansionStart, expansionParent.start_time) < 0) expansionStart = expansionParent.start_time;
+      if (compareInstants(expansionEnd, expansionParent.end_time) > 0) expansionEnd = expansionParent.end_time;
+      if (compareInstants(expansionStart, expansionEnd) >= 0) {
+        expansionParent = null;
+        expansionStart = instantOfAxisTime(windowStart) ?? new Date(NaN);
+        expansionEnd = instantOfAxisTime(windowEnd) ?? new Date(NaN);
+      }
+    }
     const createdArc = await scoped.arcRepository.create({
       name: expansionArcName,
-      description: parentArc
-        ? `Sub-arc of ${parentArc.name} holding ${count} interpolated events`
+      description: expansionParent
+        ? `Sub-arc of ${expansionParent.name} holding ${count} interpolated events`
         : `Arc holding ${count} interpolated events`,
-      start_time: (instantOfAxisTime(windowStart) ?? new Date(NaN)),
-      end_time: (instantOfAxisTime(windowEnd) ?? new Date(NaN)),
-      level: parentArc ? parentArc.level + 1 : 0,
-      metadata: parentArc ? { parentArcId: parentArc.id } : {},
+      start_time: expansionStart,
+      end_time: expansionEnd,
+      level: expansionParent ? expansionParent.level + 1 : 0,
+      metadata: expansionParent ? { parentArcId: expansionParent.id } : {},
     });
     // Recorded in the graph's history, like everything else the generator
     // writes: a merge or rollback rebuilds the live store from that history,

@@ -1,7 +1,8 @@
+import { randomUUID } from 'crypto';
 import { Event } from '@/models';
 import { CausalRelationship, CausalPath, CausalCycle, CausalRelationshipType, CausalValidationResult } from '@/models/relationships';
 import { getDatabaseManager, DatabaseManager, LocalDatabaseManager, LocalSession } from '@/utils/database';
-import { LocalGraphStore, GraphProperties, GraphParameters } from '@/utils/LocalGraphStore';
+import { LocalGraphStore, GraphProperties, GraphParameters, GraphRelationship } from '@/utils/LocalGraphStore';
 import { CausalParadoxError, ValidationError, DatabaseError, NotFoundError } from '@/utils/errors';
 import { getCacheManager, CacheKeyGenerator } from '@/utils/cache';
 import { CacheInvalidationService } from './CacheInvalidationService';
@@ -32,6 +33,7 @@ type RelationshipUpdateProperties = {
 type RelationshipQueryParams = RelationshipUpdateProperties & {
   causeEventId: string;
   effectEventId: string;
+  linkId?: string;
   relationshipType?: string;
 };
 
@@ -71,10 +73,16 @@ function isCausalRelationshipType(value: string): value is CausalRelationshipTyp
 /**
  * A causal relationship as stored in the live store, including its identity.
  *
- * `createCausalLink` / `updateCausalLink` return this (local mode uses the
- * `LocalGraphStore` edge id; cloud mode has no comparable id, so it falls back
- * to a deterministic `cause->effect` key). Callers that bridge the live store to
- * the version store need the id, which the plain `CausalRelationship` lacks.
+ * `createCausalLink` / `updateCausalLink` return this. The id is the link's
+ * own, stored with it: the `LocalGraphStore` edge id in local mode, and an `id`
+ * property on the Neo4j edge in cloud mode, so two links between the same two
+ * events have two ids in both. A cloud link made before that property existed
+ * is named once, at startup, by `migrateCausalLinkIds` (the oldest edge of a
+ * pair takes `cause->effect`, the id older versions used; the others take
+ * `link_<uuid>`); a read never writes. Until that has run, a reader names such
+ * an edge `cause->effect` too. Callers
+ * that bridge the live store to the version store need the id, which the plain
+ * `CausalRelationship` lacks.
  */
 export interface StoredCausalRelationship {
   id: string;
@@ -84,12 +92,6 @@ export interface StoredCausalRelationship {
   evidence: string;
   confidence: number;
   relationship_type: CausalRelationshipType;
-  /**
-   * Cloud mode: the Neo4j `elementId` of the edge this call created, so an
-   * undo can delete exactly this link and not another between the same two
-   * events. Not enumerable, so it is never serialised or versioned.
-   */
-  readonly edgeElementId?: string;
 }
 
 /**
@@ -168,6 +170,13 @@ export function validateCausalRelationshipFields(relationship: CausalRelationshi
 
   return errors;
 }
+
+/**
+ * Cypher for "this edge is the link `$linkId`": the edge's stored id, or, for an
+ * edge that has none yet, the `cause->effect` name older versions gave it.
+ */
+const LINK_ID_CONDITION =
+  "(r.id = $linkId OR (r.id IS NULL AND cause.id + '->' + effect.id = $linkId))";
 
 export class CausalService {
   private cacheManager = getCacheManager();
@@ -380,20 +389,42 @@ export class CausalService {
     return null;
   }
 
+  /** The local link between two events: the one named, or the oldest. Not found when none. */
+  private async findLocalLink(
+    graphStore: LocalGraphStore,
+    causeEventId: string,
+    effectEventId: string,
+    linkId?: string
+  ): Promise<GraphRelationship> {
+    const found =
+      linkId === undefined
+        ? await graphStore.findRelationshipByNodes(causeEventId, effectEventId, 'CAUSES')
+        : (await graphStore.findRelationshipsByType('CAUSES')).find(
+            (rel) => rel.id === linkId && rel.startNodeId === causeEventId && rel.endNodeId === effectEventId
+          ) ?? null;
+    if (!found) {
+      throw new NotFoundError(
+        linkId === undefined
+          ? `Causal relationship from ${causeEventId} to ${effectEventId} not found`
+          : `Causal relationship ${linkId} from ${causeEventId} to ${effectEventId} not found`,
+        'CausalRelationship',
+        linkId ?? `${causeEventId}->${effectEventId}`
+      );
+    }
+    return found;
+  }
+
   /**
    * Delete exactly one link: the one `createCausalLink` (or `restoreCausalLink`)
    * returned. Undoing a write must use this, never `deleteCausalLink`, which
    * names a link by its two events: a pair can have more than one link, and
-   * the local store hands back the oldest while Neo4j deletes every edge
-   * between them, so an undo by pair deleted the user's own earlier link.
+   * an undo by pair would delete the user's own earlier link.
    *
-   * Local mode deletes the edge with the link's id. Cloud mode deletes the
-   * edge with its `edgeElementId`, inside this graph; a link without one (not
-   * made by this process) cannot be told apart from its siblings, so it is
-   * refused rather than guessed at.
+   * Both modes delete the edge that carries the link's own id (the local edge
+   * id, or the `id` property of the Neo4j edge), inside this graph.
    */
   async deleteCausalLinkById(
-    link: Pick<StoredCausalRelationship, 'id' | 'cause_event_id' | 'effect_event_id' | 'edgeElementId'>
+    link: Pick<StoredCausalRelationship, 'id' | 'cause_event_id' | 'effect_event_id'>
   ): Promise<void> {
     const notFound = (): NotFoundError =>
       new NotFoundError(`Causal relationship ${link.id} not found`, 'CausalRelationship', link.id);
@@ -406,20 +437,14 @@ export class CausalService {
       return;
     }
 
-    if (!link.edgeElementId) {
-      throw new DatabaseError(
-        `Cannot delete causal relationship ${link.id} by itself: its Neo4j edge is unknown`,
-        'deleteCausalLinkById'
-      );
-    }
     const session = getDatabaseManager().getNeo4jSession();
     const graphId = this.cloudGraphId();
     const parameters: Record<string, unknown> = {
-      edge: link.edgeElementId,
+      linkId: link.id,
       causeEventId: link.cause_event_id,
       effectEventId: link.effect_event_id,
     };
-    const conditions: string[] = ['elementId(r) = $edge', 'cause.id = $causeEventId', 'effect.id = $effectEventId'];
+    const conditions: string[] = [LINK_ID_CONDITION, 'cause.id = $causeEventId', 'effect.id = $effectEventId'];
     addGraphCondition(conditions, 'r', graphId, parameters);
     let deleted = 0;
     try {
@@ -444,23 +469,20 @@ export class CausalService {
   }
 
   /**
-   * Delete a causal link between two events
+   * Delete a causal link between two events.
+   *
+   * A pair can hold several links. By default the oldest goes; with `linkId`
+   * exactly that link goes (and it must be a link between these two events in
+   * this graph, or it is not found).
    */
-  async deleteCausalLink(causeEventId: string, effectEventId: string): Promise<string> {
+  async deleteCausalLink(causeEventId: string, effectEventId: string, linkId?: string): Promise<string> {
     const config = loadConfig();
 
     if (config.localExecution.enabled) {
       // Local mode: use LocalGraphStore
       const graphStore = this.getLocalGraphStore();
 
-      const relationship = await graphStore.findRelationshipByNodes(causeEventId, effectEventId, 'CAUSES');
-      if (!relationship) {
-        throw new NotFoundError(
-          `Causal relationship from ${causeEventId} to ${effectEventId} not found`,
-          'CausalRelationship',
-          `${causeEventId}->${effectEventId}`
-        );
-      }
+      const relationship = await this.findLocalLink(graphStore, causeEventId, effectEventId, linkId);
 
       await graphStore.deleteRelationship(relationship.id);
       await graphStore.save();
@@ -478,6 +500,10 @@ export class CausalService {
         'cause.id = $causeEventId',
         'effect.id = $effectEventId'
       ];
+      if (linkId !== undefined) {
+        conditions.push(LINK_ID_CONDITION);
+        parameters.linkId = linkId;
+      }
       // Both endpoints and the edge have to belong to this graph, or a
       // scoped service could delete another graph's link.
       addGraphCondition(conditions, 'cause', graphId, parameters);
@@ -485,23 +511,31 @@ export class CausalService {
       addGraphCondition(conditions, 'r', graphId, parameters);
 
       try {
+        // One link (the oldest of the pair unless one is named), as the local
+        // store does: a pair can hold several, each with its own id, and
+        // deleting all of them would delete links the caller did not name.
         const query = `
           MATCH (cause:Event)-[r:CAUSES]->(effect:Event)
           ${whereClause(conditions)}
+          WITH r, cause, effect ORDER BY r.created_at, r.id LIMIT 1
+          WITH r, coalesce(r.id, cause.id + '->' + effect.id) AS deletedId
           DELETE r
-          RETURN count(r) as deletedCount
+          RETURN deletedId
         `;
 
         const result = await session.run(query, parameters);
-        const deletedCount = result.records[0]?.get('deletedCount')?.toNumber?.() || result.records[0]?.get('deletedCount') || 0;
+        const deletedId = result.records[0]?.get('deletedId');
 
-        if (deletedCount === 0) {
+        if (typeof deletedId !== 'string') {
           throw new NotFoundError(
             `Causal relationship from ${causeEventId} to ${effectEventId} not found`,
             'CausalRelationship',
             `${causeEventId}->${effectEventId}`
           );
         }
+        // Invalidate related cache entries
+        await this.cacheInvalidationService.invalidateCausalCache();
+        return deletedId;
       } catch (error) {
         if (error instanceof NotFoundError) {
           throw error;
@@ -515,14 +549,6 @@ export class CausalService {
         await session.close();
       }
     }
-
-    // Invalidate related cache entries
-    await this.cacheInvalidationService.invalidateCausalCache();
-
-    // Cloud mode has no persistent edge id, so use a deterministic key. The
-    // version store is a local-mode feature, so this value is only used when a
-    // caller bridges the two stores in a hybrid setup.
-    return `${causeEventId}->${effectEventId}`;
   }
 
   /**
@@ -531,7 +557,9 @@ export class CausalService {
   async updateCausalLink(
     causeEventId: string,
     effectEventId: string,
-    updates: Partial<CausalRelationship>
+    updates: Partial<CausalRelationship>,
+    /** Update exactly this link of the pair (default: the oldest). */
+    linkId?: string
   ): Promise<StoredCausalRelationship> {
     // Validate update values
     if (updates.weight !== undefined && (updates.weight < 0 || updates.weight > 1)) {
@@ -544,6 +572,11 @@ export class CausalService {
       throw new ValidationError('Relationship type must be direct, indirect, or contributory', 'relationship_type', updates.relationship_type);
     }
 
+    // Evidence can be changed but never taken away: a link always says why.
+    if (updates.evidence !== undefined && (typeof updates.evidence !== 'string' || updates.evidence.trim().length === 0)) {
+      throw new ValidationError('Evidence is required and must be a non-empty string', 'evidence', updates.evidence);
+    }
+
     const config = loadConfig();
     let updatedRelationship: StoredCausalRelationship;
 
@@ -551,14 +584,7 @@ export class CausalService {
       // Local mode: use LocalGraphStore
       const graphStore = this.getLocalGraphStore();
 
-      const relationship = await graphStore.findRelationshipByNodes(causeEventId, effectEventId, 'CAUSES');
-      if (!relationship) {
-        throw new NotFoundError(
-          `Causal relationship from ${causeEventId} to ${effectEventId} not found`,
-          'CausalRelationship',
-          `${causeEventId}->${effectEventId}`
-        );
-      }
+      const relationship = await this.findLocalLink(graphStore, causeEventId, effectEventId, linkId);
 
       const updateProps: RelationshipUpdateProperties = {};
       if (updates.weight !== undefined) updateProps.weight = updates.weight;
@@ -601,6 +627,10 @@ export class CausalService {
         addGraphCondition(conditions, 'cause', graphId, params);
         addGraphCondition(conditions, 'effect', graphId, params);
         addGraphCondition(conditions, 'r', graphId, params);
+        if (linkId !== undefined) {
+          conditions.push(LINK_ID_CONDITION);
+          params.linkId = linkId;
+        }
 
         if (updates.weight !== undefined) {
           setClauses.push('r.weight = $weight');
@@ -620,9 +650,11 @@ export class CausalService {
         }
         setClauses.push('r.updated_at = datetime()');
 
+        // One link, the oldest of the pair unless one is named, as the local store updates.
         const query = `
           MATCH (cause:Event)-[r:CAUSES]->(effect:Event)
           ${whereClause(conditions)}
+          WITH r ORDER BY r.created_at, r.id LIMIT 1
           SET ${setClauses.join(', ')}
           RETURN r
         `;
@@ -639,7 +671,7 @@ export class CausalService {
 
         const rel = result.records[0].get('r');
         updatedRelationship = {
-          id: `${causeEventId}->${effectEventId}`,
+          id: typeof rel.properties.id === 'string' ? rel.properties.id : `${causeEventId}->${effectEventId}`,
           cause_event_id: causeEventId,
           effect_event_id: effectEventId,
           weight: rel.properties.weight,
@@ -718,10 +750,10 @@ export class CausalService {
         const result = await session.run(query, parameters);
 
         return result.records.map(record => ({
-          // Neo4j keeps no id on the edge (see storeCausalRelationship): the
-          // link is named by its events, as creating and deleting it name it,
-          // so the version store and the feed see one id for one link.
-          id: record.get('id') ?? `${record.get('cause_event_id')}->${record.get('effect_event_id')}`,
+          // The link's own id, stored on the edge. An edge that predates ids and
+          // has not been through the startup migration yet is named as older
+          // versions named it; reading never writes.
+          id: typeof record.get('id') === 'string' ? (record.get('id') as string) : `${record.get('cause_event_id')}->${record.get('effect_event_id')}`,
           cause_event_id: record.get('cause_event_id'),
           effect_event_id: record.get('effect_event_id'),
           weight: record.get('weight') || 0.5,
@@ -1032,7 +1064,7 @@ export class CausalService {
     causeId: string,
     effectId: string,
     relationship: CausalRelationship,
-    /** Keep this id (local mode); a new link gets a generated one. */
+    /** Keep this id (a restore); a new link gets a generated one. */
     id?: string
   ): Promise<StoredCausalRelationship> {
     const config = loadConfig();
@@ -1089,9 +1121,11 @@ export class CausalService {
       // Cloud mode: use Neo4j
       const session = getDatabaseManager().getNeo4jSession();
       const graphId = this.cloudGraphId();
+      const linkId = id ?? `link_${randomUUID()}`;
       const parameters: Record<string, unknown> = {
         causeId,
         effectId,
+        linkId,
         weight: relationship.weight,
         evidence: relationship.evidence,
         confidence: relationship.confidence,
@@ -1113,13 +1147,14 @@ export class CausalService {
           MATCH (effect:Event)
           ${whereClause(conditions)}
           CREATE (cause)-[r:CAUSES {
+            id: $linkId,
             weight: $weight,
             evidence: $evidence,
             confidence: $confidence,
             relationship_type: $relationshipType,
             created_at: datetime()${graphEntry}
           }]->(effect)
-          RETURN r, elementId(r) AS edgeElementId
+          RETURN r
         `;
 
         const result = await session.run(query, parameters);
@@ -1131,10 +1166,8 @@ export class CausalService {
           );
         }
 
-        // Cloud mode keeps no id on the edge, so the link is named by its
-        // events; the edge's elementId rides along, unserialised, for an undo.
-        const stored: StoredCausalRelationship = {
-          id: `${causeId}->${effectId}`,
+        return {
+          id: linkId,
           cause_event_id: causeId,
           effect_event_id: effectId,
           weight: relationship.weight,
@@ -1142,11 +1175,6 @@ export class CausalService {
           confidence: relationship.confidence,
           relationship_type: relationship.relationship_type
         };
-        const edgeElementId: unknown = result.records[0].get('edgeElementId');
-        if (typeof edgeElementId === 'string') {
-          Object.defineProperty(stored, 'edgeElementId', { value: edgeElementId, enumerable: false });
-        }
-        return stored;
       } catch (error) {
         if (error instanceof DatabaseError) {
           throw error;
