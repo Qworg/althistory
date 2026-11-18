@@ -35,7 +35,6 @@ describe('A 408 means nothing was saved (local mode)', () => {
   let testDataDir: string;
   let graphId: string;
   let logged: string[];
-  const spies: Array<ReturnType<typeof vi.spyOn>> = [];
 
   beforeAll(async () => {
     testDataDir = path.join(os.tmpdir(), `request-timeout-cancels-${process.pid}-${Date.now()}`);
@@ -77,13 +76,12 @@ describe('A 408 means nothing was saved (local mode)', () => {
   beforeEach(() => {
     logged = [];
     for (const method of ['error', 'warn', 'log'] as const) {
-      spies.push(vi.spyOn(console, method).mockImplementation((...args: unknown[]) => void logged.push(args.map(String).join(' '))));
+      vi.spyOn(console, method).mockImplementation((...args: unknown[]) => void logged.push(args.map(String).join(' ')));
     }
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
-    spies.length = 0;
   });
 
   const event = (description: string) => ({

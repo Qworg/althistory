@@ -139,7 +139,7 @@ describe('a request that timed out is cancelled, not left running', () => {
       });
       setTimeout(next, 150);
     });
-    app.post('/api/events', rateLimit(), (_req, res) => res.json({ ok: true }));
+    app.post('/api/events', rateLimit() as unknown as express.RequestHandler, (_req, res) => res.json({ ok: true }));
     app.use(errorHandler);
 
     const response = await request(app).post('/api/events');
