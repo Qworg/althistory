@@ -3,6 +3,7 @@
  */
 
 import { isoOfAxisTime, storedCalendarSet, toAxisTime } from '@althistory/calendar';
+import { checkpoint, commitSection } from '@/utils/requestBudget';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -333,6 +334,8 @@ export class GraphRepository {
     mergeParent?: MergeParent,
     expectedParentVersion?: number | null
   ): Promise<VersionRef> {
+    // A request that timed out records no version.
+    checkpoint();
     // Commit to version repository. Optional arguments are forwarded only when
     // present so a linear commit keeps its existing five-argument call shape
     // (and a merge parent is never recorded as `undefined`).
@@ -355,12 +358,16 @@ export class GraphRepository {
             userId
           );
 
-    // Update graph metadata
-    const graph = await this.findById(graphId);
-    if (graph) {
-      const metadata = await this.calculateMetadata(graphId);
-      await this.update(graphId, { metadata });
-    }
+    // Update graph metadata. The version is recorded by now, so the metadata
+    // is part of the same write: a timeout that arrives meanwhile waits for it
+    // rather than answering 408 over a version that stays.
+    await commitSection(async () => {
+      const graph = await this.findById(graphId);
+      if (graph) {
+        const metadata = await this.calculateMetadata(graphId);
+        await this.update(graphId, { metadata });
+      }
+    });
 
     return versionRef;
   }
