@@ -48,6 +48,10 @@ import { isOnline, subscribeConnectivity } from './connectivity'
 import {
   enqueueMutation,
   getQueueSize,
+  getQueuedMutations,
+  isUnscoped,
+  removeMutation,
+  stampUnscopedMutations,
   subscribeMutationQueue,
   QueueStorageError,
   type MutationRequest,
@@ -75,8 +79,8 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000
  */
 const MUTATION_REQUEST_TIMEOUT_MS = 30000
 
-/** Status given to a queued write whose graph was never recorded (permanent). */
-const UNSCOPED_MUTATION_STATUS = 428
+/** Marks a 404 whose cause is that the write's graph no longer exists. */
+const GRAPH_GONE_PREFIX = 'graph-gone:'
 
 /** The graph that is open now, to record with a write when it is queued. */
 function currentGraphId(): string | null {
@@ -105,14 +109,10 @@ function requestSignal(): AbortSignal | undefined {
  */
 export function createHttpMutationSender(baseURL: string = API_BASE_URL): MutationSender {
   return async (mutation) => {
-    // A write queued before the graph was recorded cannot be placed: sending it
-    // to whichever graph is open now could put it in the wrong one. Refuse it
-    // as a permanent rejection so it is reported, never replayed blindly.
+    // Replay holds writes queued before the graph was recorded (see
+    // `replayQueuedMutations`), so none reaches here; refuse rather than guess.
     if (mutation.graphId === undefined) {
-      throw new HttpMutationError(
-        UNSCOPED_MUTATION_STATUS,
-        `${mutation.method} ${mutation.url} was queued before its graph was recorded`,
-      )
+      throw new Error(`${mutation.method} ${mutation.url} has no recorded graph`)
     }
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -140,7 +140,15 @@ export function createHttpMutationSender(baseURL: string = API_BASE_URL): Mutati
     })
 
     if (!response.ok) {
-      if (response.status === 401) noticeReplayUnauthorized()
+      if (response.status === 401) noticeReplayUnauthorized(token ?? '')
+      if (response.status === 404 && mutation.graphId) {
+        // A 404 can be the item or the graph. Ask which, so the notice does not
+        // blame the wrong one.
+        const probe = await fetch(`${baseURL}/graphs/${encodeURIComponent(mutation.graphId)}`, { headers }).catch(() => null)
+        if (probe?.status === 404) {
+          throw new HttpMutationError(404, `${GRAPH_GONE_PREFIX}${mutation.graphId}`)
+        }
+      }
       if (response.status === 429) {
         // Tell the person (the same notice the API client shows), and let the
         // next retry wait at least as long as the server asked.
@@ -285,14 +293,25 @@ function notifyQueuedWrite(isOffline: boolean): void {
 const REPLAY_UNAUTHORIZED_MESSAGE =
   'Saved changes could not be sent: the server refused the API key (HTTP 401). They stay on this device and are retried; set a valid API key to send them.'
 
-function noticeReplayUnauthorized(): void {
+// One 401 notice per credential per session: a retry that fails the same way
+// after the person dismissed it must not bring it back every minute.
+const unauthorizedNoticedFor = new Set<string>()
+
+function noticeReplayUnauthorized(key: string): void {
+  if (unauthorizedNoticedFor.has(key)) return
+  unauthorizedNoticedFor.add(key)
   addNotification(REPLAY_UNAUTHORIZED_MESSAGE)
+}
+
+/** Forget which credentials were announced (tests). */
+export function resetReplayNotices(): void {
+  unauthorizedNoticedFor.clear()
 }
 
 function formatRejection(rejected: RejectedMutation): string {
   const { mutation } = rejected
-  if (mutation.graphId === undefined && rejected.status === UNSCOPED_MUTATION_STATUS) {
-    return `A change saved before this update (${mutation.method} ${mutation.url}) was not sent: it does not record which graph it was made in, and sending it to the open graph could put it in the wrong one. Make the change again if you still need it.`
+  if (rejected.status === 404 && rejected.message.startsWith(GRAPH_GONE_PREFIX)) {
+    return `A queued change (${mutation.method} ${mutation.url}) was not synced: the graph it was made in no longer exists. It was removed from the queue.`
   }
   if (rejected.status === 403) {
     return `A queued change (${mutation.method} ${mutation.url}) was refused: the API key lacks permission to write (HTTP 403). It was not synced and has been removed from the queue.`
@@ -307,6 +326,40 @@ function formatRejection(rejected: RejectedMutation): string {
 // ---------------------------------------------------------------------------
 // Replay
 // ---------------------------------------------------------------------------
+
+/** Mirror the queue's size, and how much of it predates graph recording, into the store. */
+function syncQueueCounts(): void {
+  const queue = getQueuedMutations()
+  const state = useGlobalStore.getState()
+  state.setPendingMutationCount(queue.length)
+  state.setUnscopedMutationCount(queue.filter(isUnscoped).length)
+}
+
+/**
+ * The person chose to send the writes saved before graphs were recorded to the
+ * graph that is open now: stamp it on them and replay. Returns how many.
+ */
+export function sendUnscopedToGraph(graphId: string | null): number {
+  const stamped = stampUnscopedMutations(graphId)
+  syncQueueCounts()
+  if (stamped > 0) void replayQueuedMutations(activeSyncOptions ?? {})
+  return stamped
+}
+
+/** The person chose to discard those writes. One summary notice says how many. */
+export function discardUnscopedMutations(): number {
+  const unscoped = getQueuedMutations().filter(isUnscoped)
+  for (const mutation of unscoped) removeMutation(mutation.id)
+  syncQueueCounts()
+  if (unscoped.length > 0) {
+    const noun = unscoped.length === 1 ? 'change' : 'changes'
+    useGlobalStore.getState().addError({
+      type: 'info',
+      message: `Discarded ${unscoped.length} saved ${noun} that did not record which graph ${unscoped.length === 1 ? 'it was' : 'they were'} made in.`,
+    })
+  }
+  return unscoped.length
+}
 
 // One replay pass at a time so an `online` event, a startup pass and a retry
 // cannot interleave and send the same write twice within one pass.
@@ -387,6 +440,9 @@ export function replayQueuedMutations(options: OfflineSyncOptions = {}): Promise
   useGlobalStore.getState().setSyncInProgress(true)
   const pass = replayMutationQueue(send, {
     isOnline,
+    // A write queued before the graph was recorded waits for the person's
+    // choice (send to the open graph, or discard), not for a retry.
+    holdWhen: isUnscoped,
     onRejected: (rejected) => {
       addNotification(formatRejection(rejected))
     },
@@ -402,17 +458,20 @@ export function replayQueuedMutations(options: OfflineSyncOptions = {}): Promise
         rejected: [],
         remaining: getQueueSize(),
         retryable: false,
+        held: false,
       } satisfies ReplayResult
     })
     .finally(() => {
       replayInFlight = null
       useGlobalStore.getState().setSyncInProgress(false)
-      useGlobalStore.getState().setPendingMutationCount(getQueueSize())
+      syncQueueCounts()
     })
 
   replayInFlight = pass
   void pass.then((result) => {
     if (activeSyncOptions === null) return
+    // Held writes wait for a decision; a pass or a retry would change nothing.
+    if (result.held) return
     if (!isOnline() || result.remaining === 0) {
       retryAttempt = 0
       return
@@ -437,13 +496,13 @@ export function startOfflineSync(options: OfflineSyncOptions = {}): () => void {
 
   const initial = useGlobalStore.getState()
   initial.setOnline(isOnline())
-  initial.setPendingMutationCount(getQueueSize())
+  syncQueueCounts()
   initial.setSyncInProgress(false)
 
   const unsubscribeQueue = subscribeMutationQueue(() => {
     // Covers enqueues/removes from this tab and from another tab's `storage`
     // event, so the indicator cannot keep showing a count that is stale.
-    useGlobalStore.getState().setPendingMutationCount(getQueueSize())
+    syncQueueCounts()
   })
 
   const unsubscribeConnectivity = subscribeConnectivity((online) => {

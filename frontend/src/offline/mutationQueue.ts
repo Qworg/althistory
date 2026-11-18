@@ -370,6 +370,28 @@ export function removeMutation(id: string): void {
   notify(readMutationQueue())
 }
 
+/** True for a write queued before the graph was recorded (`graphId` absent). */
+export function isUnscoped(mutation: QueuedMutation): boolean {
+  return mutation.graphId === undefined
+}
+
+/**
+ * Record `graphId` on every queued write that has none, so they replay there.
+ * Returns how many were stamped. Throws `QueueStorageError` if one could not be
+ * saved; entries already stamped stay stamped.
+ */
+export function stampUnscopedMutations(graphId: string | null): number {
+  const storage = requireStorage('enqueue')
+  let stamped = 0
+  for (const mutation of readMutationQueue()) {
+    if (!isUnscoped(mutation)) continue
+    setEntry(storage, { ...mutation, graphId })
+    stamped += 1
+  }
+  if (stamped > 0) notify(readMutationQueue())
+  return stamped
+}
+
 export function getQueuedMutations(): QueuedMutation[] {
   return readMutationQueue()
 }

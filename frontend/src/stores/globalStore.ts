@@ -45,6 +45,9 @@ interface GlobalState {
   // its own storage.
   isOnline: boolean
   pendingMutationCount: number
+  // How many of those predate graph recording (see offlineSync.ts); the
+  // indicator asks what to do with them.
+  unscopedMutationCount: number
   // True while a replay pass is walking the queue. The indicator uses it to say
   // "Syncing" only when a pass is actually running.
   syncInProgress: boolean
@@ -104,6 +107,7 @@ interface GlobalState {
   // Offline connectivity actions
   setOnline: (online: boolean) => void
   setPendingMutationCount: (count: number) => void
+  setUnscopedMutationCount: (count: number) => void
   setSyncInProgress: (inProgress: boolean) => void
   
   // Persistence actions
@@ -203,6 +207,7 @@ export const useGlobalStore = create<GlobalState>()(
       errors: [],
       isOnline: true,
       pendingMutationCount: 0,
+      unscopedMutationCount: 0,
       syncInProgress: false,
 
       // Data manipulation actions
@@ -392,6 +397,7 @@ export const useGlobalStore = create<GlobalState>()(
       // Offline connectivity actions
       setOnline: (online) => set({ isOnline: online }),
       setPendingMutationCount: (count) => set({ pendingMutationCount: count }),
+      setUnscopedMutationCount: (count) => set({ unscopedMutationCount: count }),
       setSyncInProgress: (inProgress) => set({ syncInProgress: inProgress }),
       
       // Persistence actions

@@ -110,6 +110,7 @@ export function ContextMenu({ isOpen, position, items, onClose, title }: Context
       ref={menuRef}
       role="menu"
       aria-label={title ? `Actions for ${title}` : 'Context menu'}
+      data-overlay-open
       className="fixed z-50 w-max min-w-[160px] max-w-[18rem] bg-card rounded-lg shadow-lg border border-line py-1 outline-none"
       style={{ left: position.x, top: position.y }}
       onKeyDown={handleKeyDown}

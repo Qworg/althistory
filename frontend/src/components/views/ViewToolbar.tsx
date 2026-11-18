@@ -1025,7 +1025,7 @@ function GraphMenu({
           role="menu"
           aria-label={label}
           onKeyDown={handleMenuKeyDown}
-          className="absolute left-0 top-full mt-1 z-40 w-max min-w-[14rem] py-1 bg-card border border-line rounded-md shadow-lg"
+          data-overlay-open className="absolute left-0 top-full mt-1 z-40 w-max min-w-[14rem] py-1 bg-card border border-line rounded-md shadow-lg"
         >
           {actions.map((action, index) => (
             <button

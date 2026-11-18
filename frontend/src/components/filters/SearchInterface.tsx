@@ -277,7 +277,7 @@ export function SearchInterface({
 
       {/* Suggestions dropdown */}
       {isOpen && showSuggestions && filteredSuggestions.length > 0 && (
-        <div className="absolute z-50 w-full mt-1 bg-card border border-line rounded-md shadow-lg max-h-60 overflow-auto">
+        <div data-overlay-open className="absolute z-50 w-full mt-1 bg-card border border-line rounded-md shadow-lg max-h-60 overflow-auto">
           <ul
             ref={listRef}
             role="listbox"

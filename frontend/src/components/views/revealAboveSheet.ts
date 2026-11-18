@@ -21,7 +21,7 @@ export const REVEAL_MARGIN_PX = 12
  * selected mark is clear of the sheet.
  *
  * The visible band is the strip between the sticky header's bottom and the
- * sheet's top, less a margin. 0 when the mark is already inside it. Otherwise
+ * sheet's top, less a margin. 0 when the mark is already inside it (unless its trace would fit the band and is partly cut: then that is brought in). Otherwise
  * the smallest scroll that brings the whole trace (the selected mark plus every
  * traced mark) into the band; when the trace is taller than the band, the
  * trace's top is aligned to the band's top, but never at the cost of the
@@ -33,17 +33,30 @@ export function revealScrollDelta(
   headerBottom: number,
   sheetTop: number,
   margin: number = REVEAL_MARGIN_PX,
+  headerRestBottom: number = headerBottom,
 ): number {
+  // Scrolling down, the header ends up stuck at `headerRestBottom`, which can be
+  // well above where it is now (a banner above it scrolls away first). Scrolling
+  // up, it is where it is.
+  const down = bandDelta(selected, trace, Math.min(headerBottom, headerRestBottom), sheetTop, margin)
+  if (down > 0) return down
+  return bandDelta(selected, trace, headerBottom, sheetTop, margin)
+}
+
+function bandDelta(selected: Span, trace: Span | null, headerBottom: number, sheetTop: number, margin: number): number {
   const lo = headerBottom + margin
   const hi = sheetTop - margin
   if (hi <= lo) return 0
-  if (selected.top >= lo && selected.bottom <= hi) return 0
-
   const want: Span = trace
     ? { top: Math.min(selected.top, trace.top), bottom: Math.max(selected.bottom, trace.bottom) }
     : selected
+  const wantFits = want.bottom - want.top <= hi - lo
+  const markVisible = selected.top >= lo && selected.bottom <= hi
+  // A visible mark is left alone unless its whole trace would fit once scrolled
+  // and is now partly under the sheet (or the header): then nudge it into view.
+  if (markVisible && (!wantFits || (want.top >= lo && want.bottom <= hi))) return 0
 
-  if (want.bottom - want.top <= hi - lo) {
+  if (wantFits) {
     if (want.top < lo) return want.top - lo
     if (want.bottom > hi) return want.bottom - hi
     return 0
@@ -97,12 +110,16 @@ export function revealSelectedMark(eventId: string): boolean {
   )
   if (!mark) return false
 
-  const rect = mark.getBoundingClientRect()
+  // The dot, not the whole group: its stem and label can run well past it.
+  const rect = (mark.querySelector('.event-hit-area') ?? mark).getBoundingClientRect()
   const selected: Span = { top: rect.top, bottom: rect.bottom }
 
   let trace: Span | null = null
   const canvas = mark.closest('svg')
-  const traced = canvas?.querySelectorAll<SVGGElement>('g[data-timeline-mark="event"][data-traced="true"]') ?? []
+  // The traced marks and the ripple's link curves, which hang below them.
+  const traced = canvas?.querySelectorAll<SVGGraphicsElement>(
+    'g[data-timeline-mark="event"][data-traced="true"], path.timeline-link[data-ripple]',
+  ) ?? []
   for (const node of Array.from(traced)) {
     const r = node.getBoundingClientRect()
     trace = {
@@ -113,7 +130,9 @@ export function revealSelectedMark(eventId: string): boolean {
 
   const header = document.querySelector('header')
   const headerBottom = header ? Math.max(0, header.getBoundingClientRect().bottom) : 0
-  const delta = revealScrollDelta(selected, trace, headerBottom, sheet.getBoundingClientRect().top)
+  const stickyTop = header ? parseFloat(getComputedStyle(header).top) || 0 : 0
+  const headerRest = header ? stickyTop + header.offsetHeight : 0
+  const delta = revealScrollDelta(selected, trace, headerBottom, sheet.getBoundingClientRect().top, REVEAL_MARGIN_PX, headerRest)
   if (Math.abs(delta) < 1) return false
 
   const behavior: ScrollBehavior = reduceMotion() ? 'auto' : 'smooth'
@@ -151,18 +170,40 @@ export function useRevealSelectionAboveSheet(selectedEventId: string | null): vo
     window.addEventListener('wheel', stop, { passive: true })
     window.addEventListener('touchstart', stop, { passive: true })
 
+    // The sheet's height and the trace (its link curves are drawn once the
+    // relationships arrive) settle after the selection renders: check again as
+    // either changes, for a short window.
     let observer: ResizeObserver | undefined
+    let mutations: MutationObserver | undefined
+    let pending: number | null = null
+    const runSoon = () => {
+      if (pending !== null) return
+      pending = requestAnimationFrame(() => {
+        pending = null
+        run()
+      })
+    }
     const sheet = document.querySelector('aside[aria-label="Selection"]')
     if (sheet && typeof ResizeObserver !== 'undefined') {
       observer = new ResizeObserver(run)
       observer.observe(sheet)
     }
-    const settle = window.setTimeout(() => observer?.disconnect(), 1000)
+    const canvas = document.querySelector('svg[data-timeline-canvas]')
+    if (canvas && typeof MutationObserver !== 'undefined') {
+      mutations = new MutationObserver(runSoon)
+      mutations.observe(canvas, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-ripple', 'data-traced', 'd'] })
+    }
+    const settle = window.setTimeout(() => {
+      observer?.disconnect()
+      mutations?.disconnect()
+    }, 1500)
 
     return () => {
       cancelAnimationFrame(frame)
       window.clearTimeout(settle)
+      if (pending !== null) cancelAnimationFrame(pending)
       observer?.disconnect()
+      mutations?.disconnect()
       window.removeEventListener('wheel', stop)
       window.removeEventListener('touchstart', stop)
     }

@@ -484,6 +484,32 @@ describe('GraphSelector', () => {
       expect(screen.getByText('New Graph')).toBeInTheDocument()
     })
 
+    it('closes the open dropdown on Escape and returns focus to the button, so the notices come back', async () => {
+      render(<GraphSelector />)
+      const button = screen.getByRole('button')
+      await user.click(button)
+      expect(document.querySelector('[data-overlay-open]')).not.toBeNull()
+
+      await user.keyboard('{Escape}')
+
+      expect(document.querySelector('[data-overlay-open]')).toBeNull()
+      expect(button).toHaveFocus()
+    })
+
+    it('leaves Escape to an open modal dialog', async () => {
+      render(<GraphSelector />)
+      await user.click(screen.getByRole('button'))
+      const dialog = document.createElement('div')
+      dialog.setAttribute('aria-modal', 'true')
+      document.body.appendChild(dialog)
+      try {
+        await user.keyboard('{Escape}')
+        expect(document.querySelector('[data-overlay-open]')).not.toBeNull()
+      } finally {
+        dialog.remove()
+      }
+    })
+
     it('should disable Create button when input is empty', async () => {
       render(<GraphSelector />)
       

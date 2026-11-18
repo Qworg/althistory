@@ -113,9 +113,21 @@ export interface ReplayResult {
    * queued, i.e. another attempt is worthwhile without a reconnect.
    */
   retryable: boolean
+  /**
+   * True when the pass stopped at a write `holdWhen` refused to send. Waiting
+   * will not change that, so it is not `retryable`: a person has to decide.
+   */
+  held: boolean
 }
 
 export interface ReplayOptions {
+  /**
+   * A write that must not be sent without a decision (see `offlineSync.ts`).
+   * The pass stops at the first one, sending nothing from it onward, and does
+   * not treat it as a failure: it is not removed, not reported as rejected, and
+   * it never marks its `entityKey` as failed.
+   */
+  holdWhen?: (mutation: QueuedMutation) => boolean
   /** Connectivity check between writes. Defaults to always-online. */
   isOnline?: () => boolean
   onRejected?: (rejected: RejectedMutation) => void
@@ -160,6 +172,7 @@ export async function replayMutationQueue(
             rejected: [],
             remaining: readMutationQueue().length,
             retryable: true,
+            held: false,
           }
         }
         return await executeReplayPass(send, options)
@@ -179,12 +192,18 @@ async function executeReplayPass(
   const rejected: RejectedMutation[] = []
   const failedEntityKeys = new Set<string>()
   let retryable = false
+  let held = false
 
   // Snapshot so writes enqueued during replay are not part of this pass.
   const snapshot = readMutationQueue()
 
   for (const mutation of snapshot) {
     if (!checkOnline()) break
+
+    if (options.holdWhen?.(mutation)) {
+      held = true
+      break
+    }
 
     if (mutation.entityKey !== undefined && failedEntityKeys.has(mutation.entityKey)) {
       const rejection: RejectedMutation = {
@@ -242,7 +261,7 @@ async function executeReplayPass(
     replayed.push(mutation.id)
   }
 
-  return { replayed, rejected, remaining: readMutationQueue().length, retryable }
+  return { replayed, rejected, remaining: readMutationQueue().length, retryable, held }
 }
 
 /**

@@ -13,6 +13,7 @@ import {
   useGraphHeadVersion,
 } from '@/hooks/useGraphs'
 import { useGlobalStore } from '@/stores/globalStore'
+import { shouldIgnoreAppShortcut } from '@/utils/keyboardShortcuts'
 import { GraphStatus } from '@/types'
 import { RetryCountdown } from '@/components/notifications/NotificationCenter'
 import { formatHistoricalRange, historicalYear } from '@/utils/historicalTime'
@@ -154,6 +155,21 @@ export const GraphSelector = memo(function GraphSelector({
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [sheet])
+
+  // Escape closes the desktop dropdown, so the notices that were beneath it come
+  // back. (The phone sheet has its own keys.) Stands aside while the person types
+  // (the new-graph field handles its own Escape) or a modal dialog is open.
+  useEffect(() => {
+    if (!isOpen || sheet) return
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key !== 'Escape' || event.defaultPrevented || shouldIgnoreAppShortcut(event)) return
+      setIsOpen(false)
+      setIsCreating(false)
+      dropdownRef.current?.querySelector<HTMLElement>('button[aria-haspopup="listbox"]')?.focus()
+    }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [isOpen, sheet])
 
   // Focus input when creating
   useEffect(() => {

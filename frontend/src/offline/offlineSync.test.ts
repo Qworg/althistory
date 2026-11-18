@@ -225,7 +225,7 @@ describe('offline sync', () => {
   })
 
   it('surfaces a rejected replay instead of dropping it silently', async () => {
-    enqueueMutation({ method: 'POST', url: '/events', body: { id: 'e1' } })
+    enqueueMutation({ graphId: null, method: 'POST', url: '/events', body: { id: 'e1' } })
     const send = vi
       .fn<MutationSender>()
       .mockRejectedValue(new HttpMutationError(422, 'invalid payload'))
@@ -246,18 +246,21 @@ describe('offline sync', () => {
 
   it('skips and surfaces later writes to an entity whose earlier write was rejected', async () => {
     enqueueMutation({
+      graphId: null,
       method: 'POST',
       url: '/events',
       body: { id: 'e1' },
       entityKey: 'event:e1',
     })
     enqueueMutation({
+      graphId: null,
       method: 'PUT',
       url: '/events/e1',
       body: { description: 'x' },
       entityKey: 'event:e1',
     })
     const arc = enqueueMutation({
+      graphId: null,
       method: 'POST',
       url: '/arcs',
       body: { id: 'a1' },
@@ -283,9 +286,9 @@ describe('offline sync', () => {
   })
 
   it('stops at a transient failure and keeps the remaining writes queued in order', async () => {
-    enqueueMutation({ method: 'POST', url: '/events', body: { id: 'e1' } })
-    enqueueMutation({ method: 'POST', url: '/events', body: { id: 'e2' } })
-    enqueueMutation({ method: 'POST', url: '/arcs', body: { id: 'a1' } })
+    enqueueMutation({ graphId: null, method: 'POST', url: '/events', body: { id: 'e1' } })
+    enqueueMutation({ graphId: null, method: 'POST', url: '/events', body: { id: 'e2' } })
+    enqueueMutation({ graphId: null, method: 'POST', url: '/arcs', body: { id: 'a1' } })
 
     let attempts = 0
     const send = vi.fn<MutationSender>().mockImplementation(async () => {
@@ -305,7 +308,7 @@ describe('offline sync', () => {
   })
 
   it('mirrors the replay state into the store while a pass runs', async () => {
-    enqueueMutation({ method: 'POST', url: '/events', body: { id: 'e1' } })
+    enqueueMutation({ graphId: null, method: 'POST', url: '/events', body: { id: 'e1' } })
     let release: () => void = () => {}
     const gate = new Promise<void>((resolve) => {
       release = resolve
@@ -428,22 +431,6 @@ describe('replaying with the same credentials and graph as the live app (#36)', 
     await replayQueuedMutations()
     const headers = (fetchMock.mock.calls[0]![1] as RequestInit).headers as Record<string, string>
     expect(headers['X-Graph-Id']).toBeUndefined()
-  })
-
-  it('does not send a write queued before graphs were recorded, and says so', async () => {
-    useGlobalStore.setState({ errors: [] })
-    localStorage.setItem('active_graph_id', 'graph-b')
-    enqueueMutation({ method: 'POST', url: '/events', body: { id: 'old' } })
-    const fetchMock = okFetch()
-    vi.stubGlobal('fetch', fetchMock)
-
-    const result = await replayQueuedMutations()
-
-    expect(fetchMock).not.toHaveBeenCalled()
-    expect(result.rejected).toHaveLength(1)
-    expect(result.remaining).toBe(0)
-    const messages = useGlobalStore.getState().errors.map((e) => e.message)
-    expect(messages.some((m) => m.includes('does not record which graph'))).toBe(true)
   })
 
   it('tells the person about a 401 and keeps the write queued', async () => {
