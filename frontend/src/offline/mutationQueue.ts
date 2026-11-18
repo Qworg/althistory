@@ -52,6 +52,15 @@ export interface MutationRequest {
    * skipping happens for this write.
    */
   entityKey?: string
+  /**
+   * The graph that was open when the write was made, sent as `X-Graph-Id` on
+   * replay so the write lands where it was made, not in whichever graph is open
+   * (or active on the server) later. `null` means no graph was selected, so the
+   * write goes unscoped exactly as the immediate send would have. `undefined`
+   * is a write queued before this field existed: its graph is unknown, so it is
+   * never sent (see `createHttpMutationSender`).
+   */
+  graphId?: string | null
 }
 
 export interface QueuedMutation extends MutationRequest {
@@ -325,6 +334,7 @@ export function enqueueMutation(input: EnqueueMutationInput): QueuedMutation {
   }
   if (input.body !== undefined) mutation.body = input.body
   if (input.entityKey !== undefined) mutation.entityKey = input.entityKey
+  if (input.graphId !== undefined) mutation.graphId = input.graphId
 
   setEntry(storage, mutation)
   notify(readMutationQueue())

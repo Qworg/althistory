@@ -75,6 +75,18 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000
  */
 const MUTATION_REQUEST_TIMEOUT_MS = 30000
 
+/** Status given to a queued write whose graph was never recorded (permanent). */
+const UNSCOPED_MUTATION_STATUS = 428
+
+/** The graph that is open now, to record with a write when it is queued. */
+function currentGraphId(): string | null {
+  try {
+    return localStorage.getItem('active_graph_id')
+  } catch {
+    return null
+  }
+}
+
 /** How long the server last asked a replay to wait (`Retry-After` on a 429). */
 let serverRetryAfterMs = 0
 
@@ -93,9 +105,32 @@ function requestSignal(): AbortSignal | undefined {
  */
 export function createHttpMutationSender(baseURL: string = API_BASE_URL): MutationSender {
   return async (mutation) => {
+    // A write queued before the graph was recorded cannot be placed: sending it
+    // to whichever graph is open now could put it in the wrong one. Refuse it
+    // as a permanent rejection so it is reported, never replayed blindly.
+    if (mutation.graphId === undefined) {
+      throw new HttpMutationError(
+        UNSCOPED_MUTATION_STATUS,
+        `${mutation.method} ${mutation.url} was queued before its graph was recorded`,
+      )
+    }
+
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') : null
-    if (token) headers.Authorization = `Bearer ${token}`
+    // The same credential the API client sends (see `services/api.ts`).
+    let token: string | null | undefined
+    try {
+      token =
+        localStorage.getItem('api_key') ||
+        localStorage.getItem('auth_token') ||
+        (import.meta.env?.VITE_API_KEY as string | undefined)
+    } catch {
+      token = (import.meta.env?.VITE_API_KEY as string | undefined) ?? null
+    }
+    if (token) {
+      headers.Authorization = `Bearer ${token}`
+      headers['X-API-Key'] = token
+    }
+    if (mutation.graphId !== null) headers['X-Graph-Id'] = mutation.graphId
 
     const response = await fetch(`${baseURL}${mutation.url}`, {
       method: mutation.method,
@@ -105,6 +140,7 @@ export function createHttpMutationSender(baseURL: string = API_BASE_URL): Mutati
     })
 
     if (!response.ok) {
+      if (response.status === 401) noticeReplayUnauthorized()
       if (response.status === 429) {
         // Tell the person (the same notice the API client shows), and let the
         // next retry wait at least as long as the server asked.
@@ -173,7 +209,10 @@ export async function submitMutation<T>(
   const queueWrite = (): OfflineWriteOutcome<T> => {
     // Throws QueueStorageError when the write is not durable; the caller must
     // surface that instead of reporting a queued write.
-    const mutation = enqueueMutation(input)
+    const mutation = enqueueMutation({
+      ...input,
+      graphId: input.graphId === undefined ? currentGraphId() : input.graphId,
+    })
     options.onQueued?.(mutation)
     const online = checkOnline()
     if (options.notify !== false) {
@@ -243,8 +282,21 @@ function notifyQueuedWrite(isOffline: boolean): void {
   addNotification(isOffline ? QUEUED_WRITE_OFFLINE_MESSAGE : QUEUED_WRITE_ORDERED_MESSAGE)
 }
 
+const REPLAY_UNAUTHORIZED_MESSAGE =
+  'Saved changes could not be sent: the server refused the API key (HTTP 401). They stay on this device and are retried; set a valid API key to send them.'
+
+function noticeReplayUnauthorized(): void {
+  addNotification(REPLAY_UNAUTHORIZED_MESSAGE)
+}
+
 function formatRejection(rejected: RejectedMutation): string {
   const { mutation } = rejected
+  if (mutation.graphId === undefined && rejected.status === UNSCOPED_MUTATION_STATUS) {
+    return `A change saved before this update (${mutation.method} ${mutation.url}) was not sent: it does not record which graph it was made in, and sending it to the open graph could put it in the wrong one. Make the change again if you still need it.`
+  }
+  if (rejected.status === 403) {
+    return `A queued change (${mutation.method} ${mutation.url}) was refused: the API key lacks permission to write (HTTP 403). It was not synced and has been removed from the queue.`
+  }
   if (rejected.skippedDependent) {
     return `Skipped a queued ${mutation.method} ${mutation.url}: an earlier change to the same item was rejected.`
   }
