@@ -230,9 +230,13 @@ link to another graph's event). Two cases differ:
   from its selected live nodes, so a later edit and rollback of the copy keep them. A
   live store that has drifted from a head it does have is the source's own
   inconsistency: the copy follows the head, as a branch does.
-- A source whose head holds entities its live store does not (the live store was never
-  rebuilt) is copied by building the copy's live store from the copy's version, as a
-  branch's is.
+- A source whose head holds events or arcs its live store does not (the live store was
+  never rebuilt, or only in part) is copied by building the copy's live store from the
+  copy's version, as a branch's is: whenever the copy wrote fewer events and arcs than
+  its version holds (pressures do not count). That rebuild clears the copy first, so
+  nothing is written twice. A time-range or filtered copy selects from the source's live
+  store, so a source whose live store is empty gives an empty partial copy, whatever its
+  head holds; only a full copy follows the head.
 - A partial copy may leave an arc without its parent. Such an arc becomes a top-level
   arc (no parent, level 0, and the arcs copied beneath it follow), in the version and
   in the live copy, so the copy's own export imports. Selection is by label and id

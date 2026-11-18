@@ -285,10 +285,10 @@ graphRoutes.post(
 
       // The copy's first version is the source's head (what a branch records), made before the live
       // store is written: a copy that cannot be versioned has written nothing.
-      let versioned = 0;
+      let versionedNodes = 0;
       const beforeCopy = async (selected: ReadonlySet<string> | null): Promise<CopyPlan> => {
         const plan = await versionCopyFromHead(req.container, sourceGraphId, targetGraph.id, sourceGraph.name, selected);
-        versioned = plan.versioned ?? 0;
+        versionedNodes = plan.versionedNodes ?? 0;
         return plan;
       };
 
@@ -308,13 +308,18 @@ graphRoutes.post(
         await discardCopy(req.container, targetGraph.id);
         throw error;
       }
-      // A source whose version holds entities its live store does not (it was never rebuilt) has nothing
-      // to copy node by node: the copy's live store is built from the version just recorded, as a
-      // branch's is.
-      if (result.success && result.copiedNodes === 0 && versioned > 0) {
+      // A source whose version holds events or arcs its live store does not (it was never rebuilt, or only
+      // in part) cannot be copied node by node into a copy that matches: when the copy wrote fewer events
+      // and arcs than its version holds (pressures do not count), its live store is built from the version
+      // just recorded, as a branch's is. `materialize` clears the target first, so nothing is written twice.
+      if (result.success && versionedNodes > 0) {
         try {
-          const built = await req.container.liveStoreSyncService.materialize(targetGraph.id, 'branch');
-          result = { ...result, copiedNodes: built.events + built.arcs, copiedRelationships: built.relationships };
+          const { eventRepository, arcRepository } = await req.container.graphScopedRepositories(targetGraph.id);
+          const written = (await eventRepository.count()) + (await arcRepository.count());
+          if (written < versionedNodes) {
+            const built = await req.container.liveStoreSyncService.materialize(targetGraph.id, 'branch');
+            result = { ...result, copiedNodes: built.events + built.arcs, copiedRelationships: built.relationships };
+          }
         } catch (error) {
           result = { ...result, success: false, errors: [...(result.errors ?? []), `Building the copy from its version failed: ${error}`] };
         }

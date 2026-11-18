@@ -63,8 +63,8 @@ export interface CopyProgress {
  */
 export interface CopyPlan {
   arcs?: ReadonlyMap<string, { parent: string | null; level: number }>;
-  /** How many entities the copy's first version holds. */
-  versioned?: number;
+  /** How many events and arcs the copy's first version holds (pressures are not versioned). */
+  versionedNodes?: number;
 }
 
 /**

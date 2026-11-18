@@ -69,7 +69,8 @@ export async function versionCopyFromHead(
   if (changes.added.length > 0) {
     await container.graphRepository.commitChanges(targetGraphId, changes, 'branch', `Copied from ${sourceName}`);
   }
-  return { arcs: placements, versioned: changes.added.length };
+  const nodes = changes.added.filter((entity) => entity.type === 'event' || entity.type === 'arc').length;
+  return { arcs: placements, versionedNodes: nodes };
 }
 
 function headParent(data: Record<string, unknown>): string | null {
@@ -134,5 +135,5 @@ async function versionFromLiveNodes(
     [],
     { announceIfNotVersioned: false, summary: `Copied from ${sourceName}` }
   );
-  return { arcs: placements, versioned: events.length + arcs.length + links.length };
+  return { arcs: placements, versionedNodes: events.length + arcs.length };
 }

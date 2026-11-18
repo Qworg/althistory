@@ -720,6 +720,125 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
       expect(placed?.level).toBe(0);
     });
 
+    /** A graph whose version head is written and whose live store is left as the caller makes it. */
+    async function headOnlySource(name: string, arcs: string[] = []): Promise<string> {
+      const graphId = (await container.graphService.createGraph({ name })).id;
+      graphsMade.push(graphId);
+      const added = [
+        { type: 'event' as const, id: 'ho-ev-1', data: { id: 'ho-ev-1', description: 'One', actor: 'A', target: 'B', timestamp: '1800-01-01T00:00:00.000Z', metadata: {} } },
+        { type: 'event' as const, id: 'ho-ev-2', data: { id: 'ho-ev-2', description: 'Two', actor: 'A', target: 'B', timestamp: '1801-01-01T00:00:00.000Z', metadata: {} } },
+        ...arcs.map((id, i) => ({
+          type: 'arc' as const,
+          id,
+          data: { id, name: id, description: id, start_time: `${1700 + i * 10}-01-01T00:00:00.000Z`, end_time: `${1705 + i * 10}-01-01T00:00:00.000Z`, level: 0, parent_arc_id: null, metadata: {} },
+        })),
+      ];
+      await container.graphRepository.commitChanges(graphId, { added, modified: [], deleted: [] }, 'import', 'Imported');
+      return graphId;
+    }
+
+    /** The ids a graph's version and its live store hold, by label. */
+    async function idsByLabel(graphId: string): Promise<{ head: { events: string[]; arcs: string[] }; live: { events: string[]; arcs: string[] } }> {
+      const head = await container.graphRepository.checkout(graphId);
+      const { eventRepository, arcRepository } = await container.graphScopedRepositories(graphId);
+      return {
+        head: { events: Object.keys(head.events).sort(), arcs: Object.keys(head.arcs).sort() },
+        live: { events: (await eventRepository.findAll()).map((e) => e.id).sort(), arcs: (await arcRepository.findAll()).map((a) => a.id).sort() },
+      };
+    }
+
+    it('rebuilds the copy’s live store from its version when the source’s live store holds only a pressure (#35)', async () => {
+      const source = await headOnlySource('Pressure-only source');
+      const session = getDatabaseManager().getNeo4jSession();
+      try {
+        await session.run("CREATE (:InferredPressure {id: 'pressure-only', graphId: $source, description: 'p', confidence_score: 0.5, pressure_type: 'economic'})", { source });
+      } finally {
+        await session.close();
+      }
+
+      const copy = await copyOf(source, 'Pressure-only copy');
+
+      const { head, live } = await idsByLabel(copy);
+      expect(head.events).toEqual(['ho-ev-1', 'ho-ev-2']);
+      expect(live).toEqual(head);
+    });
+
+    it('rebuilds the copy’s live store from its version when the source is missing some arcs live (#35)', async () => {
+      const source = await headOnlySource('Missing-arcs source', ['ho-arc-1', 'ho-arc-2', 'ho-arc-3']);
+      await container.liveStoreSyncService.materialize(source, 'import');
+      const session = getDatabaseManager().getNeo4jSession();
+      try {
+        await session.run("MATCH (a:Arc {graphId: $source}) WHERE a.id IN ['ho-arc-2', 'ho-arc-3'] DETACH DELETE a", { source });
+      } finally {
+        await session.close();
+      }
+      expect((await idsByLabel(source)).live.arcs).toEqual(['ho-arc-1']);
+
+      const copy = await copyOf(source, 'Missing-arcs copy');
+
+      const { head, live } = await idsByLabel(copy);
+      expect(head.arcs).toEqual(['ho-arc-1', 'ho-arc-2', 'ho-arc-3']);
+      expect(live).toEqual(head);
+    });
+
+    it('discards the copy when its live store cannot be built from its version (#35)', async () => {
+      const source = await headOnlySource('Unbuildable source');
+      const spy = vi.spyOn(container.liveStoreSyncService, 'materialize').mockRejectedValueOnce(new Error('the live store is down'));
+      const before = (await container.graphService.listGraphs({ limit: 1000 })).graphs.map((g) => g.id).sort();
+
+      const res = await http('POST', '/api/graphs/copy', agentKey, undefined, { sourceGraphId: source, targetName: 'Unbuildable copy' });
+      spy.mockRestore();
+
+      expect(res.status).toBe(500);
+      expect(res.body.data).toBeUndefined();
+      expect((await container.graphService.listGraphs({ limit: 1000 })).graphs.map((g) => g.id).sort()).toEqual(before);
+    });
+
+    it('keeps an event and an arc that share an id apart in a copy’s version and its live store, on both paths (#35)', async () => {
+      const bodies = [
+        { copyType: 'time_range', timeRange: { start: '1755-01-01T00:00:00.000Z', end: '1775-01-01T00:00:00.000Z' } },
+        { copyType: 'filtered', filter: { actors: ['A'], arcLevels: [1] } },
+      ];
+
+      // The head path: the source has a version.
+      const versioned = (await container.graphService.createGraph({ name: 'Shared id, versioned' })).id;
+      graphsMade.push(versioned);
+      await container.graphRepository.commitChanges(
+        versioned,
+        {
+          added: [
+            { type: 'event', id: 'W2', data: { id: 'W2', description: 'An event named W2', actor: 'A', target: 'B', timestamp: '1760-01-01T00:00:00.000Z', metadata: {} } },
+            { type: 'arc', id: 'W2', data: { id: 'W2', name: 'An arc named W2', description: 'W2', start_time: '1750-01-01T00:00:00.000Z', end_time: '1850-01-01T00:00:00.000Z', level: 1, parent_arc_id: null, metadata: {} } },
+          ],
+          modified: [],
+          deleted: [],
+        },
+        'import',
+        'Imported'
+      );
+      await container.liveStoreSyncService.materialize(versioned, 'import');
+
+      // The no-head path: the source has live nodes only.
+      const unversioned = (await container.graphService.createGraph({ name: 'Shared id, unversioned' })).id;
+      graphsMade.push(unversioned);
+      const live = await container.graphScopedRepositories(unversioned);
+      await live.eventRepository.create({ id: 'W2', description: 'An event named W2', actor: 'A', target: 'B', timestamp: new Date(Date.UTC(1760, 0, 1)) });
+      await live.arcRepository.create(
+        { id: 'W2', name: 'An arc named W2', description: 'W2', start_time: new Date(Date.UTC(1750, 0, 1)), end_time: new Date(Date.UTC(1850, 0, 1)), level: 1 },
+        { validated: true }
+      );
+      expect(await container.graphRepository.getLatestVersion(unversioned)).toBeNull();
+
+      for (const source of [versioned, unversioned]) {
+        for (const body of bodies) {
+          const copy = await copyOf(source, `Shared id copy ${body.copyType}`, body);
+          const { head, live: held } = await idsByLabel(copy);
+          expect(head).toEqual({ events: ['W2'], arcs: ['W2'] });
+          expect(held).toEqual(head);
+        }
+      }
+    });
+
     it('versions a batch of links under the id a single link gets in Neo4j, and a transaction that removes it', async () => {
       const add = async (description: string, timestamp: string): Promise<string> => {
         const res = await http('POST', '/api/events', agentKey, graphA, { description, actor: 'A', target: 'B', timestamp });
