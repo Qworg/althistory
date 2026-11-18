@@ -1,3 +1,4 @@
+import { rethrowCancellation } from '@/utils/requestBudget';
 import { randomUUID } from 'crypto';
 import { Event } from '@/models';
 import { CausalRelationship, CausalPath, CausalCycle, CausalRelationshipType, CausalValidationResult } from '@/models/relationships';
@@ -464,6 +465,7 @@ export class CausalService {
       const count = result.records[0]?.get('deletedCount');
       deleted = typeof count?.toNumber === 'function' ? count.toNumber() : Number(count ?? 0);
     } catch (error) {
+      rethrowCancellation(error);
       throw new DatabaseError('Failed to delete causal relationship', 'deleteCausalLinkById', error as Error);
     } finally {
       await session.close();
@@ -541,6 +543,7 @@ export class CausalService {
         await this.cacheInvalidationService.invalidateCausalCache();
         return deletedId;
       } catch (error) {
+        rethrowCancellation(error);
         if (error instanceof NotFoundError) {
           throw error;
         }
@@ -684,6 +687,7 @@ export class CausalService {
           relationship_type: rel.properties.relationship_type
         };
       } catch (error) {
+        rethrowCancellation(error);
         if (error instanceof NotFoundError || error instanceof ValidationError) {
           throw error;
         }
@@ -766,6 +770,7 @@ export class CausalService {
           relationship_type: record.get('relationship_type') || 'direct'
         }));
       } catch (error) {
+        rethrowCancellation(error);
         throw new DatabaseError(
           'Failed to get causal relationships',
           'getAllRelationships',
@@ -862,6 +867,7 @@ export class CausalService {
 
       return paths;
     } catch (error) {
+      rethrowCancellation(error);
       throw new DatabaseError(
         'Failed to find causal chains',
         'findCausalChain',
@@ -965,6 +971,7 @@ export class CausalService {
 
       return cycles;
     } catch (error) {
+      rethrowCancellation(error);
       throw new DatabaseError(
         'Failed to detect causal cycles',
         'detectCausalCycles',
@@ -1150,14 +1157,19 @@ export class CausalService {
           MATCH (cause:Event)
           MATCH (effect:Event)
           ${whereClause(conditions)}
-          CREATE (cause)-[r:CAUSES {
-            id: $linkId,
-            weight: $weight,
-            evidence: $evidence,
-            confidence: $confidence,
-            relationship_type: $relationshipType,
-            created_at: datetime()${graphEntry}
+          // Keyed on the link's id (and graph): a create the driver retries
+          // after a lost commit acknowledgement finds the link it already
+          // made instead of making a second. Two links between the same events
+          // have different ids, so they stay two.
+          MERGE (cause)-[r:CAUSES {
+            id: $linkId${graphEntry}
           }]->(effect)
+          ON CREATE SET
+            r.weight = $weight,
+            r.evidence = $evidence,
+            r.confidence = $confidence,
+            r.relationship_type = $relationshipType,
+            r.created_at = datetime()
           RETURN r
         `;
 
@@ -1180,6 +1192,7 @@ export class CausalService {
           relationship_type: relationship.relationship_type
         };
       } catch (error) {
+        rethrowCancellation(error);
         if (error instanceof DatabaseError) {
           throw error;
         }

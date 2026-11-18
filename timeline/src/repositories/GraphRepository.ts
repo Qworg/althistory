@@ -3,6 +3,7 @@
  */
 
 import { isoOfAxisTime, storedCalendarSet, toAxisTime } from '@althistory/calendar';
+import { beginCommit, checkpoint, commitSection } from '@/utils/requestBudget';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -70,6 +71,8 @@ export class GraphRepository {
    * Create a new graph
    */
   async create(data: CreateGraphData): Promise<Graph> {
+    // The first durable step is the point of no return (see requestBudget.ts).
+    beginCommit();
     const graph = new Graph(data);
     
     // Initialize version storage for this graph
@@ -201,6 +204,7 @@ export class GraphRepository {
    * Permanently delete a graph and all its data
    */
   async hardDelete(id: string): Promise<boolean> {
+    beginCommit();
     const existing = await this.findById(id);
     if (!existing) {
       return false;
@@ -334,6 +338,8 @@ export class GraphRepository {
     mergeParent?: MergeParent,
     expectedParentVersion?: number | null
   ): Promise<VersionRef> {
+    // A request that timed out records no version.
+    checkpoint();
     // Commit to version repository. Optional arguments are forwarded only when
     // present so a linear commit keeps its existing five-argument call shape
     // (and a merge parent is never recorded as `undefined`).
@@ -356,13 +362,17 @@ export class GraphRepository {
             userId
           );
 
-    // Update graph metadata
-    const graph = await this.findById(graphId);
-    if (graph) {
-      const parent = versionRef.parentVersion === null ? null : await this.versionRepository.getVersionRef(graphId, versionRef.parentVersion);
-      const metadata = (await this.extendMetadata(graphId, graph.metadata, changes, parent?.treeHash, versionRef.treeHash)) ?? (await this.calculateMetadata(graphId));
-      await this.update(graphId, { metadata });
-    }
+    // Update graph metadata. The version is recorded by now, so the metadata
+    // is part of the same write: a timeout that arrives meanwhile waits for it
+    // rather than answering 408 over a version that stays.
+    await commitSection(async () => {
+      const graph = await this.findById(graphId);
+      if (graph) {
+        const parent = versionRef.parentVersion === null ? null : await this.versionRepository.getVersionRef(graphId, versionRef.parentVersion);
+        const metadata = (await this.extendMetadata(graphId, graph.metadata, changes, parent?.treeHash, versionRef.treeHash)) ?? (await this.calculateMetadata(graphId));
+        await this.update(graphId, { metadata });
+      }
+    });
 
     return versionRef;
   }
@@ -637,6 +647,7 @@ export class GraphRepository {
   }
 
   private async saveGraphMetadata(graph: Graph): Promise<void> {
+    beginCommit();
     const graphDir = path.join(this.dataDir, 'graphs', graph.id);
     await fs.promises.mkdir(graphDir, { recursive: true });
     
@@ -711,6 +722,7 @@ export class GraphRepository {
     // container each make their own repository over the same index.
     const key = path.resolve(this.graphsIndexPath);
     const run = (indexQueues.get(key) ?? Promise.resolve()).then(async () => {
+      beginCommit();
       const index = await this.loadIndex(true);
       if (change(index) === false) return;
       await this.saveIndex(index);

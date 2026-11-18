@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { Session, Integer } from 'neo4j-driver';
 import { TimeRange } from '../models/Event';
 import { getDatabaseManager } from '../utils/database';
@@ -104,17 +105,45 @@ function toNumericCount(val: unknown): number {
  * Service for managing graph duplication and subset operations
  */
 export class GraphCopyService {
-  private session: Session;
+  /** A session handed in by the caller (tests); the caller closes it. */
+  private readonly injected?: Session;
+  /**
+   * The session of the operation running now. A service that lives as long as
+   * the process must not keep one session for life: a request that times out
+   * has its session abandoned, and every later copy would fail on it.
+   */
+  private readonly operation = new AsyncLocalStorage<Session>();
   private readonly DEFAULT_BATCH_SIZE = 1000;
 
   constructor(session?: Session) {
-    this.session = session || getDatabaseManager().getNeo4jSession();
+    this.injected = session;
+  }
+
+  private get session(): Session {
+    const session = this.operation.getStore() ?? this.injected;
+    if (!session) throw new Error('GraphCopyService: no session for this operation');
+    return session;
+  }
+
+  /** Run one public operation on its own session, closed when it ends. */
+  private async withSession<T>(work: () => Promise<T>): Promise<T> {
+    if (this.injected || this.operation.getStore()) return work();
+    const session = getDatabaseManager().getNeo4jSession() as unknown as Session;
+    try {
+      return await this.operation.run(session, work);
+    } finally {
+      await session.close().catch(() => undefined);
+    }
   }
 
   /**
    * Copy entire graph with all nodes and relationships
    */
-  async copyFullGraph(
+  copyFullGraph(sourceGraphId: string, targetGraphId: string, config: Partial<CopyConfig> = {}): Promise<CopyResult> {
+    return this.withSession(() => this.runCopyFullGraph(sourceGraphId, targetGraphId, config));
+  }
+
+  private async runCopyFullGraph(
     sourceGraphId: string, 
     targetGraphId: string,
     config: Partial<CopyConfig> = {}
@@ -178,7 +207,11 @@ export class GraphCopyService {
   /**
    * Copy subset of graph by time range
    */
-  async copyByTimeRange(
+  copyByTimeRange(sourceGraphId: string, timeRange: TimeRange, targetGraphId: string, config: Partial<CopyConfig> = {}): Promise<CopyResult> {
+    return this.withSession(() => this.runCopyByTimeRange(sourceGraphId, timeRange, targetGraphId, config));
+  }
+
+  private async runCopyByTimeRange(
     sourceGraphId: string, 
     timeRange: TimeRange, 
     targetGraphId: string,
@@ -245,7 +278,11 @@ export class GraphCopyService {
   /**
    * Copy subset of graph by entity filter
    */
-  async copyByEntityFilter(
+  copyByEntityFilter(sourceGraphId: string, filter: EntityFilter, targetGraphId: string, config: Partial<CopyConfig> = {}): Promise<CopyResult> {
+    return this.withSession(() => this.runCopyByEntityFilter(sourceGraphId, filter, targetGraphId, config));
+  }
+
+  private async runCopyByEntityFilter(
     sourceGraphId: string, 
     filter: EntityFilter, 
     targetGraphId: string,
@@ -312,7 +349,11 @@ export class GraphCopyService {
   /**
    * Validate integrity of copied graph
    */
-  async validateCopyIntegrity(copyResult: CopyResult): Promise<IntegrityReport> {
+  validateCopyIntegrity(copyResult: CopyResult): Promise<IntegrityReport> {
+    return this.withSession(() => this.runValidateCopyIntegrity(copyResult));
+  }
+
+  private async runValidateCopyIntegrity(copyResult: CopyResult): Promise<IntegrityReport> {
     const report: IntegrityReport = {
       isValid: true,
       missingNodes: [],
@@ -1113,9 +1154,9 @@ export class GraphCopyService {
   }
 
   /**
-   * Close the session
+   * Close the session handed to the constructor (operations close their own)
    */
   async close(): Promise<void> {
-    await this.session.close();
+    await this.injected?.close();
   }
 }

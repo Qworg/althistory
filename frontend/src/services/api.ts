@@ -178,6 +178,14 @@ export function storeApiKey(key: string): void {
 }
 
 // Custom error class for API errors
+/**
+ * Client-side budget for a graph copy. The copy is synchronous and, once it has
+ * begun to write, the server finishes it rather than answer 408 over a half-made
+ * graph; the server gives it up to 120 s (`COPY_TIMEOUT_MS`), so the 10 s
+ * default would show "Network error" while the copy carries on.
+ */
+const GRAPH_COPY_REQUEST_TIMEOUT_MS = 130_000
+
 /** Client-side budget for a synchronous extraction; see `ingest` below. */
 const INGEST_REQUEST_TIMEOUT_MS = 310_000
 
@@ -659,7 +667,7 @@ class APIClient {
                 const response: AxiosResponse<{ success: boolean; data: CopyResult }> = await this.client.post('/graphs/copy', {
                     targetName,
                     copyType: 'full'
-                })
+                }, { timeout: GRAPH_COPY_REQUEST_TIMEOUT_MS })
                 return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
@@ -675,7 +683,7 @@ class APIClient {
                         start: timeRange.start.toISOString(),
                         end: timeRange.end.toISOString()
                     }
-                })
+                }, { timeout: GRAPH_COPY_REQUEST_TIMEOUT_MS })
                 return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)
@@ -694,7 +702,7 @@ class APIClient {
                         targets: filter.targets,
                         eventTypes: filter.event_types
                     }
-                })
+                }, { timeout: GRAPH_COPY_REQUEST_TIMEOUT_MS })
                 return response.data.data
             } catch (error) {
                 handleAPIError(error as AxiosError)

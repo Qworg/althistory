@@ -372,7 +372,7 @@ describe('APIClient', () => {
       expect(mockAxiosInstance.post).toHaveBeenCalledWith('/graphs/copy', {
         targetName: 'Test Copy',
         copyType: 'full'
-      })
+      }, { timeout: 130_000 })
       expect(result).toEqual(mockCopyResult)
     })
 
@@ -392,8 +392,16 @@ describe('APIClient', () => {
           start: timeRange.start.toISOString(),
           end: timeRange.end.toISOString()
         }
-      })
+      }, { timeout: 130_000 })
       expect(result).toEqual(mockCopyResult)
+    })
+
+    it('gives a filtered copy the same long budget as the others', async () => {
+      mockAxiosInstance.post.mockResolvedValue({ data: { success: true, data: mockCopyResult } })
+
+      await apiClient.graph.copyByFilter({ actors: ['A'], targets: [], event_types: [] }, 'Test Copy')
+
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/graphs/copy', expect.objectContaining({ copyType: 'filtered' }), { timeout: 130_000 })
     })
 
     it('should get copy status', async () => {

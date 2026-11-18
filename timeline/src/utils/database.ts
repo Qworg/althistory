@@ -5,6 +5,66 @@ import { DatabaseConnectionError } from './errors';
 import { LocalGraphStore, LocalQueryResult, LocalQueryRecord, GraphParameters } from './LocalGraphStore';
 import { getCacheManager, CacheManager } from './cache';
 import { loadConfig } from './config';
+import { checkpoint, commitSection, currentBudget, raceAbort } from './requestBudget';
+import { isWriteQuery } from './cypherWrites';
+
+/**
+ * Make a session honour the budget of the request it runs under
+ * (`utils/requestBudget.ts`).
+ *
+ * A write is run in an explicit transaction and committed only if the request
+ * still has time: when the budget runs out first, the transaction is rolled
+ * back and the call rejects, so a 408 leaves nothing in the database. The
+ * `COMMIT` itself runs as a commit section, so a timeout that arrives while it
+ * is on the wire waits for it (the write is then real and the request replies
+ * normally). A read just stops: the call rejects and the session is closed.
+ *
+ * Outside a request there is no budget and the session is returned as it is
+ * used (the proxy forwards `run` untouched).
+ */
+export function cancellableSession(session: Session): Session {
+  const plainRun = session.run.bind(session);
+  // A session holds one transaction at a time; callers that overlap runs on
+  // one session (the driver queues auto-commit runs) wait for each other.
+  let previous: Promise<unknown> = Promise.resolve();
+  const run = (query: string, parameters?: GraphParameters, config?: unknown): ReturnType<Session['run']> => {
+    const budget = currentBudget();
+    if (!budget) return plainRun(query, parameters as never, config as never);
+    const signal = budget.signal;
+    // `run` returns a Result, which callers await; a Promise of the same
+    // QueryResult is what they get here.
+    const work = previous.catch(() => undefined).then(async () => {
+      checkpoint();
+      if (!isWriteQuery(query)) {
+        // The caller owns the session and closes it; closing it here would
+        // break a session that outlives the request.
+        return raceAbort(plainRun(query, parameters as never, config as never) as unknown as Promise<unknown>, signal);
+      }
+      // `executeWrite` retries a transient failure (a deadlock between two
+      // writers that share a node) in a new transaction, as the driver does
+      // for any managed transaction. The work function is the whole unit: it is
+      // checked against the signal each time it starts, so a request past its
+      // deadline is not retried, and it marks the request committed only when
+      // it has finished, just before the driver commits.
+      return session.executeWrite(async (tx) => {
+        checkpoint();
+        const result = await raceAbort(tx.run(query, parameters as never) as unknown as Promise<unknown>, signal);
+        checkpoint();
+        budget.markCommitted();
+        return result;
+      });
+    });
+    previous = work;
+    return work as unknown as ReturnType<Session['run']>;
+  };
+  return new Proxy(session, {
+    get(target, property) {
+      if (property === 'run') return run;
+      const value = Reflect.get(target, property, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
 
 /**
  * Database configuration interface
@@ -137,12 +197,12 @@ export class DatabaseManager {
       throw new DatabaseConnectionError('Neo4j driver not initialized');
     }
     
-    return this.neo4jDriver.session({ 
+    return cancellableSession(this.neo4jDriver.session({
       database: database || this.config.neo4j.database || 'neo4j',
       defaultAccessMode: options?.defaultAccessMode === 'READ' ? neo4j.session.READ : neo4j.session.WRITE,
       bookmarks: options?.bookmarks,
       fetchSize: options?.fetchSize || 1000
-    });
+    }));
   }
 
   /**
@@ -351,8 +411,16 @@ export class LocalSession {
     if (!this.isOpen) {
       throw new Error('Session is closed');
     }
+
+    // A request that ran out of time (its 408 is sent or about to be) must not
+    // change the store. The query below applies in memory in one synchronous
+    // step, so once this passes the write cannot be interrupted by the timer.
+    checkpoint();
     
     try {
+      if (isWriteQuery(query)) {
+        return await commitSection(() => this.graphStore.executeQuery(query, parameters));
+      }
       return await this.graphStore.executeQuery(query, parameters);
     } catch (error) {
       throw new DatabaseConnectionError(`Local query execution failed: ${error}`, error as Error);

@@ -9,6 +9,7 @@
  */
 
 import * as crypto from 'crypto';
+import { beginCommit, checkpoint, commitSection } from '@/utils/requestBudget';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -159,6 +160,7 @@ export class VersionRepository {
    * Initialize storage directories for a graph
    */
   async initializeGraph(graphId: string): Promise<void> {
+    beginCommit();
     const graphDir = this.getGraphDir(graphId);
     const dirs = [
       graphDir,
@@ -210,6 +212,8 @@ export class VersionRepository {
     const release = await this.commitMutex.acquire(graphId);
     
     try {
+      // A request that timed out while it waited for the mutex records nothing.
+      checkpoint();
       return await this.commitInternal(graphId, changes, operation, description, userId, mergeParent, expectedParentVersion);
     } finally {
       release();
@@ -326,11 +330,18 @@ export class VersionRepository {
       versionRef.mergeParent = mergeParent;
     }
 
-    // Store version ref
-    await this.storeVersionRef(graphId, versionRef);
+    // The last point at which a timed-out request can still be refused (the
+    // objects and tree written above are content-addressed and unreferenced
+    // until the ref lands). From here the version is recorded as a unit: a
+    // timeout that arrives meanwhile waits for it (see `commitSection`).
+    checkpoint();
+    await commitSection(async () => {
+      // Store version ref
+      await this.storeVersionRef(graphId, versionRef);
 
-    // Update current tree pointer
-    await this.setCurrentTree(graphId, newTreeHash);
+      // Update current tree pointer
+      await this.setCurrentTree(graphId, newTreeHash);
+    });
 
     // Check if we should pack old versions
     if (newVersion > 0 && newVersion % this.packThreshold === 0) {
@@ -785,6 +796,7 @@ export class VersionRepository {
    * Delete all data for a graph
    */
   async deleteGraph(graphId: string): Promise<void> {
+    beginCommit();
     const graphDir = this.getGraphDir(graphId);
     this.headTrees.delete(graphId);
     await fs.promises.rm(graphDir, { recursive: true, force: true });
@@ -806,6 +818,7 @@ export class VersionRepository {
 
   /** Name a version, or clear its name with null. */
   async setVersionLabel(graphId: string, version: number, label: string | null): Promise<void> {
+    beginCommit();
     const labels = await this.getVersionLabels(graphId);
     if (label) labels[String(version)] = label;
     else delete labels[String(version)];

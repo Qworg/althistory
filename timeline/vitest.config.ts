@@ -77,6 +77,7 @@ export default defineConfig({
       'src/tests/integration/cloud-graph-scoped-ids.test.ts',
       'src/tests/integration/cloud-graph-id-constraint-migration.test.ts',
       'src/tests/integration/cloud-startup-migration.test.ts',
+      'src/tests/integration/cloud-request-timeout.test.ts',
       // Requires Neo4j: moments beyond a Date through datetime({epochMillis}).
       'src/repositories/DeepTime.neo4j.test.ts'
     ]
