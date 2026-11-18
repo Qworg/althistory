@@ -657,7 +657,12 @@ export class GraphWriteVersioningService {
     // every pressure when it deletes an arc (`releasePressures`).
     const deletesEvent = [...(state.events ?? [])].some(([, event]) => !event);
     const deletesArc = [...(state.arcs ?? [])].some(([, arc]) => !arc);
-    const readsAllLinks = state.deletesLinks === true || deletesEvent || reconcilePairs;
+    // Known consequence: a head link the live store does not hold can outlive a
+    // create-only batch. It is left by a failed version commit after a live
+    // delete, or by a cross-graph link the sync cannot rebuild. Such a batch
+    // keeps it; only a delete on that pair or event, or a `reconcilePairs`
+    // batch, removes it.
+    const readsAllLinks =state.deletesLinks === true || deletesEvent || reconcilePairs;
     const selection: TreeSelection = {
       events: [...(state.events?.keys() ?? [])],
       arcs: [...(state.arcs?.keys() ?? [])],
