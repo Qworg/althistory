@@ -225,7 +225,7 @@ describe('offline sync', () => {
   })
 
   it('surfaces a rejected replay instead of dropping it silently', async () => {
-    enqueueMutation({ method: 'POST', url: '/events', body: { id: 'e1' } })
+    enqueueMutation({ graphId: null, method: 'POST', url: '/events', body: { id: 'e1' } })
     const send = vi
       .fn<MutationSender>()
       .mockRejectedValue(new HttpMutationError(422, 'invalid payload'))
@@ -246,18 +246,21 @@ describe('offline sync', () => {
 
   it('skips and surfaces later writes to an entity whose earlier write was rejected', async () => {
     enqueueMutation({
+      graphId: null,
       method: 'POST',
       url: '/events',
       body: { id: 'e1' },
       entityKey: 'event:e1',
     })
     enqueueMutation({
+      graphId: null,
       method: 'PUT',
       url: '/events/e1',
       body: { description: 'x' },
       entityKey: 'event:e1',
     })
     const arc = enqueueMutation({
+      graphId: null,
       method: 'POST',
       url: '/arcs',
       body: { id: 'a1' },
@@ -283,9 +286,9 @@ describe('offline sync', () => {
   })
 
   it('stops at a transient failure and keeps the remaining writes queued in order', async () => {
-    enqueueMutation({ method: 'POST', url: '/events', body: { id: 'e1' } })
-    enqueueMutation({ method: 'POST', url: '/events', body: { id: 'e2' } })
-    enqueueMutation({ method: 'POST', url: '/arcs', body: { id: 'a1' } })
+    enqueueMutation({ graphId: null, method: 'POST', url: '/events', body: { id: 'e1' } })
+    enqueueMutation({ graphId: null, method: 'POST', url: '/events', body: { id: 'e2' } })
+    enqueueMutation({ graphId: null, method: 'POST', url: '/arcs', body: { id: 'a1' } })
 
     let attempts = 0
     const send = vi.fn<MutationSender>().mockImplementation(async () => {
@@ -305,7 +308,7 @@ describe('offline sync', () => {
   })
 
   it('mirrors the replay state into the store while a pass runs', async () => {
-    enqueueMutation({ method: 'POST', url: '/events', body: { id: 'e1' } })
+    enqueueMutation({ graphId: null, method: 'POST', url: '/events', body: { id: 'e1' } })
     let release: () => void = () => {}
     const gate = new Promise<void>((resolve) => {
       release = resolve
@@ -352,7 +355,7 @@ describe('replaying a queued write that the server rate limits', () => {
 
   it('waits at least as long as the server asked before the next try', async () => {
     mockedIsOnline.mockReturnValue(true)
-    enqueueMutation({ method: 'POST', url: '/events', body: { id: 'e1' } })
+    enqueueMutation({ method: 'POST', url: '/events', body: { id: 'e1' }, graphId: null })
     const sentAt: number[] = []
     vi.stubGlobal(
       'fetch',
@@ -378,10 +381,73 @@ describe('replaying a queued write that the server rate limits', () => {
     )
     const { createHttpMutationSender } = await import('./offlineSync')
     const send = createHttpMutationSender('http://x/api')
-    await expect(send({ method: 'POST', url: '/events', body: {} } as never)).rejects.toBeInstanceOf(HttpMutationError)
+    await expect(send({ method: 'POST', url: '/events', body: {}, graphId: null } as never)).rejects.toBeInstanceOf(HttpMutationError)
     const messages = useGlobalStore.getState().errors.map((e) => e.message)
     expect(messages).toHaveLength(1)
     expect(messages[0]).toContain('was refused')
     expect(useGlobalStore.getState().errors[0]!.retryAt).toBeGreaterThan(Date.now() + 15000)
+  })
+})
+
+describe('replaying with the same credentials and graph as the live app (#36)', () => {
+  beforeEach(() => {
+    clearMutationQueue()
+    mockedIsOnline.mockReturnValue(true)
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    localStorage.removeItem('api_key')
+    localStorage.removeItem('active_graph_id')
+  })
+
+  const okFetch = () => vi.fn().mockResolvedValue(new Response('{}', { status: 201 }))
+
+  it('replays a write queued in graph A to graph A with the API key, while graph B is open', async () => {
+    mockedIsOnline.mockReturnValue(false)
+    localStorage.setItem('active_graph_id', 'graph-a')
+    localStorage.setItem('api_key', 'key-123')
+    await submitMutation(
+      { method: 'POST', url: '/events', body: { id: 'e1' } },
+      { send: vi.fn(), notify: false },
+    )
+    // The person switches graph before the connection returns.
+    localStorage.setItem('active_graph_id', 'graph-b')
+    mockedIsOnline.mockReturnValue(true)
+    const fetchMock = okFetch()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await replayQueuedMutations()
+
+    expect(result.replayed).toHaveLength(1)
+    const headers = (fetchMock.mock.calls[0]![1] as RequestInit).headers as Record<string, string>
+    expect(headers['X-Graph-Id']).toBe('graph-a')
+    expect(headers['X-API-Key']).toBe('key-123')
+  })
+
+  it('sends a write made with no graph selected without an X-Graph-Id', async () => {
+    enqueueMutation({ method: 'POST', url: '/events', body: {}, graphId: null })
+    const fetchMock = okFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    await replayQueuedMutations()
+    const headers = (fetchMock.mock.calls[0]![1] as RequestInit).headers as Record<string, string>
+    expect(headers['X-Graph-Id']).toBeUndefined()
+  })
+
+  it('tells the person about a 401 and keeps the write queued', async () => {
+    useGlobalStore.setState({ errors: [] })
+    enqueueMutation({ method: 'POST', url: '/events', body: {}, graphId: 'graph-a' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 401 })))
+    const result = await replayQueuedMutations()
+    expect(result.remaining).toBe(1)
+    expect(useGlobalStore.getState().errors.map((e) => e.message).join('\n')).toContain('HTTP 401')
+  })
+
+  it('tells the person about a 403 instead of dropping the write silently', async () => {
+    useGlobalStore.setState({ errors: [] })
+    enqueueMutation({ method: 'POST', url: '/events', body: {}, graphId: 'graph-a' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 403 })))
+    const result = await replayQueuedMutations()
+    expect(result.rejected).toHaveLength(1)
+    expect(useGlobalStore.getState().errors.map((e) => e.message).join('\n')).toContain('lacks permission')
   })
 })

@@ -123,6 +123,7 @@ export function UserProfileMenu({ variant = 'header', compact = false, touch = f
       {/* Dropdown menu */}
       {isOpen && (
         <div
+          data-overlay-open
           className={`
             absolute ${dropdownPositionClasses} z-50
             ${isSidebarVariant && !isRail ? 'w-full' : 'w-64'}

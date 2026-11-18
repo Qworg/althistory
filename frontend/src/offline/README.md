@@ -52,6 +52,14 @@ narrower than "all user changes are cached". What backs it:
 | Sent, but removal from storage failed | Not counted as synced; stays queued (it may be sent again) and the storage error is surfaced. The pass stops. |
 | A dependent write after a permanent rejection | Skipped and surfaced, when both carry the same `entityKey`. |
 
+Each queued write records the graph that was open when it was made (`graphId`)
+and replay sends it as `X-Graph-Id`, with the same `X-API-Key` the API client
+uses, so a write lands in its own graph even if another is open at replay time.
+A write queued before this was recorded has no known graph: it is never sent
+(it could land in the wrong graph); it is removed and reported once, and the
+change has to be made again. A 401 is announced once and the write stays
+queued; a 403 is reported as a permission refusal.
+
 **A 401 does not mean "lost".** It means the queue stops and keeps the write; the
 replay retries at up to one-minute intervals until a valid token is available.
 Nothing drains the queue while the device is offline.

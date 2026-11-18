@@ -13,6 +13,7 @@ import {
   useGraphHeadVersion,
 } from '@/hooks/useGraphs'
 import { useGlobalStore } from '@/stores/globalStore'
+import { shouldIgnoreAppShortcut } from '@/utils/keyboardShortcuts'
 import { GraphStatus } from '@/types'
 import { RetryCountdown } from '@/components/notifications/NotificationCenter'
 import { formatHistoricalRange, historicalYear } from '@/utils/historicalTime'
@@ -154,6 +155,24 @@ export const GraphSelector = memo(function GraphSelector({
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [sheet])
+
+  // Escape closes the desktop dropdown, so the notices that were beneath it come
+  // back. (The phone sheet has its own keys.) Stands aside while the person types
+  // (the new-graph field handles its own Escape) or a modal dialog is open.
+  useEffect(() => {
+    if (!isOpen || sheet) return
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key !== 'Escape' || event.defaultPrevented || shouldIgnoreAppShortcut(event)) return
+      event.preventDefault()
+      setIsOpen(false)
+      setIsCreating(false)
+      dropdownRef.current?.querySelector<HTMLElement>('button[aria-haspopup="listbox"]')?.focus()
+    }
+    // Capture phase, and the key is marked handled, so the view's own Escape
+    // (which clears the selection) does not also fire for the same press.
+    document.addEventListener('keydown', handleEscape, true)
+    return () => document.removeEventListener('keydown', handleEscape, true)
+  }, [isOpen, sheet])
 
   // Focus input when creating
   useEffect(() => {
@@ -518,7 +537,7 @@ export const GraphSelector = memo(function GraphSelector({
           bottom sheet, because a 20rem panel anchored to the button's right
           edge started off the left of a 390px screen. */}
       {isOpen && !sheet && (
-        <div className="absolute top-full right-0 mt-1 w-80 max-w-[calc(100vw-2rem)] bg-card text-ink border border-line rounded-lg shadow-lg z-50">
+        <div data-overlay-open className="absolute top-full right-0 mt-1 w-80 max-w-[calc(100vw-2rem)] bg-card text-ink border border-line rounded-lg shadow-lg z-50">
           {panelBody}
         </div>
       )}

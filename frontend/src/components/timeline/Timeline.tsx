@@ -2094,7 +2094,7 @@ const Timeline = memo(function Timeline({
 
       {/* Event Arc Assignment Modal */}
       {eventAssignmentModal.isOpen && eventAssignmentModal.event && (
-        <div className="fixed z-50" style={{ left: eventAssignmentModal.position?.x ?? 0, top: eventAssignmentModal.position?.y ?? 0 }}>
+        <div data-overlay-open className="fixed z-50" style={{ left: eventAssignmentModal.position?.x ?? 0, top: eventAssignmentModal.position?.y ?? 0 }}>
           <EventArcAssignment
             event={eventAssignmentModal.event}
             availableArcs={arcs}

@@ -22,6 +22,7 @@ export function OfflineIndicator() {
   const isOnline = useGlobalStore((state) => state.isOnline)
   const pendingMutationCount = useGlobalStore((state) => state.pendingMutationCount)
   const syncInProgress = useGlobalStore((state) => state.syncInProgress)
+  const unscoped = useGlobalStore((state) => state.unscopedMutationCount)
 
   if (isOnline && pendingMutationCount === 0) return null
 
@@ -33,6 +34,10 @@ export function OfflineIndicator() {
       pendingMutationCount === 0
         ? 'Offline — not connected'
         : `Offline — ${pendingMutationCount} ${changes} saved on this device, not yet sent`
+  } else if (unscoped > 0 && !syncInProgress) {
+    // Waiting for a person, not for the network: the prompt in the notification
+    // stack asks what to do with them.
+    message = `${unscoped} ${unscoped === 1 ? 'change needs' : 'changes need'} a decision before sending`
   } else if (syncInProgress) {
     message = `Syncing ${pendingMutationCount} queued ${changes}…`
   } else {
@@ -47,8 +52,8 @@ export function OfflineIndicator() {
       data-online={isOnline}
       className={
         isOnline
-          ? 'fixed bottom-4 left-4 z-50 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 shadow-lg'
-          : 'fixed bottom-4 left-4 z-50 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 shadow-lg'
+          ? 'pointer-events-auto w-fit self-end rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 shadow-lg'
+          : 'pointer-events-auto w-fit self-end rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 shadow-lg'
       }
     >
       {message}

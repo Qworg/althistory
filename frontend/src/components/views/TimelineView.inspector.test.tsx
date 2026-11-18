@@ -220,6 +220,23 @@ describe('TimelineView: the selected event and why it is there', () => {
     expect(within(inspector).getByText('No recorded effects.')).toBeInTheDocument()
   })
 
+  it('Escape with no picker open is not marked handled, and clears the selection', async () => {
+    const user = userEvent.setup()
+    renderView()
+    select(wire)
+    expect(timelineProps().selectedEventId).toBe(wire.id)
+    const seen: boolean[] = []
+    const probe = (e: KeyboardEvent) => seen.push(e.defaultPrevented)
+    document.addEventListener('keydown', probe, true)
+    try {
+      await user.keyboard('{Escape}')
+    } finally {
+      document.removeEventListener('keydown', probe, true)
+    }
+    expect(seen).toEqual([false])
+    expect(timelineProps().selectedEventId).toBeNull()
+  })
+
   it('opens on the event a link names, then drops it from the address', () => {
     window.history.pushState({}, '', '/timeline?event=moltke')
     renderView()

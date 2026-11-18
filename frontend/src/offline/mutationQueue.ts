@@ -52,6 +52,15 @@ export interface MutationRequest {
    * skipping happens for this write.
    */
   entityKey?: string
+  /**
+   * The graph that was open when the write was made, sent as `X-Graph-Id` on
+   * replay so the write lands where it was made, not in whichever graph is open
+   * (or active on the server) later. `null` means no graph was selected, so the
+   * write goes unscoped exactly as the immediate send would have. `undefined`
+   * is a write queued before this field existed: its graph is unknown, so it is
+   * never sent (see `createHttpMutationSender`).
+   */
+  graphId?: string | null
 }
 
 export interface QueuedMutation extends MutationRequest {
@@ -325,6 +334,7 @@ export function enqueueMutation(input: EnqueueMutationInput): QueuedMutation {
   }
   if (input.body !== undefined) mutation.body = input.body
   if (input.entityKey !== undefined) mutation.entityKey = input.entityKey
+  if (input.graphId !== undefined) mutation.graphId = input.graphId
 
   setEntry(storage, mutation)
   notify(readMutationQueue())
@@ -358,6 +368,33 @@ export function removeMutation(id: string): void {
     )
   }
   notify(readMutationQueue())
+}
+
+/** True for a write queued before the graph was recorded (`graphId` absent). */
+export function isUnscoped(mutation: QueuedMutation): boolean {
+  return mutation.graphId === undefined
+}
+
+/**
+ * Record `graphId` on every queued write that has none, so they replay there.
+ * Returns how many were stamped. Throws `QueueStorageError` if one could not be
+ * saved; entries already stamped stay stamped.
+ */
+export function stampUnscopedMutations(graphId: string): number {
+  // `null` would send them with no X-Graph-Id, to whatever graph the server
+  // calls active (or to a 404 that discards them): never a guess.
+  if (typeof graphId !== 'string' || graphId === '') {
+    throw new QueueStorageError('enqueue', 'Open a graph before sending changes whose graph was not recorded.')
+  }
+  const storage = requireStorage('enqueue')
+  let stamped = 0
+  for (const mutation of readMutationQueue()) {
+    if (!isUnscoped(mutation)) continue
+    setEntry(storage, { ...mutation, graphId })
+    stamped += 1
+  }
+  if (stamped > 0) notify(readMutationQueue())
+  return stamped
 }
 
 export function getQueuedMutations(): QueuedMutation[] {

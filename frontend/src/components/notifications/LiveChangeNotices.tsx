@@ -21,7 +21,7 @@ export function LiveChangeNotices() {
     <div
       aria-live="polite"
       aria-label="Live changes"
-      className="pointer-events-none fixed bottom-4 left-1/2 z-40 flex w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 flex-col gap-2 max-lg:bottom-[calc(4rem+env(safe-area-inset-bottom,0px))]"
+      className="pointer-events-none fixed bottom-4 left-1/2 z-[var(--z-notices)] flex w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 flex-col gap-2 max-lg:bottom-[calc(4rem+env(safe-area-inset-bottom,0px))]"
     >
       {notices.map((notice) => (
         <div
