@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { planSelectionPlate, type PlateLink, type SelectionPlateInput } from './selectionPlate'
+import { MIN_PLATE_CHARS, planSelectionPlate, shortenedPlateTexts, type PlateLink, type SelectionPlateInput } from './selectionPlate'
 import { PLATE_ASCENT, PLATE_DESCENT, PLATE_PAD, type PlacedLabelBox } from './pinnedLabel'
 
 const X = 300
@@ -224,6 +224,78 @@ describe('planSelectionPlate', () => {
       const found = planSelectionPlate(input({ labels, links: [link('t1', 300, 310, true), link('t2', 200, 400, true)] }))
       expect(found).not.toBeNull()
       expect(found!.plan.hidden.length).toBeGreaterThan(0)
+    })
+  })
+
+  describe('a shorter name before a covered link (#41)', () => {
+    const full = { text: 'The selected name that is long…', width: 150 }
+    const short = { text: 'The selected…', width: 70 }
+    // Untraced links leave the track either side of the mark, 60px and 120px out: every placement of the full name (centred, or
+    // ending or starting at the mark) covers one of them; the short name, centred, fits between.
+    const sides = [link('left', 240, 100), link('right', 420, 600)]
+    const noLabelRows = { labels: wall }
+
+    it('picks the shorter text for a clear spot over covering an untraced link with the full one', () => {
+      const without = planSelectionPlate(input({ ...noLabelRows, texts: [full], links: sides }))
+      // Before the shorter forms: the plate can only be put over the links.
+      const over = plateOf(without!)
+      expect(over.left < 242 || over.right > 418).toBe(true)
+      const found = planSelectionPlate(input({ ...noLabelRows, texts: [full], shortTexts: [short], links: sides }))
+      expect(found?.text).toBe(short.text)
+      const plate = plateOf(found!)
+      expect(plate.left > 242 && plate.right < 418).toBe(true)
+      expect(found!.plan.hidden).toEqual([])
+    })
+
+    it('does not shorten when the full text fits a clear spot', () => {
+      const found = planSelectionPlate(input({ ...noLabelRows, texts: [full], shortTexts: [short], links: [link('far', 560, 640)] }))
+      expect(found?.text).toBe(full.text)
+    })
+
+    it('does not shorten when the full text fits in the nearest row', () => {
+      expect(planSelectionPlate(input({ texts: [full], shortTexts: [short] }))).toMatchObject({ text: full.text, plan: { offset: -20 } })
+    })
+
+    it('shortens before it hides a neighbour: the shorter name beside a label beats the full name over it', () => {
+      // Row -20 holds a small label either side of the mark, clear of the short plate; every placement of the full plate covers one whole. The other rows are walled.
+      const labels = [...wall.filter((w) => w.id !== 'wall-20'), box('smallL', 225, 255, -20, { length: 6 }), box('smallR', 345, 375, -20, { length: 6 })]
+      const hides = planSelectionPlate(input({ labels, belowRows: [], texts: [full] }))
+      expect(hides?.plan.hidden).toHaveLength(1)
+      const found = planSelectionPlate(input({ labels, belowRows: [], texts: [full], shortTexts: [short] }))
+      expect(found?.text).toBe(short.text)
+      expect(found?.plan.hidden).toEqual([])
+    })
+
+    it('leaves the last resort as it was: with no clear spot even for the short name, the plate still covers an untraced link', () => {
+      const dense = [link('a', 270, 100), link('b', 290, 120), link('c', 310, 480), link('d', 330, 600)]
+      const found = planSelectionPlate(input({ ...noLabelRows, texts: [full], shortTexts: [short], links: dense }))
+      expect(found).not.toBeNull()
+    })
+  })
+
+  describe('shortenedPlateTexts', () => {
+    const measure = (text: string) => ({ text, width: text.length * 6.7 })
+    it('gives forms of 11 to 13 characters ending in an ellipsis, longest first, never below the minimum', () => {
+      const forms = shortenedPlateTexts('Manchester clerks hold a meeting of the guild', measure)
+      expect(forms.length).toBeGreaterThan(0)
+      for (const form of forms) {
+        expect(form.text.endsWith('…')).toBe(true)
+        expect(form.text.length).toBeGreaterThanOrEqual(MIN_PLATE_CHARS)
+        expect(form.text.length).toBeLessThanOrEqual(13)
+      }
+      expect(forms[0]!.text).toBe('Manchester…')
+      expect(forms.map((form) => form.width)).toEqual(forms.map((form) => form.text.length * 6.7))
+    })
+
+    it('offers nothing shorter than the minimum, whatever the first words are', () => {
+      for (const name of ['An ox ate the grain fully', 'A B C D E F G H I J K', 'Up in the air and away']) {
+        for (const form of shortenedPlateTexts(name, measure)) expect(form.text.length).toBeGreaterThanOrEqual(MIN_PLATE_CHARS)
+      }
+    })
+
+    it('leaves out forms already known and names too short to cut', () => {
+      expect(shortenedPlateTexts('Manchester clerks hold a meeting', measure, ['Manchester…'])).toEqual([])
+      expect(shortenedPlateTexts('Short name', measure)).toEqual([])
     })
   })
 })

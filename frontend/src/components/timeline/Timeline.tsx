@@ -22,7 +22,7 @@ import { formatHistoricalTimestamp, formatEventDate, formatHistoricalEnd } from 
 import { measureLabelWidth } from './labelWidth'
 import { useFontEpoch } from './useFontEpoch'
 import { PLATE_ONLY_ASCENT, PLATE_PAD, type PlacedLabelBox } from './pinnedLabel'
-import { planSelectionPlate, type PlateLink } from './selectionPlate'
+import { planSelectionPlate, shortenedPlateTexts, type PlateLink } from './selectionPlate'
 import { layoutEventLabels, truncateLabel, PRIORITY_LABEL_MAX_CHARS, BESIDE_PX, LABEL_FONT_SIZE, TIMELINE_BELOW_ROW_OFFSETS, TIMELINE_LABEL_CONFIG } from './eventLabelLayout'
 import { tooltipPlacement } from './tooltipPlacement'
 import { useLiveChangesStore } from '@/stores/liveChangesStore'
@@ -697,6 +697,8 @@ const Timeline = memo(function Timeline({
       }
     }
     // The full name if a plate fits; else the shorter forms the layout uses.
+    const measurePlateText = (text: string) => ({ text, width: measureLabelWidth(text, LABEL_FONT_SIZE, 600) })
+    const plateTexts = [PRIORITY_LABEL_MAX_CHARS, 24, 18, 14].map((chars) => measurePlateText(truncateLabel(selected.description, chars)))
     const found = planSelectionPlate({
       x,
       selectedId: selected.id,
@@ -712,10 +714,9 @@ const Timeline = memo(function Timeline({
       softObstacles,
       marks: visibleEvents.map((other) => ({ id: other.id, x: xScale(toInstant(other.timestamp)) })),
       links,
-      texts: [PRIORITY_LABEL_MAX_CHARS, 24, 18, 14].map((chars) => {
-        const text = truncateLabel(selected.description, chars)
-        return { text, width: measureLabelWidth(text, LABEL_FONT_SIZE, 600) }
-      }),
+      texts: plateTexts,
+      // Shorter still, measured the same way, for where no clear spot takes the ordinary forms (see selectionPlate.ts).
+      shortTexts: shortenedPlateTexts(selected.description, measurePlateText, plateTexts.map((form) => form.text)),
       preferAbove: typeof window !== 'undefined' && window.innerWidth < DOCKED_SHEET_BELOW_PX,
     })
     return found ? { id: selected.id, x, text: found.text, plan: found.plan } : null
