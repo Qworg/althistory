@@ -328,9 +328,16 @@ describe("a plate holds its text's ink (#42)", () => {
     })
 
     it('stays at the smallest size, lifted as far as it goes, where nothing is enough: it still names the selection and hides nothing', () => {
-      const found = only(above(-80))
+      // A plain name goes no smaller than 11px for a neighbour's accents (the stroke may lie over their tips); an accented one goes to 10px.
+      const plainFound = only(above(-80))
+      expect(plainFound).toMatchObject({ offset: PLATE_ONLY, fontSize: 11, hidden: [] })
+      expect(plainFound.lift).toBeCloseTo(PLATE_ONLY_ASCENT + PLATE_INK_SLACK - 8.1)
+      const accentedSizes = [
+        { fontSize: 11, width: 92, ink: { ascent: 11, descent: 2.1 } },
+        { fontSize: 10, width: 84, ink: { ascent: 10, descent: 2.2 } },
+      ]
+      const found = only(above(-80), accented, accentedSizes)
       expect(found).toMatchObject({ offset: PLATE_ONLY, fontSize: 10, hidden: [] })
-      expect(found.lift).toBeCloseTo(PLATE_ONLY_ASCENT + PLATE_INK_SLACK - 7.4)
       expect(found.right - found.left).toBe(84)
     })
 
@@ -384,11 +391,37 @@ describe("a plate holds its text's ink (#42)", () => {
     const row20 = (labels: PlacedLabelBox[], ink = accented) => planPinnedLabel({ x: 300, markY: Y, width: 100, innerWidth: 700, rows: [-20], labels, plateBox, ink, sizes })!
     const above = (inkBottom: number, extra: Partial<PlacedLabelBox> = {}) => label('above', 250, 350, -34, { inkBottom, ...extra })
 
-    it("grows over a label's ink above exactly to where it ends, not a hair under it", () => {
-      expect(row20([above(Y - 32.5)])).toMatchObject({ ascent: 12.5 })
-      expect(row20([above(Y - 32.5)]).fontSize).toBeUndefined()
-      // The stroke's half counts: ink ending between the ink's top and the stroke's outer edge is covered.
-      expect(row20([above(Y - 32.2)]).fontSize).toBe(11)
+    it("grows over a label's ink above only to where its top stroke's outer edge meets it", () => {
+      // Grown for the ink the plate reaches 12.5 above the baseline (67.5), and its stroke half a pixel further (67): ink ending there clears.
+      expect(row20([above(Y - 33)])).toMatchObject({ ascent: 12.5 })
+      expect(row20([above(Y - 33)]).fontSize).toBeUndefined()
+      // A tenth of a pixel more and the stroke lies over it: the text is set smaller instead (at 11px the plate reaches 11.5, the stroke 12: clear).
+      expect(row20([above(Y - 32.9)]).fontSize).toBe(11)
+    })
+
+    it('where no size clears the ink above, caps the plate under it rather than cover it', () => {
+      const tall = [
+        { fontSize: 11, width: 90, ink: { ascent: 11.5, descent: 2.4 } },
+        { fontSize: 10, width: 84, ink: { ascent: 11, descent: 2.2 } },
+      ]
+      // The label above has ink down to 68.5 (11.5 above the baseline at 80): no size clears 12 above the baseline, and the cap is 11 (stroke included).
+      const found = planPinnedLabel({ x: 300, markY: Y, width: 100, innerWidth: 700, rows: [-20], labels: [above(Y - 31.5)], plateBox, ink: accented, sizes: tall })!
+      expect(found.fontSize).toBe(10)
+      expect(found.ascent).toBeCloseTo(11)
+      expect(Y - 20 - found.ascent - PLATE_INK_SLACK).toBeGreaterThanOrEqual(Y - 31.5 - 1e-9)
+    })
+
+    it('a name with no accent of its own stops at 11px for a neighbour, and an accented one goes on to 10px', () => {
+      const both = [
+        { fontSize: 11, width: 90, ink: { ascent: 9.4, descent: 2.2 } },
+        { fontSize: 10, width: 84, ink: { ascent: 8.6, descent: 2.2 } },
+      ]
+      // A plain name never grows its plate (it fits the usual one), so nothing there asks it to shrink at all.
+      expect(planPinnedLabel({ x: 300, markY: Y, width: 100, innerWidth: 700, rows: [-20], labels: [above(Y - 31)], plateBox, ink: plain, sizes: both })!.fontSize).toBeUndefined()
+      // The ladder: an accented name may use 10px, a plain one is offered only 12 and 11.
+      const long = [{ fontSize: 11, width: 90, ink: { ascent: 10, descent: 2 } }, { fontSize: 10, width: 84, ink: { ascent: 9.2, descent: 2 } }]
+      const onlyAccent = planPinnedLabel({ x: 300, markY: Y, width: 100, innerWidth: 700, rows: [PLATE_ONLY], labels: [], plateBox, ink: { ascent: 9.9, descent: 2 }, sizes: long })!
+      expect(onlyAccent.fontSize).toBe(10)
     })
 
     it("judges the label above by its ink, not its box, and only a label above: not one beside or below the plate", () => {
@@ -456,5 +489,29 @@ describe("a plate holds its text's ink (#42)", () => {
       const found = only([label('top', 200, 400, -62, { inkTop: Y - 72.5 })], { ascent: 12, descent: 2 })
       expect(found.fontSize).toBeDefined()
     })
+
+    it("narrows an end- or start-anchored plate about its anchored edge when option B sets the text smaller than the size it started at", () => {
+      const sizes2 = [{ fontSize: 11, width: 92, ink: { ascent: 8.1, descent: 2.1 } }, { fontSize: 10, width: 84, ink: { ascent: 7.4, descent: 2.2 } }]
+      // A wide label whose ink reaches -74 lies under any plate in the row: 12px cannot clear it (lift 1 against a room of 0.5), 11px can.
+      const wide = [label('wide', 0, 700, -62, { inkTop: Y - 74 })]
+      const end = planPinnedLabel({ x: 698, markY: Y, width: 100, innerWidth: 700, rows: [PLATE_ONLY], labels: wide, plateBox, ink: { ascent: 9, descent: 2 }, sizes: sizes2 })!
+      expect(end).toMatchObject({ anchor: 'end', fontSize: 11 })
+      // The edge it is anchored at stays where the unnarrowed plate had it.
+      expect(end.right).toBe(planPinnedLabel({ x: 698, markY: Y, width: 100, innerWidth: 700, rows: [PLATE_ONLY], labels: [], plateBox, ink: { ascent: 9, descent: 2 } })!.right)
+      expect(end.right - end.left).toBe(92)
+      const startAt = planPinnedLabel({ x: 4, markY: Y, width: 100, innerWidth: 700, rows: [PLATE_ONLY], labels: wide, plateBox, ink: { ascent: 9, descent: 2 }, sizes: sizes2 })!
+      expect(startAt).toMatchObject({ anchor: 'start', fontSize: 11 })
+      expect(startAt.left).toBe(planPinnedLabel({ x: 4, markY: Y, width: 100, innerWidth: 700, rows: [PLATE_ONLY], labels: [], plateBox, ink: { ascent: 9, descent: 2 } })!.left)
+      expect(startAt.right - startAt.left).toBe(92)
+    })
+
+    it("judges an ordinary row's plate at the width of the text it starts from, not a smaller size's", () => {
+      // The accented text's usual width is 100; its 11px form is 90. A protected label 49 to 52 right of the mark lies under the 100px plate's
+      // centred extent (303 + 3 = 353 reaches it) and clear of a 90px one (300 + 45 + 3 = 348): the centred plate is refused, and the plate goes at the mark's end.
+      const sizesAccent = [{ fontSize: 11, width: 90, ink: { ascent: 11, descent: 2.4 } }]
+      const found = planPinnedLabel({ x: 300, markY: Y, width: 100, innerWidth: 700, rows: [-20], labels: [label('guard', 349, 352, -20, { protectedLabel: true })], plateBox, ink: accented, sizes: sizesAccent })!
+      expect(found.anchor).not.toBe('middle')
+    })
   })
 })
+

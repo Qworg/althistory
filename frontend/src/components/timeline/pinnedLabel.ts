@@ -79,6 +79,8 @@ export const PLATE_ONLY_DESCENT = 3
 export const PLATE_PAD = 3
 /** The smallest the text of a plate is drawn, to fit the plate-only row's 12px plate: below 10px it stops being easy to read. */
 export const PLATE_MIN_FONT_SIZE = 10
+/** A name with no accent of its own goes no smaller than this to clear a neighbour's accents. */
+export const PLAIN_MIN_FONT_SIZE = 11
 /**
  * How far a glyph may reach past a plate's edge and still count as inside it:
  * the plate's 1px stroke is centred on its edge, so its inner half is under the ink.
@@ -151,7 +153,13 @@ export function planPinnedLabel(input: PinnedInput): PinnedPlan | null {
     const { ascent, descent } = row
     // The name at each size it may be drawn at, the usual one first. In a row that cannot grow, the text is set smaller until its ink
     // fits (it stays at the smallest size if none does).
-    const ladder: Array<{ fontSize?: number; width: number; ink?: PlateInk }> = [{ width, ink }, ...(ink ? (sizes ?? []) : [])]
+    // A name whose ink fits the plate-only plate at the usual size has no accent of its own: it goes no smaller than PLAIN_MIN_FONT_SIZE to
+    // make room for a neighbour's accent (the stroke may lie over the accent's tip), where an accented name goes down to the floor.
+    const plain = !ink || (ink.ascent <= PLATE_ONLY_ASCENT + PLATE_INK_SLACK && ink.descent <= PLATE_ONLY_DESCENT + PLATE_INK_SLACK)
+    const ladder: Array<{ fontSize?: number; width: number; ink?: PlateInk }> = [
+      { width, ink },
+      ...(ink ? (sizes ?? []).filter((size) => !plain || size.fontSize >= PLAIN_MIN_FONT_SIZE) : []),
+    ]
     const fits = (i: PlateInk | undefined) => !i || (i.ascent <= row.ascent + PLATE_INK_SLACK && i.descent <= row.descent + PLATE_INK_SLACK)
     const start = row.fixed ? Math.max(0, ladder.findIndex((entry) => fits(entry.ink)) === -1 ? ladder.length - 1 : ladder.findIndex((entry) => fits(entry.ink))) : 0
     for (const extent of extentsFor(x, ladder[start]!.width, innerWidth)) {
@@ -218,11 +226,14 @@ export function planPinnedLabel(input: PinnedInput): PinnedPlan | null {
         let lift = 0
         const reach = (entry: { ink?: PlateInk }) => ({ a: entry.ink ? Math.max(ascent, entry.ink.ascent + PLATE_INK_SLACK) : ascent, d: entry.ink ? Math.max(descent, entry.ink.descent + PLATE_INK_SLACK) : descent })
         if (!row.fixed) {
-          // An ordinary row's plate grows a little upward for accents; it is set smaller instead where that would cover the ink of the label above.
+          // An ordinary row's plate grows a little upward for accents; it is set smaller instead where that would put its top stroke (its outer
+          // edge, half a pixel past the fill's) over the ink of the label above. Where no size clears it, the plate is capped under that ink.
           const above = beside.filter((label) => label.inkBottom !== undefined && label.bottom <= plate.top + 0.01)
-          const clear = (entry: { ink?: PlateInk }) => above.every((label) => label.inkBottom! <= y0 - reach(entry).a)
-          k = Math.max(0, ladder.findIndex(clear) === -1 ? ladder.length - 1 : ladder.findIndex(clear))
+          const clear = (entry: { ink?: PlateInk }) => reach(entry).a <= ascent || above.every((label) => label.inkBottom! <= y0 - reach(entry).a - PLATE_INK_SLACK)
+          const found = ladder.findIndex(clear)
+          k = Math.max(0, found === -1 ? ladder.length - 1 : found)
           ;({ a: drawnAscent, d: drawnDescent } = reach(ladder[k]!))
+          if (found === -1 && above.length > 0) drawnAscent = Math.min(drawnAscent, y0 - Math.max(...above.map((label) => label.inkBottom!)) - PLATE_INK_SLACK)
           // And it ends at its own ink, no lower, where the ink of a label in the row below reaches up under it.
           const below = Math.min(...beside.filter((label) => label.inkTop !== undefined && label.top >= plate.bottom - 0.01).map((label) => label.inkTop!))
           if (below - PLATE_INK_SLACK < y0 + drawnDescent) drawnDescent = Math.max(below - PLATE_INK_SLACK - y0, (ladder[k]!.ink?.descent ?? 0) - PLATE_INK_SLACK)
