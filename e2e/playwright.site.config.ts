@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
  */
 const here = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(here, '..')
-const port = 4176
+const port = Number(process.env.E2E_PORT ?? 4176)
 const baseURL = `http://127.0.0.1:${port}/althistory/`
 
 export default defineConfig({
