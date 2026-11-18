@@ -2,6 +2,7 @@
  * Repository for managing API keys with bcrypt hashing and local file storage
  */
 
+import { beginCommit } from '@/utils/requestBudget';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
@@ -93,6 +94,7 @@ export class ApiKeyRepository {
    * Create a new API key
    */
   async create(request: CreateApiKeyRequest): Promise<CreateApiKeyResponse> {
+    beginCommit();
     const { rawKey, keyHash, keyPrefix } = await this.generateKey();
 
     const keyData: CreateApiKeyData = {
@@ -228,6 +230,7 @@ export class ApiKeyRepository {
    * Update a key by ID with partial data
    */
   async updateById(id: string, updates: UpdateApiKeyRequest): Promise<ApiKey | null> {
+    beginCommit();
     const apiKey = await this.findById(id);
     if (!apiKey) return null;
 
@@ -254,6 +257,7 @@ export class ApiKeyRepository {
    * Revoke a key (soft delete - marks as inactive)
    */
   async revoke(id: string): Promise<boolean> {
+    beginCommit();
     const apiKey = await this.findById(id);
     if (!apiKey) return false;
 
@@ -266,6 +270,7 @@ export class ApiKeyRepository {
    * Delete a key permanently
    */
   async delete(id: string): Promise<boolean> {
+    beginCommit();
     const apiKey = this.keys.get(id);
     if (!apiKey) return false;
 

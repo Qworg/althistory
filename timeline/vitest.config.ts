@@ -74,6 +74,10 @@ export default defineConfig({
       // Requires Neo4j and Redis (boots the app in cloud mode); run via `npm run test:cloud`.
       'src/tests/integration/cloud-live-feed.test.ts',
       'src/tests/integration/cloud-link-migration.test.ts',
+      'src/tests/integration/cloud-graph-scoped-ids.test.ts',
+      'src/tests/integration/cloud-graph-id-constraint-migration.test.ts',
+      'src/tests/integration/cloud-startup-migration.test.ts',
+      'src/tests/integration/cloud-request-timeout.test.ts',
       // Requires Neo4j: moments beyond a Date through datetime({epochMillis}).
       'src/repositories/DeepTime.neo4j.test.ts'
     ]

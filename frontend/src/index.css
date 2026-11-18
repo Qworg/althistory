@@ -135,6 +135,29 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/*
+ * Layering rule for transient surfaces.
+ *
+ * The sticky header (z-40) is a stacking context, so the graph picker's
+ * dropdown and phone sheet, which live inside it, cannot out-rank anything
+ * above 40 however high their own z-index. The notification stack is a sibling
+ * of the app at --z-notices (above everything, so a notice is never hidden by
+ * the page). While an overlay is open it drops BELOW the header: below
+ * `[aria-modal="true"]` dialogs (z-50 siblings) and below the header's popover.
+ * It is lowered, not hidden, so its aria-live region keeps announcing.
+ * Every toast-like surface (notification stack, offline pill, live-change and
+ * copy notices) takes its z-index from the token.
+ * A popover that is not a modal dialog opts in with `data-overlay-open`.
+ * Do not give an overlay a bigger z-index to beat the notices; mark it.
+ */
+:root {
+  --z-notices: 50;
+  --z-notices-under-overlay: 30;
+}
+html:has([aria-modal='true'], [data-overlay-open]) {
+  --z-notices: var(--z-notices-under-overlay);
+}
+
 @layer base {
   ::placeholder {
     color: var(--text-placeholder);

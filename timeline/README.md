@@ -524,8 +524,9 @@ CREATE INDEX event_actor FOR (e:Event) ON (e.actor);
 CREATE INDEX arc_level FOR (a:Arc) ON (a.level);
 
 // Create custom constraints
-CREATE CONSTRAINT event_id FOR (e:Event) REQUIRE e.id IS UNIQUE;
-CREATE CONSTRAINT arc_id FOR (a:Arc) REQUIRE a.id IS UNIQUE;
+// An id is unique within a graph, not across graphs: a branch holds its parent's ids.
+CREATE CONSTRAINT event_graph_id FOR (e:Event) REQUIRE (e.graphId, e.id) IS UNIQUE;
+CREATE CONSTRAINT arc_graph_id FOR (a:Arc) REQUIRE (a.graphId, a.id) IS UNIQUE;
 ```
 
 ### Performance Tuning

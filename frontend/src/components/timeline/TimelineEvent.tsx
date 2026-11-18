@@ -190,6 +190,7 @@ export const TimelineEvent = memo(function TimelineEvent({
       data-branch-own={isBranchOwn ? 'true' : undefined}
       data-confidence-tier={tier}
       data-dimmed={isDimmed ? 'true' : undefined}
+      data-traced={isTraced ? 'true' : undefined}
       data-fresh={isFresh ? 'true' : undefined}
       transform={`translate(${x}, ${y})`}
       tabIndex={isTabStop ? 0 : -1}

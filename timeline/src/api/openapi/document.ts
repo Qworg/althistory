@@ -63,6 +63,7 @@ const GRAPH_HEADER_PARAMETER = {
 const ERROR_RESPONSES: Record<string, string> = {
   400: 'The request was malformed or failed validation.',
   404: 'The graph, entity or job does not exist.',
+  408: 'The request ran out of its time budget (`QUERY_TIMEOUT_MS`, 2 seconds by default; longer for ingestion). Nothing was saved, so a write is safe to retry. A write that had already begun to commit is not cut off: it finishes and answers with its own result.',
   409: 'The operation conflicts with the current state.',
   500: 'The server failed to complete the request.',
 }

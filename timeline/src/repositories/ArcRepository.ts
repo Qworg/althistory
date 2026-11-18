@@ -1,3 +1,4 @@
+import { rethrowCancellation } from '@/utils/requestBudget';
 import { Session, Integer } from 'neo4j-driver';
 import { Arc, CreateArcRequest, UpdateArcRequest } from '../models/Arc';
 import { compareInstants } from '@althistory/calendar';
@@ -242,10 +243,11 @@ export class ArcRepository {
 
       return arc;
     } catch (error) {
-      // The graph store holds one arc per id across every graph (a uniqueness constraint): an id
-      // another arc (here or in another graph) has is a refusal that names it, not a store failure.
+      rethrowCancellation(error);
+      // The graph store holds one arc per id in a graph (a `(graphId, id)` uniqueness constraint): an id
+      // another arc of this graph has is a refusal that names it, not a store failure. Another graph's arc may hold it.
       if ((error as { code?: string } | null)?.code === 'Neo.ClientError.Schema.ConstraintValidationFailed') {
-        throw new ValidationError(`An arc with the id "${arc.id}" already exists (in this graph or another); a create cannot take its place`, 'id', arc.id);
+        throw new ValidationError(`An arc with the id "${arc.id}" already exists in this graph; a create cannot take its place`, 'id', arc.id);
       }
       throw new Error(`Failed to create arc: ${error}`);
     } finally {
@@ -275,6 +277,7 @@ export class ArcRepository {
 
       return this.mapRecordToArc(result.records[0]);
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to find arc by ID: ${error}`);
     } finally {
       await session.close();
@@ -305,6 +308,7 @@ export class ArcRepository {
       const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to find arcs: ${error}`);
     } finally {
       await session.close();
@@ -335,6 +339,7 @@ export class ArcRepository {
       const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to find arcs by level: ${error}`);
     } finally {
       await session.close();
@@ -369,6 +374,7 @@ export class ArcRepository {
       const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to find overlapping arcs: ${error}`);
     } finally {
       await session.close();
@@ -403,6 +409,7 @@ export class ArcRepository {
       const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to find containing arcs: ${error}`);
     } finally {
       await session.close();
@@ -441,6 +448,7 @@ export class ArcRepository {
       const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to find nested arcs: ${error}`);
     } finally {
       await session.close();
@@ -471,6 +479,7 @@ export class ArcRepository {
       const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to find direct children: ${error}`);
     } finally {
       await session.close();
@@ -501,6 +510,7 @@ export class ArcRepository {
       const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to find parent arcs: ${error}`);
     } finally {
       await session.close();
@@ -583,6 +593,7 @@ export class ArcRepository {
 
       return updatedArc;
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to update arc: ${error}`);
     } finally {
       await session.close();
@@ -621,6 +632,7 @@ export class ArcRepository {
       const result = await runTemporal(session, query, parameters);
       return result.records.length === 0 ? null : next;
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to set arc hierarchy: ${error}`);
     } finally {
       await session.close();
@@ -645,6 +657,7 @@ export class ArcRepository {
       const result = await runTemporal(session, query, parameters);
       return readCount(result, 'deletedCount') > 0;
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to delete arc: ${error}`);
     } finally {
       await session.close();
@@ -668,6 +681,7 @@ export class ArcRepository {
       const result = await runTemporal(session, query, parameters);
       return readCount(result, 'total');
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to count arcs: ${error}`);
     } finally {
       await session.close();
@@ -691,6 +705,7 @@ export class ArcRepository {
       const result = await runTemporal(session, query, parameters);
       return readCount(result, 'total');
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to count arcs by level: ${error}`);
     } finally {
       await session.close();
@@ -714,6 +729,7 @@ export class ArcRepository {
       const result = await runTemporal(session, query, parameters);
       return Boolean(readFirstField(result, 'exists'));
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to check if arc exists: ${error}`);
     } finally {
       await session.close();
@@ -890,6 +906,7 @@ export class AdvancedArcRepository extends ArcRepository {
       const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToArc(record));
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to search arcs: ${error}`);
     } finally {
       await session.close();

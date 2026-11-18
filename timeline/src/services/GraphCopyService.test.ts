@@ -443,19 +443,25 @@ describe('GraphCopyService Integration Tests', () => {
   });
 
   describe('error handling', () => {
-    it('should handle copy operation failures gracefully', async () => {
-      // Act: Try to copy from non-existent source
+    it('copies a source with no nodes as an empty copy (the route refuses a graph that does not exist)', async () => {
+      // The service reads nodes, not graph records: a graph with no nodes and one that was never made look the same.
       const result = await graphCopyService.copyFullGraph('non-existent-source', 'test-target');
 
-      // Assert: Should handle gracefully
-      expect(result.success).toBe(false);
+      expect(result.success).toBe(true);
       expect(result.copiedNodes).toBe(0);
       expect(result.copiedRelationships).toBe(0);
-      expect(result.errors).toBeDefined();
-      expect(result.duration).toBeGreaterThan(0);
+      expect(result.errors).toEqual([]);
     });
 
-    it('should handle integrity validation failures', async () => {
+    it('fails a copy whose node queries fail', async () => {
+      const failing = new GraphCopyService({ run: async () => { throw new Error('the database is down'); }, close: async () => undefined } as never);
+      const result = await failing.copyFullGraph('source', 'test-target');
+
+      expect(result.success).toBe(false);
+      expect(result.errors?.join(' ')).toContain('the database is down');
+    });
+
+    it('finds nothing missing when there was nothing to copy', async () => {
       const invalidCopyResult: CopyResult = {
         sourceGraphId: 'non-existent',
         targetGraphId: 'also-non-existent',
@@ -465,12 +471,10 @@ describe('GraphCopyService Integration Tests', () => {
         success: true
       };
 
-      // Act: Validate integrity of invalid copy
       const integrityReport = await graphCopyService.validateCopyIntegrity(invalidCopyResult);
 
-      // Assert: Should handle gracefully
-      expect(integrityReport.isValid).toBe(false);
-      expect(integrityReport.violations.length).toBeGreaterThan(0);
+      expect(integrityReport.isValid).toBe(true);
+      expect(integrityReport.violations).toEqual([]);
     });
   });
 });

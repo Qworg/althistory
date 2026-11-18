@@ -29,7 +29,7 @@
 
 import { toAxisTime } from '@althistory/calendar';
 import { GraphRepository } from '@/repositories/GraphRepository';
-import { EntityChanges } from '@/repositories/VersionRepository';
+import { EntityChanges, TreeSelection } from '@/repositories/VersionRepository';
 import { EntityType } from '@/models/Graph';
 import { Event } from '@/models/Event';
 import { Arc } from '@/models/Arc';
@@ -250,6 +250,12 @@ export interface BatchLiveState {
    * The batch deleted an event or a link. Its version then has to find every
    * head link that went with it, so every link object must be readable; a
    * batch that only creates or edits needs just the links it touched.
+   *
+   * Contract of `links`: a pair's `live` links are written, and by default
+   * nothing else on the pair is looked at (a batch that only creates or edits
+   * links reads just the link objects it names). A head link on a touched pair
+   * that the store no longer holds is removed only when every link is read:
+   * `deletesLinks`, a deleted event, or `recordBatch`'s `reconcilePairs`.
    */
   deletesLinks?: boolean;
   /**
@@ -601,15 +607,21 @@ export class GraphWriteVersioningService {
    * the head as much as committing, is announced as not versioned
    * (`announceIfNotVersioned`, unless the caller undoes the batch) and
    * propagated.
+   *
+   * `reconcilePairs`: read every head link and make each touched pair's head
+   * links equal its `live` links (a head link the store does not hold is
+   * deleted), for a caller that reports pairs rather than writes: the link-id
+   * migration, which passes `live: []` to drop stale head links. Without it a
+   * batch that does not delete an event or a link costs what it wrote.
    */
   async recordBatch(
     graphId: string,
     state: BatchLiveState,
     steps: BatchStep[],
-    { announceIfNotVersioned = true, summary, userId }: { announceIfNotVersioned?: boolean; summary?: string; userId?: string } = {}
+    { announceIfNotVersioned = true, summary, userId, reconcilePairs = false }: { announceIfNotVersioned?: boolean; summary?: string; userId?: string; reconcilePairs?: boolean } = {}
   ): Promise<void> {
     try {
-      await this.commitBatch(graphId, state, summary, userId);
+      await this.commitBatch(graphId, state, summary, userId, reconcilePairs);
     } catch (error) {
       this.logger.error(`Failed to version a batch in graph ${graphId}`, error);
       // The live store holds the batch, and it is what the app reads.
@@ -620,7 +632,7 @@ export class GraphWriteVersioningService {
   }
 
   /** The difference a batch made from the head, committed as one version (nothing when it made none). */
-  private async commitBatch(graphId: string, state: BatchLiveState, describeAs?: string, userId?: string): Promise<void> {
+  private async commitBatch(graphId: string, state: BatchLiveState, describeAs?: string, userId?: string, reconcilePairs = false): Promise<void> {
     // Strict only where leaving an unreadable object out would lose data:
     //   - an event or arc the batch edited (it would read as one the head never
     //     had, and be versioned as the bare projection);
@@ -637,7 +649,30 @@ export class GraphWriteVersioningService {
           : type === 'relationship' ? state.deletesLinks === true || liveLinks.has(id)
             : false;
     const missing: Array<{ type: EntityType; id: string }> = [];
-    const head = await this.graphRepository.checkout(graphId, undefined, { strict: mustResolve, missing });
+    // Only what the batch can touch is read from the head, so the cost follows
+    // the batch and not the graph: the entities it names, and the links it
+    // writes by id; every link only when it deletes an event or a link (the
+    // scans below look for the head's links by their two events, so a batch
+    // that deletes an event or a link still reads every link in the graph);
+    // every pressure when it deletes an arc (`releasePressures`).
+    const deletesEvent = [...(state.events ?? [])].some(([, event]) => !event);
+    const deletesArc = [...(state.arcs ?? [])].some(([, arc]) => !arc);
+    // Known consequence: a head link the live store does not hold can outlive a
+    // create-only batch. It is left by a failed version commit after a live
+    // delete, or by a cross-graph link the sync cannot rebuild. Such a batch
+    // keeps it; only a delete on that pair or event, or a `reconcilePairs`
+    // batch, removes it.
+    const readsAllLinks =state.deletesLinks === true || deletesEvent || reconcilePairs;
+    const selection: TreeSelection = {
+      events: [...(state.events?.keys() ?? [])],
+      arcs: [...(state.arcs?.keys() ?? [])],
+      relationships: readsAllLinks ? 'all' : [...liveLinks],
+      pressures: deletesArc ? 'all' : [],
+    };
+    const options = { strict: mustResolve, missing };
+    const head = this.graphRepository.checkoutSelected
+      ? await this.graphRepository.checkoutSelected(graphId, selection, options)
+      : await this.graphRepository.checkout(graphId, undefined, options);
     // In the tree, though its object could not be read.
     const lost = new Set(missing.map((entry) => `${entry.type}:${entry.id}`));
     const inHead = (type: EntityType, entities: Record<string, unknown>, id: string): boolean =>
@@ -668,7 +703,7 @@ export class GraphWriteVersioningService {
     // The head's links by their two events, read once: a scan of every head link
     // per pair made a batch of N pairs cost N times the size of the graph.
     const headLinksByPair = new Map<string, string[]>();
-    if ((state.links ?? []).length > 0) {
+    if (readsAllLinks && (state.links ?? []).length > 0) {
       for (const [id, link] of Object.entries(head.relationships)) {
         const key = `${link.cause_event_id}\u0000${link.effect_event_id}`;
         const ids = headLinksByPair.get(key);

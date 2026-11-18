@@ -42,6 +42,7 @@ import { useUndoableEventDelete } from '@/hooks/useUndoableEventDelete'
 import { confidenceTier } from '@/components/timeline/confidenceTier'
 import { editShortcutLabels } from '@/utils/platform'
 import { shouldIgnoreAppShortcut } from '@/utils/keyboardShortcuts'
+import { useRevealSelectionAboveSheet } from './revealAboveSheet'
 import { useActiveGraphId, useSwitchGraph } from '@/hooks/useGraphs'
 import { useBranchDivergences } from '@/hooks/useBranchDivergences'
 import { BranchFromEventDialog } from '@/components/graphs/BranchFromEventDialog'
@@ -362,6 +363,8 @@ export function TimelineView() {
   // (The marks stop Escape themselves while one has focus: there it returns
   // focus to the canvas first.)
   const hasInspectorSelection = Boolean(selectedEvent || selectedArc)
+  // Where the inspector is a bottom sheet, bring the selected mark above it.
+  useRevealSelectionAboveSheet(selectedEvent?.id ?? null)
   useEffect(() => {
     if (!hasInspectorSelection) return
     const onKeyDown = (event: KeyboardEvent) => {
@@ -875,7 +878,9 @@ export function TimelineView() {
   const reserveRail = hasInspector || !filterPanelOpen
 
   return (
-    <div className="space-y-6">
+    // The bottom padding is the docked sheet's height (set by
+    // useRevealSelectionAboveSheet), so a mark can be scrolled above it.
+    <div className="space-y-6 max-lg:pb-[var(--inspector-sheet-h,0px)]">
       {/* One inspector placement for every lens: a rail beside the canvas from
           xl (as in the causal graph). The rail is always there at that width,
           so selecting an event never re-measures the canvas and moves its

@@ -9,6 +9,7 @@ import { assertSafeGraphId } from '@/utils/GraphContextStore';
 import { getContainer } from '@/container';
 import type { RequestContainer } from '@/container';
 import { ApiKey, Permission, RateLimitConfig } from '@/models/ApiKey';
+import { RequestBudget, isCancellation, runWithBudget } from '@/utils/requestBudget';
 
 /**
  * The container-injection and request-timing middleware run before every route,
@@ -232,6 +233,15 @@ export function errorHandler(
   const requestId = req.requestId || 'unknown';
   const duration = req.startTime ? Date.now() - req.startTime : 0;
 
+  // The work of a request that timed out stopped, as it was meant to: the 408
+  // is the answer and was already logged by the timeout. Not an error.
+  // Wrapped by a layer that rethrows (a repository's own error type) it is
+  // still the cancellation. So is the error of writing to a response that has
+  // gone. Any other error is logged, even on a request that got its 408.
+  if (res.headersSent && (isCancellation(error) || (error as { code?: unknown }).code === 'ERR_HTTP_HEADERS_SENT')) {
+    return;
+  }
+
   // Structured error logging
   const errorLog = {
     requestId,
@@ -373,40 +383,68 @@ export function requestTimeout(timeoutMs: number = 30000, overrides: Record<stri
     const budgetMs =
       prefixes.find(([prefix]) => path === prefix || path.startsWith(`${prefix}/`))?.[1] ?? timeoutMs;
 
-    const timeout = setTimeout(() => {
-      if (!res.headersSent) {
-        const timeoutLog = {
-          requestId,
+    // The budget's signal fires just before the 408 goes out, so the work
+    // behind the request stops (a write is refused or rolled back) and a 408
+    // means nothing was saved. `res.locals.signal` is the same signal for a
+    // route that wants it; the stores read it from the request's async context.
+    const budget = new RequestBudget(budgetMs, () => {
+      if (res.headersSent) return;
+      const timeoutLog = {
+        requestId,
+        timestamp: new Date().toISOString(),
+        request: {
+          method: req.method,
+          path: req.path,
+          timeout: budgetMs
+        },
+        level: 'warn',
+        type: 'request_timeout'
+      };
+
+      console.warn('Request timeout:', JSON.stringify(timeoutLog, null, 2));
+
+      res.status(408).json({
+        error: {
+          message: 'Request timeout',
+          timeout: budgetMs,
           timestamp: new Date().toISOString(),
-          request: {
-            method: req.method,
-            path: req.path,
-            timeout: budgetMs
-          },
-          level: 'warn',
-          type: 'request_timeout'
-        };
+          path: req.path,
+          requestId
+        }
+      });
+      // Whatever still runs for this request (a rate limiter that was waiting,
+      // a route that does not check the signal) must not write to the response
+      // that has gone.
+      muteResponse(res);
+    }, () => res.headersSent, (budgets) => {
+      console.warn(
+        `Request still running after ${budgets} budgets of ${budgetMs} ms: it had begun to commit, so it is not answered 408`,
+        JSON.stringify({ requestId, method: req.method, path: req.path })
+      );
+    });
+    res.locals.signal = budget.signal;
 
-        console.warn('Request timeout:', JSON.stringify(timeoutLog, null, 2));
-
-        res.status(408).json({
-          error: {
-            message: 'Request timeout',
-            timeout: budgetMs,
-            timestamp: new Date().toISOString(),
-            path: req.path,
-            requestId
-          }
-        });
-      }
-    }, budgetMs);
-
-    const clear = (): void => clearTimeout(timeout);
+    const clear = (): void => budget.dispose();
     res.on('finish', clear);
     res.on('close', clear);
 
-    next();
+    budget.start();
+    runWithBudget(budget, next);
   };
+}
+
+/**
+ * Make every later write to `res` a no-op. Used once a reply has gone out (the
+ * 408): the rest of the chain is still running and would otherwise throw
+ * "Cannot set headers after they are sent" from the rate limiter, a route's
+ * `res.json`, or anything else that answers. One shared place instead of a
+ * `headersSent` check in every route.
+ */
+export function muteResponse(res: Response): void {
+  const inert = (): Response => res;
+  for (const method of ['status', 'set', 'header', 'setHeader', 'append', 'type', 'json', 'jsonp', 'send', 'sendStatus', 'sendFile', 'redirect', 'cookie', 'end', 'write']) {
+    (res as unknown as Record<string, unknown>)[method] = inert;
+  }
 }
 
 /**
@@ -746,6 +784,13 @@ export function rateLimit(customConfig?: Partial<RateLimitConfig>) {
     const config = customConfig
       ? { ...req.apiKey.rateLimit, ...customConfig }
       : req.apiKey.rateLimit;
+
+    // A request that has already been answered 408 (it was still waiting to
+    // reach this point) is not counted and does not go on: nothing is left to
+    // reply to. One that was counted on arrival stays counted.
+    if (res.headersSent || (res.locals?.signal as AbortSignal | undefined)?.aborted) {
+      return;
+    }
 
     const result = rateLimitService.recordRequest(req.apiKey.id, config);
 

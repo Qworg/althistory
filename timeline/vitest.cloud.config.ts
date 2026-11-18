@@ -34,6 +34,12 @@ export default defineConfig({
       'src/tests/integration/cloud-live-feed.test.ts',
       // The startup migration that names cloud links (issue 30), incl. 300k edges on a 1 GB heap.
       'src/tests/integration/cloud-link-migration.test.ts',
+      // #35: an id is unique within a graph, so a branch holds its parent's ids; and the migration that scopes the constraints.
+      'src/tests/integration/cloud-graph-scoped-ids.test.ts',
+      'src/tests/integration/cloud-graph-id-constraint-migration.test.ts',
+      'src/tests/integration/cloud-startup-migration.test.ts',
+      // A 408 saves nothing (issue 44): the timed-out write is rolled back in Neo4j.
+      'src/tests/integration/cloud-request-timeout.test.ts',
     ],
     // These suites share one Neo4j instance and each deletes every node with
     // its label in its own hooks, so running the files concurrently makes them

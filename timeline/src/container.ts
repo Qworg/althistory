@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { DatabaseManager, LocalDatabaseManager, LocalSession } from '@/utils/database';
+import { DatabaseManager, LocalDatabaseManager } from '@/utils/database';
 import { LocalGraphStore } from '@/utils/LocalGraphStore';
 import { GraphContextStore, GRAPHS_LIVE_DIRECTORY } from '@/utils/GraphContextStore';
 import { adoptLegacyGraphStore } from '@/utils/legacyGraphAdoption';
@@ -246,17 +246,9 @@ export class Container implements ServiceContainer {
    */
   get graphCopyService(): GraphCopyService {
     if (!this._graphCopyService) {
-      // GraphCopyService takes a neo4j Session. It used to be handed the
-      // database manager (and a validation service it does not accept), which
-      // typed `this.session` as a Session while holding a DatabaseManager at
-      // runtime. See the report: this is a behaviour fix, not a no-op.
-      // In local-execution mode the manager hands back a `LocalSession` adapter
-      // instead, which is not a neo4j Session; there we let the service resolve
-      // its own session from the global database manager.
-      const session = this.databaseManager.getNeo4jSession();
-      this._graphCopyService = new GraphCopyService(
-        session instanceof LocalSession ? undefined : session
-      );
+      // Each copy opens, and closes, its own session: one held for the life
+      // of the process is lost the first time a request using it is cancelled.
+      this._graphCopyService = new GraphCopyService();
     }
     return this._graphCopyService;
   }
@@ -573,7 +565,7 @@ export class Container implements ServiceContainer {
   }
 
   /** Remove every live entity of one graph, and nothing of any other graph. */
-  private async clearLiveStore(graphId: string): Promise<void> {
+  async clearLiveStore(graphId: string): Promise<void> {
     if (this.databaseManager instanceof LocalDatabaseManager) {
       // Local mode: the graph is the store.
       const leased = await this.graphContextStore.lease(graphId);

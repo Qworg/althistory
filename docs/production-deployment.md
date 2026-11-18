@@ -182,6 +182,80 @@ person to look at it.
 Reverting is not supported — once rows are attributed, they stay. Take a Neo4j
 backup before the first start on an upgraded database.
 
+### Event and arc ids are unique within a graph
+
+Until this change `Event.id` and `Arc.id` were unique across the whole Neo4j
+database. A branch holds its parent's ids, so in cloud mode every event, arc and
+link of a branch was refused ("Node(…) already exists with label `Event`") and the
+branch looked empty in the live store. The constraints are now `(graphId, id)`
+(`event_graph_id`, `arc_graph_id`), and a query that names an event or arc by id
+also names its graph.
+
+The upgrade runs at startup, as part of creating the schema and before any request. It is
+`timeline/src/utils/GraphScopedIdConstraintMigration.ts`, and it is the only code
+that creates these two constraints, so the checks below always come first:
+
+- **Fresh database:** the composite constraints are created; there is nothing to drop.
+- **Database created by an older release** (`event_id` and `arc_id`, unique on `id`):
+  the composite constraints are created first, then the old ones are dropped,
+  found by what they constrain rather than by name, so a label is never without a
+  constraint.
+- **Stopped part-way, or already migrated:** each step checks first, so the
+  remaining step is done and a repeat does nothing.
+- **Nodes with no `graphId`:** a uniqueness constraint ignores them, and no graph
+  reads them. The migration does not touch them. The startup that attributes
+  pre-graph rows (see above) reports how many there are and the command that
+  attributes them (`npm run migrate:attribute-graph`); the migration only warns
+  when it is run on its own. Attributing
+  such a node to a graph that already holds its id fails on the constraint, and
+  names it.
+- **The same `(graphId, id)` twice:** impossible under the old constraint, but if
+  a database has it the migration stops with the pair named and leaves the old
+  constraints in place.
+
+An index you made yourself on `(graphId, id)` of `Event` or `Arc` (for example
+`CREATE INDEX … FOR (e:Event) ON (e.graphId, e.id)`) stops the startup with
+`IndexAlreadyExists`, because the constraint needs that index for itself. Drop your
+index before upgrading; the constraint is the better one.
+
+A graph copy (`POST /api/graphs/copy`) keeps the ids of what it copies. Its first
+version is the source's version head (a time-range or filtered copy: the head limited
+to the ids copied, and a link only when both its events were), recorded before the
+live store is written, exactly as a branch records its version. So the copy can be
+edited, rolled back, exported, branched and merged by those ids, and it carries every
+field the source's history does (`sourceRef`, `parent_arc_id`, a link at weight 0, a
+link to another graph's event). Two cases differ:
+
+- A source that has live nodes and no head (data that predates versions) is versioned
+  from its selected live nodes, so a later edit and rollback of the copy keep them. A
+  live store that has drifted from a head it does have is the source's own
+  inconsistency: the copy follows the head, as a branch does.
+- A source whose head holds events or arcs its live store does not (the live store was
+  never rebuilt, or only in part) is copied by building the copy's live store from the
+  copy's version, as a branch's is: whenever the copy wrote fewer events and arcs than
+  its version holds (pressures do not count). That rebuild clears the copy first, so
+  nothing is written twice. A time-range or filtered copy selects from the source's live
+  store, so a source whose live store is empty gives an empty partial copy, whatever its
+  head holds; only a full copy follows the head.
+- A partial copy may leave an arc without its parent. Such an arc becomes a top-level
+  arc (no parent, level 0, and the arcs copied beneath it follow), in the version and
+  in the live copy, so the copy's own export imports. Selection is by label and id
+  together, so an event and an arc that share an id are two entities.
+
+A copy is checked when it ends: a full copy against the whole source, a partial one
+against the nodes and relationships it selected. An empty source is a successful empty
+copy. A copy that fails the check, or fails, or cannot be versioned, is removed (its
+graph and its live nodes) and the request answers `500` with a plain reason and no graph
+id (the store's own message goes to the server log); no empty graph is left. An `InferredPressure` is the one entity given a new id (its
+constraint is still database-wide); the inference recomputes pressures.
+
+A copy walks every node and relationship, so `/api/graphs/copy` has its own request
+budget, `COPY_TIMEOUT_MS` (default `120000`), where the rest of the API keeps
+`QUERY_TIMEOUT_MS` (2 s).
+
+Rolling back to an older release needs the old constraints again, which fail if
+any branch now holds an id its parent holds; take a Neo4j backup before upgrading.
+
 ### Single replica, persistent volume — enforced
 
 Because that state is per process, cloud mode is **one replica with a volume
@@ -308,7 +382,8 @@ real deployment; they are fixed here:
   property-range constraints (`REQUIRE x >= 0 AND x <= 1`) that are not valid
   Cypher on Neo4j 5, and nothing called `initializeSchema()` outside tests, so
   cloud mode ran without its constraints or indexes. The list now holds the
-  three uniqueness constraints Community edition supports, and
+  uniqueness constraints Community edition supports (an `InferredPressure` id,
+  and the `(graphId, id)` pair of an event and of an arc, see above), and
   `Application.initialize()` creates the schema in cloud mode before accepting
   requests. The 0..1 bounds stay enforced by `ValidationService` on the domain
   objects.

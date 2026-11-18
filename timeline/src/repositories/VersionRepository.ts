@@ -9,6 +9,7 @@
  */
 
 import * as crypto from 'crypto';
+import { beginCommit, checkpoint, commitSection } from '@/utils/requestBudget';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -58,6 +59,17 @@ export interface ResolvedGraphData {
 }
 
 /**
+ * Which entries of a tree to resolve: a list of ids, or every entry of the
+ * kind (`'all'`). A kind left out is not read at all.
+ */
+export interface TreeSelection {
+  events?: string[] | 'all';
+  arcs?: string[] | 'all';
+  relationships?: string[] | 'all';
+  pressures?: string[] | 'all';
+}
+
+/**
  * Thrown by `commit` when the caller supplied an `expectedParentVersion` that no
  * longer matches the graph's head. It means another commit landed between the
  * caller reading the graph and committing to it, so the changes were computed
@@ -104,10 +116,39 @@ class GraphMutex {
   }
 }
 
+const MAX_KEPT_TREES = 8;
+
 export class VersionRepository {
   private readonly dataDir: string;
   private readonly packThreshold: number;
   private readonly commitMutex: GraphMutex;
+  /** The tree last read or stored for each graph (see `getTree`), least recently used first, at most `MAX_KEPT_TREES`. */
+  private readonly headTrees = new Map<string, { hash: string; tree: TreeObject }>();
+
+  private keepTree(graphId: string, hash: string, tree: TreeObject): void {
+    this.headTrees.delete(graphId);
+    this.headTrees.set(graphId, { hash, tree });
+    while (this.headTrees.size > MAX_KEPT_TREES) {
+      const oldest = this.headTrees.keys().next().value;
+      if (oldest === undefined) break;
+      this.headTrees.delete(oldest);
+    }
+  }
+
+  /** Drop what is kept in memory for a graph (it is being deleted). */
+  forgetGraph(graphId: string): void {
+    this.headTrees.delete(graphId);
+  }
+
+  /** Whether a graph's tree is kept in memory. */
+  keepsTree(graphId: string): boolean {
+    return this.headTrees.has(graphId);
+  }
+
+  /** How many graphs' trees are kept in memory. */
+  keptTreeCount(): number {
+    return this.headTrees.size;
+  }
 
   constructor(config: VersionRepositoryConfig) {
     this.dataDir = config.dataDir;
@@ -119,6 +160,7 @@ export class VersionRepository {
    * Initialize storage directories for a graph
    */
   async initializeGraph(graphId: string): Promise<void> {
+    beginCommit();
     const graphDir = this.getGraphDir(graphId);
     const dirs = [
       graphDir,
@@ -170,6 +212,8 @@ export class VersionRepository {
     const release = await this.commitMutex.acquire(graphId);
     
     try {
+      // A request that timed out while it waited for the mutex records nothing.
+      checkpoint();
       return await this.commitInternal(graphId, changes, operation, description, userId, mergeParent, expectedParentVersion);
     } finally {
       release();
@@ -210,7 +254,14 @@ export class VersionRepository {
     const newVersion = (latestVersion?.version ?? -1) + 1;
 
     // Process changes and build new tree
-    const newTree: TreeObject = { ...currentTree };
+    // A copy of each map: `currentTree` may be the cached one (`getTree`),
+    // which is shared and never written to.
+    const newTree: TreeObject = {
+      events: { ...currentTree.events },
+      arcs: { ...currentTree.arcs },
+      relationships: { ...currentTree.relationships },
+      pressures: { ...currentTree.pressures },
+    };
     const versionChanges: VersionRef['changes'] = {
       added: [],
       modified: [],
@@ -279,11 +330,18 @@ export class VersionRepository {
       versionRef.mergeParent = mergeParent;
     }
 
-    // Store version ref
-    await this.storeVersionRef(graphId, versionRef);
+    // The last point at which a timed-out request can still be refused (the
+    // objects and tree written above are content-addressed and unreferenced
+    // until the ref lands). From here the version is recorded as a unit: a
+    // timeout that arrives meanwhile waits for it (see `commitSection`).
+    checkpoint();
+    await commitSection(async () => {
+      // Store version ref
+      await this.storeVersionRef(graphId, versionRef);
 
-    // Update current tree pointer
-    await this.setCurrentTree(graphId, newTreeHash);
+      // Update current tree pointer
+      await this.setCurrentTree(graphId, newTreeHash);
+    });
 
     // Check if we should pack old versions
     if (newVersion > 0 && newVersion % this.packThreshold === 0) {
@@ -304,6 +362,34 @@ export class VersionRepository {
 
     const tree = await this.getTree(graphId, versionRef.treeHash);
     return this.resolveTree(graphId, tree, options);
+  }
+
+  /**
+   * The entities of a version's tree that `selection` names, resolved as
+   * `checkout` resolves them (same `strict` and `missing` rules), without
+   * reading any other object: the cost follows the selection, not the graph.
+   */
+  async checkoutSelected(graphId: string, version: number, selection: TreeSelection, options: ResolveOptions = {}): Promise<ResolvedGraphData> {
+    const versionRef = await this.getVersionRef(graphId, version);
+    if (!versionRef) {
+      throw new Error(`Version ${version} not found for graph ${graphId}`);
+    }
+    const tree = await this.getTree(graphId, versionRef.treeHash);
+    return this.resolveTree(graphId, tree, options, selection);
+  }
+
+  /**
+   * How many entities of each kind the graph's head names (no objects are read).
+   */
+  async getHeadCounts(graphId: string): Promise<{ events: number; arcs: number; relationships: number; pressures: number }> {
+    const treeHash = await this.getCurrentTree(graphId);
+    const tree = treeHash ? await this.getTree(graphId, treeHash) : undefined;
+    return {
+      events: Object.keys(tree?.events ?? {}).length,
+      arcs: Object.keys(tree?.arcs ?? {}).length,
+      relationships: Object.keys(tree?.relationships ?? {}).length,
+      pressures: Object.keys(tree?.pressures ?? {}).length,
+    };
   }
 
   /**
@@ -501,22 +587,32 @@ export class VersionRepository {
 
     try {
       await fs.promises.access(objectPath);
-      return hash;
     } catch {
       await fs.promises.writeFile(objectPath, content, 'utf-8');
-      return hash;
     }
+    this.keepTree(graphId, hash, tree);
+    return hash;
   }
 
   /**
    * Get a tree object by hash
    */
   async getTree(graphId: string, hash: string): Promise<TreeObject> {
+    // The tree last read or stored for the graph is kept: a tree is named by
+    // the hash of its content, so it cannot be stale, and a write that reads
+    // the head several times parses it once. The result is shared: read-only.
+    const kept = this.headTrees.get(graphId);
+    if (kept?.hash === hash) {
+      this.keepTree(graphId, hash, kept.tree);
+      return kept.tree;
+    }
     const objectPath = this.getObjectPath(graphId, hash);
 
     try {
       const content = await fs.promises.readFile(objectPath, 'utf-8');
-      return JSON.parse(content) as TreeObject;
+      const tree = JSON.parse(content) as TreeObject;
+      this.keepTree(graphId, hash, tree);
+      return tree;
     } catch {
       // Check pack files
       const fromPack = await this.getTreeFromPacks(graphId, hash);
@@ -528,7 +624,12 @@ export class VersionRepository {
   /**
    * Resolve a tree to full graph data
    */
-  async resolveTree(graphId: string, tree: TreeObject, { strict = false, missing }: ResolveOptions = {}): Promise<ResolvedGraphData> {
+  async resolveTree(
+    graphId: string,
+    tree: TreeObject,
+    { strict = false, missing }: ResolveOptions = {},
+    selection?: TreeSelection
+  ): Promise<ResolvedGraphData> {
     const result: ResolvedGraphData = {
       events: {},
       arcs: {},
@@ -544,7 +645,13 @@ export class VersionRepository {
       ['pressures', 'pressure'],
     ] as const;
     for (const [key, type] of kinds) {
-      for (const [id, hash] of Object.entries(tree[key]) as [string, string][]) {
+      const wanted = selection === undefined ? 'all' : selection[key];
+      if (wanted === undefined) continue;
+      const entries: Array<[string, string]> =
+        wanted === 'all'
+          ? (Object.entries(tree[key]) as [string, string][])
+          : wanted.flatMap((id): Array<[string, string]> => (tree[key][id] ? [[id, tree[key][id]]] : []));
+      for (const [id, hash] of entries) {
         const obj = await this.getObject(graphId, hash);
         if (obj) result[key][id] = obj.data;
         else if (strict === true || (typeof strict === 'function' && strict(type, id))) {
@@ -689,7 +796,9 @@ export class VersionRepository {
    * Delete all data for a graph
    */
   async deleteGraph(graphId: string): Promise<void> {
+    beginCommit();
     const graphDir = this.getGraphDir(graphId);
+    this.headTrees.delete(graphId);
     await fs.promises.rm(graphDir, { recursive: true, force: true });
   }
 
@@ -709,6 +818,7 @@ export class VersionRepository {
 
   /** Name a version, or clear its name with null. */
   async setVersionLabel(graphId: string, version: number, label: string | null): Promise<void> {
+    beginCommit();
     const labels = await this.getVersionLabels(graphId);
     if (label) labels[String(version)] = label;
     else delete labels[String(version)];

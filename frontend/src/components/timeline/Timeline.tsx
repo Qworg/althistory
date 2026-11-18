@@ -19,10 +19,10 @@ import {
   filterPressuresInWindow
 } from './timelineVirtualization'
 import { formatHistoricalTimestamp, formatEventDate, formatHistoricalEnd } from '@/utils/historicalTime'
-import { measureLabelWidth } from './labelWidth'
+import { measureLabelInk, measureLabelWidth } from './labelWidth'
 import { useFontEpoch } from './useFontEpoch'
-import { PLATE_ONLY_ASCENT, PLATE_PAD, type PlacedLabelBox } from './pinnedLabel'
-import { planSelectionPlate, type PlateLink } from './selectionPlate'
+import { PLATE_MIN_FONT_SIZE, PLATE_ONLY_ASCENT, PLATE_PAD, type PlacedLabelBox, type PlateSize } from './pinnedLabel'
+import { planSelectionPlate, shortenedPlateTexts, type PlateLink } from './selectionPlate'
 import { layoutEventLabels, truncateLabel, PRIORITY_LABEL_MAX_CHARS, BESIDE_PX, LABEL_FONT_SIZE, TIMELINE_BELOW_ROW_OFFSETS, TIMELINE_LABEL_CONFIG } from './eventLabelLayout'
 import { tooltipPlacement } from './tooltipPlacement'
 import { useLiveChangesStore } from '@/stores/liveChangesStore'
@@ -631,6 +631,7 @@ const Timeline = memo(function Timeline({
       const markX = xScale(toInstant(ev.timestamp))
       const emphasised = highlightedEventIds?.has(ev.id) ?? false
       const labelWidth = measureLabelWidth(placement.text, LABEL_FONT_SIZE, emphasised ? 600 : 400)
+      const ink = measureLabelInk(placement.text, LABEL_FONT_SIZE, emphasised ? 600 : 400)
       const anchorX = markX + (placement.dx ?? 0)
       const left = placement.anchor === 'start' ? anchorX : placement.anchor === 'end' ? anchorX - labelWidth : anchorX - labelWidth / 2
       labels.push({
@@ -639,6 +640,9 @@ const Timeline = memo(function Timeline({
         right: left + labelWidth,
         top: eventY + placement.offset - LABEL_FONT_SIZE * 0.8,
         bottom: eventY + placement.offset + 3,
+        // Where the text's ink really reaches: an accented capital rises past the box's top, and a plate beside it keeps clear of that.
+        inkTop: eventY + placement.offset - ink.ascent,
+        inkBottom: eventY + placement.offset + ink.descent,
         length: placement.text.length,
         // The traced and highlighted labels, and the point of divergence event's (named by the ghost): the one a branch view turns on.
         protectedLabel:
@@ -697,6 +701,17 @@ const Timeline = memo(function Timeline({
       }
     }
     // The full name if a plate fits; else the shorter forms the layout uses.
+    const measurePlateText = (text: string) => {
+      const ink = measureLabelInk(text, LABEL_FONT_SIZE, 600)
+      // The same name at smaller sizes (11px and 10px: whole pixels, as the browser draws half-pixel sizes as the next whole one), for a plate that cannot hold the ink at the usual one: the plate-only row's,
+      // a row where the plate's growth would cover the ink above it, or a plate shortened at the bottom (see pinnedLabel.ts).
+      const sizes: PlateSize[] = []
+      for (let fontSize = LABEL_FONT_SIZE - 1; fontSize >= PLATE_MIN_FONT_SIZE; fontSize -= 1) {
+        sizes.push({ fontSize, width: measureLabelWidth(text, fontSize, 600), ink: measureLabelInk(text, fontSize, 600) })
+      }
+      return { text, width: measureLabelWidth(text, LABEL_FONT_SIZE, 600), ink, sizes }
+    }
+    const plateTexts = [PRIORITY_LABEL_MAX_CHARS, 24, 18, 14].map((chars) => measurePlateText(truncateLabel(selected.description, chars)))
     const found = planSelectionPlate({
       x,
       selectedId: selected.id,
@@ -712,10 +727,9 @@ const Timeline = memo(function Timeline({
       softObstacles,
       marks: visibleEvents.map((other) => ({ id: other.id, x: xScale(toInstant(other.timestamp)) })),
       links,
-      texts: [PRIORITY_LABEL_MAX_CHARS, 24, 18, 14].map((chars) => {
-        const text = truncateLabel(selected.description, chars)
-        return { text, width: measureLabelWidth(text, LABEL_FONT_SIZE, 600) }
-      }),
+      texts: plateTexts,
+      // Shorter still, measured the same way, for where no clear spot takes the ordinary forms (see selectionPlate.ts).
+      shortTexts: shortenedPlateTexts(selected.description, measurePlateText, plateTexts.map((form) => form.text)),
       preferAbove: typeof window !== 'undefined' && window.innerWidth < DOCKED_SHEET_BELOW_PX,
     })
     return found ? { id: selected.id, x, text: found.text, plan: found.plan } : null
@@ -1888,9 +1902,9 @@ const Timeline = memo(function Timeline({
                   <text
                     className="event-label event-label-pinned"
                     x={pinned.plan.anchor === 'start' ? pinned.plan.left : pinned.plan.anchor === 'end' ? pinned.plan.right : pinned.x}
-                    y={eventY + pinned.plan.offset}
+                    y={eventY + pinned.plan.offset - (pinned.plan.lift ?? 0)}
                     textAnchor={pinned.plan.anchor}
-                    fontSize={LABEL_FONT_SIZE}
+                    fontSize={pinned.plan.fontSize ?? LABEL_FONT_SIZE}
                     fontWeight={600}
                     style={{ fill: 'var(--accent-selected)' }}
                   >
@@ -2094,7 +2108,7 @@ const Timeline = memo(function Timeline({
 
       {/* Event Arc Assignment Modal */}
       {eventAssignmentModal.isOpen && eventAssignmentModal.event && (
-        <div className="fixed z-50" style={{ left: eventAssignmentModal.position?.x ?? 0, top: eventAssignmentModal.position?.y ?? 0 }}>
+        <div data-overlay-open className="fixed z-50" style={{ left: eventAssignmentModal.position?.x ?? 0, top: eventAssignmentModal.position?.y ?? 0 }}>
           <EventArcAssignment
             event={eventAssignmentModal.event}
             availableArcs={arcs}

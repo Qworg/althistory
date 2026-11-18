@@ -24,6 +24,7 @@ import { WebSocket } from 'ws';
 import type { RawData } from 'ws';
 import { Application } from '@/index';
 import { getContainer, type Container } from '@/container';
+import { ImportService } from '@/services/ImportService';
 import { getDatabaseManager } from '@/utils/database';
 import { runCausalLinkIdMigration, type CausalLinkIdMigrationResult } from '@/services/CausalLinkIdMigration';
 import { resetStreamTokenStore, STREAM_PATH } from '@/websocket';
@@ -200,6 +201,8 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
     port = await freePort();
     setEnv('PORT', String(port));
     setEnv('HOST', '127.0.0.1');
+    // A graph copy runs apoc over every node and relationship and then versions the copy: more than the default 2 s request budget on a cold database.
+    setEnv('QUERY_TIMEOUT_MS', '20000');
     base = `http://127.0.0.1:${port}`;
 
     listenersBefore = new Map(
@@ -320,20 +323,520 @@ describe('the live feed, stream tokens and generation jobs in cloud mode', () =>
       expect((await container.graphRepository.checkout(graphA)).arcs['keep-me']).toEqual(before);
     });
 
-    it('refuses a create of an arc id another graph holds, by id, in both doors', async () => {
-      const arc = { id: 'held-elsewhere', name: 'held', start_time: '1800-01-01T00:00:00.000Z', end_time: '1900-01-01T00:00:00.000Z', level: 0 };
-      expect((await http('POST', '/api/arcs', agentKey, graphA, arc)).status).toBe(201);
-      // The store has one arc per id across graphs: graph B cannot take it, and the answer is a 400 that names the id.
-      const single = await http('POST', '/api/arcs', agentKey, graphB, arc);
-      expect(single.status).toBe(400);
-      expect(JSON.stringify(single.body)).toContain('held-elsewhere');
-      expect(JSON.stringify(single.body)).not.toMatch(/Neo4jError|Node\(\d+\)/);
-      const batch = await http('POST', '/api/batch/transaction', agentKey, graphB, { graphId: graphB, operations: [{ type: 'create_arc', data: arc }] });
-      expect(batch.status).toBe(400);
-      expect(JSON.stringify(batch.body)).toContain('held-elsewhere');
-      expect(JSON.stringify(batch.body)).not.toMatch(/Neo4jError|Node\(\d+\)/);
-      const { arcRepository } = await container.graphScopedRepositories(graphB);
-      expect(await arcRepository.findById('held-elsewhere')).toBeNull();
+    it('takes a create of an arc id another graph holds, in both doors, and leaves that graph\'s arc alone (#35)', async () => {
+      const arc = (id: string, name: string) => ({ id, name, start_time: '1800-01-01T00:00:00.000Z', end_time: '1900-01-01T00:00:00.000Z', level: 0 });
+      // An id is unique within a graph: a branch holds its parent's ids, so graph B may take what graph A has.
+      expect((await http('POST', '/api/arcs', agentKey, graphA, arc('held-elsewhere', 'in A'))).status).toBe(201);
+      expect((await http('POST', '/api/arcs', agentKey, graphB, arc('held-elsewhere', 'in B'))).status).toBe(201);
+      expect((await http('POST', '/api/arcs', agentKey, graphA, arc('held-by-batch', 'in A'))).status).toBe(201);
+      const batch = await http('POST', '/api/batch/transaction', agentKey, graphB, { graphId: graphB, operations: [{ type: 'create_arc', data: arc('held-by-batch', 'in B') }] });
+      expect(batch.status).toBe(200);
+      const inA = await container.graphScopedRepositories(graphA);
+      const inB = await container.graphScopedRepositories(graphB);
+      expect((await inA.arcRepository.findById('held-elsewhere'))?.name).toBe('in A');
+      expect((await inB.arcRepository.findById('held-elsewhere'))?.name).toBe('in B');
+      expect((await inA.arcRepository.findById('held-by-batch'))?.name).toBe('in A');
+      expect((await inB.arcRepository.findById('held-by-batch'))?.name).toBe('in B');
+      // The same graph still refuses its own id, by id, without the store's wording.
+      const again = await http('POST', '/api/arcs', agentKey, graphB, arc('held-elsewhere', 'twice'));
+      expect(again.status).toBe(400);
+      expect(JSON.stringify(again.body)).toContain('held-elsewhere');
+      expect(JSON.stringify(again.body)).not.toMatch(/Neo4jError|Node\(\d+\)/);
+    });
+
+    it('copies a graph under the source\'s ids, with a version of its own that rollback, export and a branch read (#35)', async () => {
+      const made = await http('POST', '/api/graphs', agentKey, undefined, { name: 'Copy source' });
+      const source = ((made.body.data ?? made.body) as { id: string }).id;
+      graphsMade.push(source);
+      const arc = (await http('POST', '/api/arcs', agentKey, source, { name: 'The Age', start_time: '1800-01-01T00:00:00.000Z', end_time: '1900-01-01T00:00:00.000Z', level: 0 })).body.data as { id: string };
+      const event = (id: string, description: string, timestamp: string) =>
+        http('POST', '/api/events', agentKey, source, { id, description, actor: 'A', target: 'B', timestamp }).then((res) => (res.body.data as { id: string }).id);
+      const first = await event('copy-event-1', 'First', '1810-01-01T00:00:00.000Z');
+      const second = await event('copy-event-2', 'Second', '1820-01-01T00:00:00.000Z');
+      expect((await http('POST', '/api/causal/link', agentKey, source, { causeEventId: first, effectEventId: second, relationship: { type: 'direct', strength: 0.5, confidence: 0.5, evidence: 'Seen' } })).status).toBe(201);
+
+      const copied = await http('POST', '/api/graphs/copy', agentKey, undefined, { sourceGraphId: source, targetName: 'Copy target' });
+      expect(copied.status).toBe(201);
+      const target = ((copied.body.data as { id: string }).id);
+      graphsMade.push(target);
+
+      // The copy's entities answer to the source's ids.
+      expect((await http('GET', `/api/events/${first}`, agentKey, target)).status).toBe(200);
+      expect((await http('GET', `/api/arcs/${arc.id}`, agentKey, target)).status).toBe(200);
+      expect((await http('PUT', `/api/events/${first}`, agentKey, target, { description: 'Edited in the copy' })).status).toBe(200);
+      expect((await http('PUT', `/api/arcs/${arc.id}`, agentKey, target, { name: 'Renamed in the copy' })).status).toBe(200);
+      expect(((await http('GET', `/api/events/${first}`, agentKey, source)).body.data as { description: string }).description).toBe('First');
+      expect(((await http('GET', `/api/arcs/${arc.id}`, agentKey, source)).body.data as { name: string }).name).toBe('The Age');
+
+      // No marker of the copy is left on its nodes.
+      const session = getDatabaseManager().getNeo4jSession();
+      try {
+        const marked = await session.run('MATCH (n) WHERE n.graphId = $target AND n._sourceNodeId IS NOT NULL RETURN count(n) AS marked', { target });
+        expect(Number(marked.records[0]?.get('marked'))).toBe(0);
+      } finally {
+        await session.close();
+      }
+
+      // It has a version: the copy as it was made, which export and a branch read.
+      const head = await container.graphRepository.checkout(target);
+      expect(Object.keys(head.events).sort()).toEqual([first, second].sort());
+      expect(Object.keys(head.arcs)).toEqual([arc.id]);
+      expect(Object.keys(head.relationships)).toHaveLength(1);
+      const exported = await container.exportService.exportGraph({ graphId: target, scope: 'full', includeProvenance: false });
+      expect(exported.export.data.events.map((e: { id: string }) => e.id).sort()).toEqual([first, second].sort());
+      expect(exported.export.data.arcs.map((a: { id: string }) => a.id)).toEqual([arc.id]);
+      const branched = await container.graphService.branchGraph(target, { name: 'Branch of the copy' } as never);
+      graphsMade.push(branched.id);
+      const { eventRepository } = await container.graphScopedRepositories(branched.id);
+      expect((await eventRepository.findAll()).map((e) => e.id).sort()).toEqual([first, second].sort());
+
+      // And the copy's entities can be deleted by those ids, leaving the source's.
+      expect((await http('DELETE', `/api/events/${second}`, agentKey, target)).status).toBe(200);
+      expect((await http('DELETE', `/api/arcs/${arc.id}`, agentKey, target)).status).toBe(200);
+      expect((await http('GET', `/api/events/${second}`, agentKey, source)).status).toBe(200);
+      expect((await http('GET', `/api/arcs/${arc.id}`, agentKey, source)).status).toBe(200);
+    });
+
+    /**
+     * A graph written the way an import writes one: the version head first, with the fields only the
+     * version store keeps (`sourceRef`, `parent_arc_id`, a link at 0/0, a link to another graph's
+     * event), then the live store rebuilt from it.
+     */
+    async function importedSource(name: string): Promise<string> {
+      const graphId = (await container.graphService.createGraph({ name })).id;
+      graphsMade.push(graphId);
+      const event = (id: string, description: string, year: number, extra: Record<string, unknown> = {}) => ({
+        type: 'event' as const, id, data: { id, description, actor: 'A', target: 'B', timestamp: `${year}-01-01T00:00:00.000Z`, metadata: {}, ...extra },
+      });
+      const arc = (id: string, label: string, level: number, parent: string | null, from: number, to: number) => ({
+        type: 'arc' as const, id, data: { id, name: label, description: label, start_time: `${from}-01-01T00:00:00.000Z`, end_time: `${to}-01-01T00:00:00.000Z`, level, parent_arc_id: parent, metadata: {}, sourceRef: `doc:${id}` },
+      });
+      const link = (id: string, cause: string, effect: string, weight: number, extra: Record<string, unknown> = {}) => ({
+        type: 'relationship' as const, id, data: { id, cause_event_id: cause, effect_event_id: effect, weight, confidence: weight, evidence: 'Seen', relationship_type: 'direct', ...extra },
+      });
+      await container.graphRepository.commitChanges(
+        graphId,
+        {
+          added: [
+            arc('imp-arc-outer', 'Outer', 0, null, 1700, 1900),
+            arc('imp-arc-inner', 'Inner', 1, 'imp-arc-outer', 1750, 1850),
+            event('imp-ev-1', 'First', 1760, { sourceRef: 'wiki:First' }),
+            event('imp-ev-2', 'Second', 1770),
+            event('imp-ev-3', 'Third', 1880),
+            link('imp-link-zero', 'imp-ev-1', 'imp-ev-2', 0, { sourceRef: 'wiki:Link' }),
+            link('imp-link-plain', 'imp-ev-2', 'imp-ev-3', 0.6),
+            link('imp-link-cross', 'elsewhere-ev', 'imp-ev-1', 0.5, { causeGraphId: 'some-other-graph' }),
+          ],
+          modified: [],
+          deleted: [],
+        },
+        'import',
+        'Imported'
+      );
+      await container.liveStoreSyncService.materialize(graphId, 'import');
+      return graphId;
+    }
+
+    /** What an export holds of a graph, in a fixed order. */
+    async function exportedContents(graphId: string): Promise<{ events: Array<Record<string, unknown>>; arcs: Array<Record<string, unknown>>; links: Array<Record<string, unknown>> }> {
+      const { export: doc } = await container.exportService.exportGraph({ graphId, scope: 'full', includeProvenance: false });
+      const byId = <T extends { id: string }>(rows: T[]): T[] => [...rows].sort((a, b) => a.id.localeCompare(b.id));
+      return {
+        events: byId(doc.data.events) as unknown as Array<Record<string, unknown>>,
+        arcs: byId(doc.data.arcs) as unknown as Array<Record<string, unknown>>,
+        links: byId(doc.data.causalRelationships) as unknown as Array<Record<string, unknown>>,
+      };
+    }
+
+    async function liveContents(graphId: string): Promise<unknown> {
+      const { eventRepository, arcRepository, causalService } = await container.graphScopedRepositories(graphId);
+      const byId = <T extends { id: string }>(rows: T[]): T[] => [...rows].sort((a, b) => a.id.localeCompare(b.id));
+      return JSON.parse(JSON.stringify({ events: byId(await eventRepository.findAll()), arcs: byId(await arcRepository.findAll()), links: byId(await causalService.getAllRelationships()) }));
+    }
+
+    async function markersIn(graphId: string): Promise<number> {
+      const session = getDatabaseManager().getNeo4jSession();
+      try {
+        const rows = await session.run('MATCH (n) WHERE n.graphId = $graphId AND n._sourceNodeId IS NOT NULL RETURN count(n) AS marked', { graphId });
+        return Number(rows.records[0]?.get('marked'));
+      } finally {
+        await session.close();
+      }
+    }
+
+    async function copyOf(source: string, name: string, body: Record<string, unknown> = {}): Promise<string> {
+      const res = await http('POST', '/api/graphs/copy', agentKey, undefined, { sourceGraphId: source, targetName: name, ...body });
+      expect(res.status).toBe(201);
+      const data = res.body.data as { id: string; status: string };
+      expect((data as { status: string; error_message?: string }).error_message ?? data.status).toBe('completed');
+      graphsMade.push(data.id);
+      return data.id;
+    }
+
+    it('records a copy as the source’s head, so it exports as a branch does, rolls back unchanged and merges without conflicts (#35)', async () => {
+      const source = await importedSource('Imported source');
+      const copy = await copyOf(source, 'Imported copy');
+      const branch = (await container.graphService.branchGraph(source, { name: 'Imported branch' } as never)).id;
+      graphsMade.push(branch);
+
+      const fromCopy = await exportedContents(copy);
+      expect(fromCopy).toEqual(await exportedContents(branch));
+      expect(fromCopy.events.find((e) => e.id === 'imp-ev-1')).toMatchObject({ sourceRef: 'wiki:First' });
+      expect(fromCopy.links.find((l) => l.id === 'imp-link-zero')).toMatchObject({ weight: 0, confidence: 0, sourceRef: 'wiki:Link' });
+      expect(fromCopy.links.find((l) => l.id === 'imp-link-cross')?.causeGraphId).toBe('some-other-graph');
+      expect(fromCopy.arcs.find((a) => a.id === 'imp-arc-inner')?.parent_arc_id).toBe('imp-arc-outer');
+
+      // Rolling back an unedited copy changes nothing of what it holds.
+      const liveBefore = await liveContents(copy);
+      const version = (await container.graphRepository.getLatestVersion(copy))?.version as number;
+      expect((await http('POST', `/api/graphs/${copy}/rollback/${version}`, agentKey, copy)).status).toBe(200);
+      expect(await liveContents(copy)).toEqual(liveBefore);
+      expect(await exportedContents(copy)).toEqual(fromCopy);
+
+      // And an unedited copy has nothing to conflict with.
+      const merged = await http('POST', `/api/graphs/${source}/merge`, agentKey, source, { sourceGraphId: copy, conflictResolution: 'manual', dryRun: true });
+      expect(merged.status).toBe(200);
+      expect(merged.body.conflicts).toEqual([]);
+    });
+
+    it('copies only the time range it names, keeps ids, and leaves no marker (#35)', async () => {
+      const source = await importedSource('Range source');
+      const copy = await copyOf(source, 'Range copy', { copyType: 'time_range', timeRange: { start: '1755-01-01T00:00:00.000Z', end: '1775-01-01T00:00:00.000Z' } });
+      const { eventRepository, arcRepository } = await container.graphScopedRepositories(copy);
+      expect((await eventRepository.findAll()).map((e) => e.id).sort()).toEqual(['imp-ev-1', 'imp-ev-2']);
+      // The arcs that overlap the range: the outer and the inner arc both do.
+      expect((await arcRepository.findAll()).map((a) => a.id).sort()).toEqual(['imp-arc-inner', 'imp-arc-outer']);
+      const head = await container.graphRepository.checkout(copy);
+      expect(Object.keys(head.events).sort()).toEqual(['imp-ev-1', 'imp-ev-2']);
+      expect(Object.keys(head.relationships)).toEqual(['imp-link-zero']);
+      expect(head.events['imp-ev-1']).toMatchObject({ sourceRef: 'wiki:First' });
+      expect(await markersIn(copy)).toBe(0);
+      // The source still holds all three.
+      const sourceEvents = (await container.graphScopedRepositories(source)).eventRepository;
+      expect((await sourceEvents.findAll()).map((e) => e.id).sort()).toEqual(['imp-ev-1', 'imp-ev-2', 'imp-ev-3']);
+    });
+
+    it('copies only the events a filter names, keeps ids, and leaves no marker (#35)', async () => {
+      const source = await importedSource('Filter source');
+      await (await container.graphScopedRepositories(source)).eventRepository.update('imp-ev-3', { actor: 'Someone else' });
+      const copy = await copyOf(source, 'Filter copy', { copyType: 'filtered', filter: { actors: ['A'] } });
+      const { eventRepository, arcRepository } = await container.graphScopedRepositories(copy);
+      expect((await eventRepository.findAll()).map((e) => e.id).sort()).toEqual(['imp-ev-1', 'imp-ev-2']);
+      expect(await arcRepository.findAll()).toEqual([]);
+      const head = await container.graphRepository.checkout(copy);
+      expect(Object.keys(head.events).sort()).toEqual(['imp-ev-1', 'imp-ev-2']);
+      expect(Object.keys(head.arcs)).toEqual([]);
+      expect(Object.keys(head.relationships)).toEqual(['imp-link-zero']);
+      expect(await markersIn(copy)).toBe(0);
+    });
+
+    it('leaves no graph behind when a copy cannot be versioned, whatever it copies, and answers with an error and no id (#35)', async () => {
+      const source = await importedSource('Unversionable source');
+      const holding = async (): Promise<string[]> => {
+        const session = getDatabaseManager().getNeo4jSession();
+        try {
+          const rows = await session.run('MATCH (n) WHERE n.graphId IS NOT NULL RETURN DISTINCT n.graphId AS graphId');
+          return rows.records.map((r) => String(r.get('graphId'))).sort();
+        } finally {
+          await session.close();
+        }
+      };
+      for (const body of [
+        {},
+        { copyType: 'time_range', timeRange: { start: '1755-01-01T00:00:00.000Z', end: '1775-01-01T00:00:00.000Z' } },
+        { copyType: 'filtered', filter: { actors: ['A'] } },
+      ]) {
+        const spy = vi.spyOn(container.graphRepository, 'commitChanges').mockRejectedValueOnce(new Error('the version store is down'));
+        const before = (await container.graphService.listGraphs({ limit: 1000 })).graphs.map((g) => g.id).sort();
+        const holdingBefore = await holding();
+        const res = await http('POST', '/api/graphs/copy', agentKey, undefined, { sourceGraphId: source, targetName: 'Unversionable copy', ...body });
+        spy.mockRestore();
+        // An error, with no graph id to chase, and nothing written before the version was refused.
+        expect(res.status).toBe(500);
+        expect(res.body.data).toBeUndefined();
+        expect((await container.graphService.listGraphs({ limit: 1000 })).graphs.map((g) => g.id).sort()).toEqual(before);
+        expect(await holding()).toEqual(holdingBefore);
+      }
+    });
+
+    it('copies an empty graph as an empty graph that can be used (#35)', async () => {
+      const source = (await container.graphService.createGraph({ name: 'Empty source' })).id;
+      graphsMade.push(source);
+      const copy = await copyOf(source, 'Empty copy');
+      expect((await http('GET', `/api/graphs/${copy}`, agentKey, copy)).status).toBe(200);
+      expect((await http('POST', '/api/events', agentKey, copy, { description: 'First', actor: 'A', target: 'B', timestamp: '1800-01-01T00:00:00.000Z' })).status).toBe(201);
+    });
+
+    it('makes a filtered copy whose export imports, because an arc whose parent was left out is a top-level arc (#35)', async () => {
+      const source = await importedSource('Hierarchy source');
+      const copy = await copyOf(source, 'Hierarchy copy', { copyType: 'filtered', filter: { actors: ['A'], arcLevels: [1] } });
+
+      const head = await container.graphRepository.checkout(copy);
+      expect(head.arcs['imp-arc-inner']).toMatchObject({ parent_arc_id: null, level: 0 });
+      const live = await (await container.graphScopedRepositories(copy)).arcRepository.findById('imp-arc-inner');
+      expect(live?.level).toBe(0);
+      expect(live?.metadata?.parentArcId).toBeUndefined();
+
+      const { export: doc } = await container.exportService.exportGraph({ graphId: copy, scope: 'full', includeProvenance: false });
+      const importer = new ImportService({ dataDir });
+      const imported = await importer.executeImport(doc, { mode: 'create-new', conflictResolution: 'skip' });
+      graphsMade.push(imported.graphId);
+      expect(imported.errors).toEqual([]);
+      expect(imported.success).toBe(true);
+    });
+
+    it('versions a source that has live nodes and no version, so an edit and a rollback of the copy keep its nodes (#35)', async () => {
+      const source = (await container.graphService.createGraph({ name: 'Unversioned source' })).id;
+      graphsMade.push(source);
+      // Live nodes that were never versioned: what data adopted at startup looks like.
+      const repos = await container.graphScopedRepositories(source);
+      const first = await repos.eventRepository.create({ description: 'Live one', actor: 'A', target: 'B', timestamp: new Date(Date.UTC(1810, 0, 1)) });
+      const second = await repos.eventRepository.create({ description: 'Live two', actor: 'A', target: 'B', timestamp: new Date(Date.UTC(1820, 0, 1)) });
+      expect(await container.graphRepository.getLatestVersion(source)).toBeNull();
+
+      const copy = await copyOf(source, 'Unversioned copy');
+      expect(Object.keys((await container.graphRepository.checkout(copy)).events).sort()).toEqual([first.id, second.id].sort());
+
+      expect((await http('PUT', `/api/events/${first.id}`, agentKey, copy, { description: 'Edited' })).status).toBe(200);
+      const latest = (await container.graphRepository.getLatestVersion(copy))?.version as number;
+      expect((await http('POST', `/api/graphs/${copy}/rollback/${latest}`, agentKey, copy)).status).toBe(200);
+      const { eventRepository } = await container.graphScopedRepositories(copy);
+      expect((await eventRepository.findAll()).map((e) => e.id).sort()).toEqual([first.id, second.id].sort());
+    });
+
+    it('makes the version and the live copy agree on a re-placed arc when the source was never versioned, so the export imports and a rollback leaves no dangling parent (#35)', async () => {
+      const source = (await container.graphService.createGraph({ name: 'Unversioned hierarchy source' })).id;
+      graphsMade.push(source);
+      const { arcRepository, eventRepository } = await container.graphScopedRepositories(source);
+      const arc = (id: string, level: number, parent: string | null, from: number, to: number) =>
+        arcRepository.create(
+          { id, name: id, description: id, start_time: new Date(Date.UTC(from, 0, 1)), end_time: new Date(Date.UTC(to, 0, 1)), level, metadata: parent ? { parentArcId: parent } : {} },
+          { validated: true }
+        );
+      await arc('hier-r', 0, null, 1700, 1900);
+      await arc('hier-a', 1, 'hier-r', 1710, 1890);
+      await arc('hier-b', 2, 'hier-a', 1720, 1880);
+      await arc('hier-c', 3, 'hier-b', 1730, 1870);
+      await eventRepository.create({ id: 'hier-w1', description: 'W1', actor: 'A', target: 'B', timestamp: new Date(Date.UTC(1800, 0, 1)) });
+      expect(await container.graphRepository.getLatestVersion(source)).toBeNull();
+
+      // Levels 2 and 3 only: B's parent A was left out.
+      const copy = await copyOf(source, 'Unversioned hierarchy copy', { copyType: 'filtered', filter: { arcLevels: [2, 3] } });
+
+      const danglingIn = async (): Promise<string[]> => {
+        const { arcRepository: arcs } = await container.graphScopedRepositories(copy);
+        const live = await arcs.findAll();
+        const ids = new Set(live.map((a) => a.id));
+        return live.filter((a) => typeof a.metadata?.parentArcId === 'string' && !ids.has(a.metadata.parentArcId as string)).map((a) => a.id);
+      };
+      const head = await container.graphRepository.checkout(copy);
+      expect(head.arcs['hier-b']?.level).toBe(0);
+      expect(head.arcs['hier-b']?.parent_arc_id ?? null).toBeNull();
+      expect(head.arcs['hier-b']?.metadata).not.toHaveProperty('parentArcId');
+      expect(head.arcs['hier-c']).toMatchObject({ parent_arc_id: 'hier-b', level: 1 });
+      expect(await danglingIn()).toEqual([]);
+
+      const { export: doc } = await container.exportService.exportGraph({ graphId: copy, scope: 'full', includeProvenance: false });
+      const imported = await new ImportService({ dataDir }).executeImport(doc, { mode: 'create-new', conflictResolution: 'skip' });
+      graphsMade.push(imported.graphId);
+      expect(imported.errors).toEqual([]);
+      expect(imported.success).toBe(true);
+
+      const version = (await container.graphRepository.getLatestVersion(copy))?.version as number;
+      expect((await http('POST', `/api/graphs/${copy}/rollback/${version}`, agentKey, copy)).status).toBe(200);
+      expect(await danglingIn()).toEqual([]);
+      const { arcRepository: after } = await container.graphScopedRepositories(copy);
+      expect((await after.findById('hier-b'))?.metadata?.parentArcId).toBeUndefined();
+    });
+
+    it('builds the copy’s live store from its version when the source’s head holds entities its live store does not (#35)', async () => {
+      const source = (await container.graphService.createGraph({ name: 'Head-only source' })).id;
+      graphsMade.push(source);
+      await container.graphRepository.commitChanges(
+        source,
+        {
+          added: [
+            { type: 'event', id: 'head-ev-1', data: { id: 'head-ev-1', description: 'Only in the head', actor: 'A', target: 'B', timestamp: '1800-01-01T00:00:00.000Z', metadata: {} } },
+            { type: 'event', id: 'head-ev-2', data: { id: 'head-ev-2', description: 'Also only there', actor: 'A', target: 'B', timestamp: '1801-01-01T00:00:00.000Z', metadata: {} } },
+          ],
+          modified: [],
+          deleted: [],
+        },
+        'import',
+        'Imported'
+      );
+      // Its live store was never built.
+      expect(await (await container.graphScopedRepositories(source)).eventRepository.findAll()).toEqual([]);
+
+      const copy = await copyOf(source, 'Head-only copy');
+
+      const { eventRepository } = await container.graphScopedRepositories(copy);
+      expect((await eventRepository.findAll()).map((e) => e.id).sort()).toEqual(['head-ev-1', 'head-ev-2']);
+      expect(Object.keys((await container.graphRepository.checkout(copy)).events).sort()).toEqual(['head-ev-1', 'head-ev-2']);
+    });
+
+    it('copies an event and an arc that share an id, in a time range and by a filter (#35)', async () => {
+      const source = (await container.graphService.createGraph({ name: 'Shared id source' })).id;
+      graphsMade.push(source);
+      await container.graphRepository.commitChanges(
+        source,
+        {
+          added: [
+            { type: 'event', id: 'W2', data: { id: 'W2', description: 'An event named W2', actor: 'A', target: 'B', timestamp: '1760-01-01T00:00:00.000Z', metadata: {} } },
+            { type: 'arc', id: 'W2', data: { id: 'W2', name: 'An arc named W2', description: 'W2', start_time: '1750-01-01T00:00:00.000Z', end_time: '1850-01-01T00:00:00.000Z', level: 1, parent_arc_id: null, metadata: {} } },
+          ],
+          modified: [],
+          deleted: [],
+        },
+        'import',
+        'Imported'
+      );
+      await container.liveStoreSyncService.materialize(source, 'import');
+
+      for (const body of [
+        { copyType: 'time_range', timeRange: { start: '1755-01-01T00:00:00.000Z', end: '1775-01-01T00:00:00.000Z' } },
+        { copyType: 'filtered', filter: { actors: ['A'], arcLevels: [1] } },
+      ]) {
+        const copy = await copyOf(source, `Shared id copy ${body.copyType}`, body);
+        const { eventRepository, arcRepository } = await container.graphScopedRepositories(copy);
+        expect((await eventRepository.findAll()).map((e) => e.id)).toEqual(['W2']);
+        expect((await arcRepository.findAll()).map((a) => a.id)).toEqual(['W2']);
+        const head = await container.graphRepository.checkout(copy);
+        expect(Object.keys(head.events)).toEqual(['W2']);
+        expect(Object.keys(head.arcs)).toEqual(['W2']);
+      }
+    });
+
+    it('re-places an arc whose live metadata is stored as an empty string (#35)', async () => {
+      const source = await importedSource('Empty metadata source');
+      const session = getDatabaseManager().getNeo4jSession();
+      try {
+        await session.run("MATCH (a:Arc {graphId: $source, id: 'imp-arc-inner'}) SET a.metadata = ''", { source });
+      } finally {
+        await session.close();
+      }
+      const copy = await copyOf(source, 'Empty metadata copy', { copyType: 'filtered', filter: { actors: ['A'], arcLevels: [1] } });
+      const placed = await (await container.graphScopedRepositories(copy)).arcRepository.findById('imp-arc-inner');
+      expect(placed?.level).toBe(0);
+    });
+
+    /** A graph whose version head is written and whose live store is left as the caller makes it. */
+    async function headOnlySource(name: string, arcs: string[] = []): Promise<string> {
+      const graphId = (await container.graphService.createGraph({ name })).id;
+      graphsMade.push(graphId);
+      const added = [
+        { type: 'event' as const, id: 'ho-ev-1', data: { id: 'ho-ev-1', description: 'One', actor: 'A', target: 'B', timestamp: '1800-01-01T00:00:00.000Z', metadata: {} } },
+        { type: 'event' as const, id: 'ho-ev-2', data: { id: 'ho-ev-2', description: 'Two', actor: 'A', target: 'B', timestamp: '1801-01-01T00:00:00.000Z', metadata: {} } },
+        ...arcs.map((id, i) => ({
+          type: 'arc' as const,
+          id,
+          data: { id, name: id, description: id, start_time: `${1700 + i * 10}-01-01T00:00:00.000Z`, end_time: `${1705 + i * 10}-01-01T00:00:00.000Z`, level: 0, parent_arc_id: null, metadata: {} },
+        })),
+      ];
+      await container.graphRepository.commitChanges(graphId, { added, modified: [], deleted: [] }, 'import', 'Imported');
+      return graphId;
+    }
+
+    /** The ids a graph's version and its live store hold, by label. */
+    async function idsByLabel(graphId: string): Promise<{ head: { events: string[]; arcs: string[] }; live: { events: string[]; arcs: string[] } }> {
+      const head = await container.graphRepository.checkout(graphId);
+      const { eventRepository, arcRepository } = await container.graphScopedRepositories(graphId);
+      return {
+        head: { events: Object.keys(head.events).sort(), arcs: Object.keys(head.arcs).sort() },
+        live: { events: (await eventRepository.findAll()).map((e) => e.id).sort(), arcs: (await arcRepository.findAll()).map((a) => a.id).sort() },
+      };
+    }
+
+    it('rebuilds the copy’s live store from its version when the source’s live store holds only a pressure (#35)', async () => {
+      const source = await headOnlySource('Pressure-only source');
+      const session = getDatabaseManager().getNeo4jSession();
+      try {
+        await session.run("CREATE (:InferredPressure {id: 'pressure-only', graphId: $source, description: 'p', confidence_score: 0.5, pressure_type: 'economic'})", { source });
+      } finally {
+        await session.close();
+      }
+
+      const copy = await copyOf(source, 'Pressure-only copy');
+
+      const { head, live } = await idsByLabel(copy);
+      expect(head.events).toEqual(['ho-ev-1', 'ho-ev-2']);
+      expect(live).toEqual(head);
+    });
+
+    it('rebuilds the copy’s live store from its version when the source is missing some arcs live (#35)', async () => {
+      const source = await headOnlySource('Missing-arcs source', ['ho-arc-1', 'ho-arc-2', 'ho-arc-3']);
+      await container.liveStoreSyncService.materialize(source, 'import');
+      const session = getDatabaseManager().getNeo4jSession();
+      try {
+        await session.run("MATCH (a:Arc {graphId: $source}) WHERE a.id IN ['ho-arc-2', 'ho-arc-3'] DETACH DELETE a", { source });
+      } finally {
+        await session.close();
+      }
+      expect((await idsByLabel(source)).live.arcs).toEqual(['ho-arc-1']);
+
+      const copy = await copyOf(source, 'Missing-arcs copy');
+
+      const { head, live } = await idsByLabel(copy);
+      expect(head.arcs).toEqual(['ho-arc-1', 'ho-arc-2', 'ho-arc-3']);
+      expect(live).toEqual(head);
+    });
+
+    it('discards the copy when its live store cannot be built from its version (#35)', async () => {
+      const source = await headOnlySource('Unbuildable source');
+      const spy = vi.spyOn(container.liveStoreSyncService, 'materialize').mockRejectedValueOnce(new Error('the live store is down'));
+      const before = (await container.graphService.listGraphs({ limit: 1000 })).graphs.map((g) => g.id).sort();
+
+      const res = await http('POST', '/api/graphs/copy', agentKey, undefined, { sourceGraphId: source, targetName: 'Unbuildable copy' });
+      spy.mockRestore();
+
+      expect(res.status).toBe(500);
+      expect(res.body.data).toBeUndefined();
+      expect((await container.graphService.listGraphs({ limit: 1000 })).graphs.map((g) => g.id).sort()).toEqual(before);
+    });
+
+    it('keeps an event and an arc that share an id apart in a copy’s version and its live store, on both paths (#35)', async () => {
+      const bodies = [
+        { copyType: 'time_range', timeRange: { start: '1755-01-01T00:00:00.000Z', end: '1775-01-01T00:00:00.000Z' } },
+        { copyType: 'filtered', filter: { actors: ['A'], arcLevels: [1] } },
+      ];
+
+      // The head path: the source has a version.
+      const versioned = (await container.graphService.createGraph({ name: 'Shared id, versioned' })).id;
+      graphsMade.push(versioned);
+      await container.graphRepository.commitChanges(
+        versioned,
+        {
+          added: [
+            { type: 'event', id: 'W2', data: { id: 'W2', description: 'An event named W2', actor: 'A', target: 'B', timestamp: '1760-01-01T00:00:00.000Z', metadata: {} } },
+            { type: 'arc', id: 'W2', data: { id: 'W2', name: 'An arc named W2', description: 'W2', start_time: '1750-01-01T00:00:00.000Z', end_time: '1850-01-01T00:00:00.000Z', level: 1, parent_arc_id: null, metadata: {} } },
+          ],
+          modified: [],
+          deleted: [],
+        },
+        'import',
+        'Imported'
+      );
+      await container.liveStoreSyncService.materialize(versioned, 'import');
+
+      // The no-head path: the source has live nodes only.
+      const unversioned = (await container.graphService.createGraph({ name: 'Shared id, unversioned' })).id;
+      graphsMade.push(unversioned);
+      const live = await container.graphScopedRepositories(unversioned);
+      await live.eventRepository.create({ id: 'W2', description: 'An event named W2', actor: 'A', target: 'B', timestamp: new Date(Date.UTC(1760, 0, 1)) });
+      await live.arcRepository.create(
+        { id: 'W2', name: 'An arc named W2', description: 'W2', start_time: new Date(Date.UTC(1750, 0, 1)), end_time: new Date(Date.UTC(1850, 0, 1)), level: 1 },
+        { validated: true }
+      );
+      expect(await container.graphRepository.getLatestVersion(unversioned)).toBeNull();
+
+      for (const source of [versioned, unversioned]) {
+        for (const body of bodies) {
+          const copy = await copyOf(source, `Shared id copy ${body.copyType}`, body);
+          const { head, live: held } = await idsByLabel(copy);
+          expect(head).toEqual({ events: ['W2'], arcs: ['W2'] });
+          expect(held).toEqual(head);
+        }
+      }
     });
 
     it('versions a batch of links under the id a single link gets in Neo4j, and a transaction that removes it', async () => {

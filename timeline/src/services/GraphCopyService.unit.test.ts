@@ -38,6 +38,8 @@ describe('GraphCopyService Unit Tests', () => {
         .mockResolvedValueOnce({
           records: [{ get: vi.fn().mockReturnValue(Integer.fromNumber(3)) }]
         } as any)
+        // Mock the removal of the copy markers
+        .mockResolvedValueOnce({ records: [] } as any)
         // Mock integrity validation queries
         .mockResolvedValueOnce({
           records: [
@@ -202,6 +204,189 @@ describe('GraphCopyService Unit Tests', () => {
         call[1] && call[1].preserveIds === true
       );
       expect(nodeCallArgs).toBeDefined();
+    });
+  });
+
+  describe('a copy keeps the ids of what it copies (#35)', () => {
+    const answer = (count: number) => ({ records: [{ get: vi.fn().mockReturnValue(Integer.fromNumber(count)) }] }) as never;
+
+    it('keeps ids unless told not to, and removes the copy markers once the relationships are copied', async () => {
+      vi.mocked(mockSession.run).mockResolvedValue(answer(1));
+
+      await graphCopyService.copyFullGraph('src', 'dst', { validateIntegrity: false });
+
+      const calls = vi.mocked(mockSession.run).mock.calls;
+      const nodeCopy = calls.find((call) => call[1] && 'preserveIds' in call[1]);
+      expect(nodeCopy?.[1]?.preserveIds).toBe(true);
+      const markerRemoval = calls.findIndex((call) => String(call[0]).includes('REMOVE n._sourceNodeId'));
+      const relationshipCopy = calls.findIndex((call) => String(call[0]).includes('apoc.create.relationship'));
+      expect(relationshipCopy).toBeGreaterThanOrEqual(0);
+      expect(markerRemoval).toBeGreaterThan(relationshipCopy);
+      expect(calls[markerRemoval]?.[1]).toEqual({ targetGraphId: 'dst' });
+    });
+
+    it('still lets a caller drop the ids', async () => {
+      vi.mocked(mockSession.run).mockResolvedValue(answer(1));
+      await graphCopyService.copyFullGraph('src', 'dst', { preserveIds: false, validateIntegrity: false });
+      const nodeCopy = vi.mocked(mockSession.run).mock.calls.find((call) => call[1] && 'preserveIds' in call[1]);
+      expect(nodeCopy?.[1]?.preserveIds).toBe(false);
+    });
+  });
+
+  describe('the queries of a copy (#35)', () => {
+    const answer = () => ({ records: [{ get: vi.fn().mockReturnValue(Integer.fromNumber(1)) }] }) as never;
+    const queries = () => vi.mocked(mockSession.run).mock.calls.map((call) => String(call[0]));
+
+    it('confines a time-range selection to the graph before it looks at the range', async () => {
+      vi.mocked(mockSession.run).mockResolvedValue(answer());
+      await graphCopyService.copyByTimeRange('src', { start: new Date('1900-01-01T00:00:00Z'), end: new Date('1910-01-01T00:00:00Z') }, 'dst');
+      const selection = queries().find((q) => q.includes('datetime($startTime)'));
+      // `A OR B AND C` is `A OR (B AND C)`: without the brackets every node of the graph matched.
+      expect(selection).toContain("WHERE (n.graphId = $graphId OR $graphId = 'default')");
+    });
+
+    it('joins a copied relationship to its nodes by label and kept id, never by a scan of every node', async () => {
+      vi.mocked(mockSession.run).mockResolvedValue(answer());
+      await graphCopyService.copyFullGraph('src', 'dst', { validateIntegrity: false });
+      const join = queries().find((q) => q.includes('apoc.create.relationship'));
+      expect(join).toBeDefined();
+      expect(join).not.toMatch(/MATCH \(newSource\), \(newTarget\)/);
+      expect(join).toContain('MATCH (n:Event {graphId: $targetGraphId, id: source.id})');
+      expect(join).toContain('MATCH (n:Arc {graphId: $targetGraphId, id: target.id})');
+    });
+
+    it('joins by the marker, inside a label, when the copy drops ids', async () => {
+      vi.mocked(mockSession.run).mockResolvedValue(answer());
+      await graphCopyService.copyFullGraph('src', 'dst', { preserveIds: false, validateIntegrity: false });
+      const join = queries().find((q) => q.includes('apoc.create.relationship'));
+      expect(join).toContain('MATCH (n:Event {graphId: $targetGraphId})');
+      expect(join).toContain('n._sourceNodeId = id(source)');
+    });
+
+    it('asks the hook for the copy\u2019s first version before it writes a node, with the ids it selected', async () => {
+      (mockSession.run as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (query: unknown) =>
+        String(query).includes('datetime($startTime)')
+          ? ({ records: [{ get: () => 'e1' }, { get: () => 'e2' }] } as never)
+          : answer());
+      const beforeCopy = vi.fn(async (_selected: ReadonlySet<string> | null) => {
+        expect(queries().some((q) => q.includes('apoc.create.node'))).toBe(false);
+      });
+      await graphCopyService.copyByTimeRange('src', { start: new Date('1900-01-01T00:00:00Z'), end: new Date('1910-01-01T00:00:00Z') }, 'dst', { beforeCopy });
+      expect(beforeCopy).toHaveBeenCalledTimes(1);
+      expect([...(beforeCopy.mock.calls[0]?.[0] ?? [])]).toEqual(['e1', 'e2']);
+    });
+
+    it('writes nothing, and says so, when the hook refuses', async () => {
+      vi.mocked(mockSession.run).mockResolvedValue(answer());
+      const result = await graphCopyService.copyFullGraph('src', 'dst', { beforeCopy: async () => { throw new Error('no version'); } });
+      expect(result.success).toBe(false);
+      expect(result.errors?.join(' ')).toContain('no version');
+      expect(queries().some((q) => q.includes('apoc.create.node'))).toBe(false);
+    });
+  });
+
+  describe('partial copies and empty sources (#35)', () => {
+    const count = (n: number) => ({ records: [{ get: vi.fn().mockReturnValue(Integer.fromNumber(n)) }] }) as never;
+    const queries = () => vi.mocked(mockSession.run).mock.calls.map((call) => String(call[0]));
+    const range = { start: new Date('1900-01-01T00:00:00Z'), end: new Date('1910-01-01T00:00:00Z') };
+
+    /** Answers by what the query is: two selected nodes, one relationship between them, and `target` counts. */
+    const script = (target: { nodes: number; relationships: number }) =>
+      (mockSession.run as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (query: unknown) => {
+        const q = String(query);
+        if (q.includes('datetime($startTime)') || q.includes('n.actor IN')) return { records: [{ get: () => 'e1' }, { get: () => 'e2' }] } as never;
+        if (q.includes('RETURN id(r) as relId')) return { records: [{ get: () => Integer.fromNumber(7) }] } as never;
+        if (q.includes('count(r) AS total')) return count(target.relationships);
+        if (q.includes('count(n) AS total')) return count(target.nodes / 3);
+        if (q.includes('orphan')) return { records: [] } as never;
+        return count(1);
+      });
+
+    it('validates a partial copy against what it selected, and passes when the target holds it', async () => {
+      script({ nodes: 6, relationships: 1 });
+      const result = await graphCopyService.copyByTimeRange('src', range, 'dst');
+      expect(queries().some((q) => q.includes('MATCH (n:Event {graphId: $graphId}) RETURN count(n)'))).toBe(true);
+      expect(result.success).toBe(true);
+    });
+
+    it('fails a partial copy that holds more relationships than it selected', async () => {
+      script({ nodes: 6, relationships: 3 });
+      const result = await graphCopyService.copyByTimeRange('src', range, 'dst');
+      expect(result.success).toBe(false);
+      expect(result.errors?.join(' ')).toContain('Missing relationships: selected 1, found 3');
+    });
+
+    it('fails a partial copy that holds fewer nodes than it selected', async () => {
+      script({ nodes: 0, relationships: 1 });
+      const result = await graphCopyService.copyByEntityFilter('src', { actors: ['A'] }, 'dst');
+      expect(result.success).toBe(false);
+      expect(result.errors?.join(' ')).toContain('Missing nodes: selected 2, found 0');
+    });
+
+    it('asks for the first version of a filtered copy before it writes a node', async () => {
+      script({ nodes: 6, relationships: 1 });
+      const beforeCopy = vi.fn(async () => {
+        expect(queries().some((q) => q.includes('apoc.create.node'))).toBe(false);
+      });
+      await graphCopyService.copyByEntityFilter('src', { actors: ['A'] }, 'dst', { beforeCopy });
+      expect(beforeCopy).toHaveBeenCalledTimes(1);
+    });
+
+    it('places the copied arcs the way the version recorded them', async () => {
+      script({ nodes: 6, relationships: 1 });
+      const plan = { arcs: new Map([['mid', { parent: null, level: 0 }]]) };
+      await graphCopyService.copyByEntityFilter('src', { actors: ['A'] }, 'dst', { beforeCopy: async () => plan, validateIntegrity: false });
+      const placement = vi.mocked(mockSession.run).mock.calls.find((call) => String(call[0]).includes('apoc.convert.fromJsonMap'));
+      expect(placement).toBeDefined();
+      expect((placement?.[1] as { rows: Array<{ id: string; parent: string | null }> }).rows).toMatchObject([{ id: 'mid', parent: null }]);
+    });
+
+    it('fails a partial copy that holds a relationship without an endpoint', async () => {
+      (mockSession.run as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (query: unknown) => {
+        const q = String(query);
+        if (q.includes('datetime($startTime)')) return { records: [{ get: () => 'Event:e1' }, { get: () => 'Event:e2' }] } as never;
+        if (q.includes('RETURN id(r) as relId')) return { records: [{ get: () => Integer.fromNumber(7) }] } as never;
+        if (q.includes('count(r) AS total')) return count(1);
+        if (q.includes('count(n) AS total')) return count(2);
+        if (q.includes('orphan')) return { records: [{ get: () => 'rel-9' }] } as never;
+        return count(1);
+      });
+      const result = await graphCopyService.copyByTimeRange('src', range, 'dst');
+      expect(result.success).toBe(false);
+      expect(result.errors?.join(' ')).toContain('Orphaned relationship: rel-9');
+    });
+
+    it('names a selected node by its label and id, so an event and an arc with one id are two nodes', async () => {
+      vi.mocked(mockSession.run).mockResolvedValue(count(1));
+      await graphCopyService.copyByEntityFilter('src', { actors: ['A'] }, 'dst', { validateIntegrity: false });
+      const selection = queries().find((q) => q.includes('n.actor IN'));
+      expect(selection).toContain("AS nodeKey");
+      const copy = queries().find((q) => q.includes('apoc.create.node'));
+      expect(copy).toContain("(l + ':' + n.id) IN $nodeIds");
+      const relationships = queries().find((q) => q.includes('RETURN id(r) as relId'));
+      expect(relationships).toContain("(l + ':' + source.id) IN $nodeIds");
+      expect(relationships).toContain("(l + ':' + target.id) IN $nodeIds");
+    });
+
+    it('places an arc by removing its parent key, and reads metadata stored as nothing or as an empty string', async () => {
+      vi.mocked(mockSession.run).mockResolvedValue(count(1));
+      const plan = { arcs: new Map([['mid', { parent: null, level: 0 }]]) };
+      await graphCopyService.copyByEntityFilter('src', { actors: ['A'] }, 'dst', { beforeCopy: async () => plan, validateIntegrity: false });
+      const placement = queries().find((q) => q.includes('apoc.convert.fromJsonMap'));
+      expect(placement).toContain("apoc.map.removeKey(meta, 'parentArcId')");
+      expect(placement).toContain("a.metadata IS NULL OR a.metadata = ''");
+    });
+
+    it('copies a source with no nodes as a graph with no nodes, not as a failure', async () => {
+      (mockSession.run as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (query: unknown) => {
+        const q = String(query);
+        if (q.includes('GROUP') || q.includes('labels(n)')) return { records: [] } as never;
+        if (q.includes('orphan')) return { records: [] } as never;
+        return count(0);
+      });
+      const result = await graphCopyService.copyFullGraph('src', 'dst');
+      expect(result.success).toBe(true);
+      expect(result.errors).toEqual([]);
     });
   });
 
@@ -494,7 +679,8 @@ describe('GraphCopyService Unit Tests', () => {
         } as any) // node batch
         .mockResolvedValueOnce({
           records: [{ get: vi.fn().mockReturnValue(Integer.fromNumber(3)) }]
-        } as any); // relationship batch
+        } as any) // relationship batch
+        .mockResolvedValueOnce({ records: [] } as any); // marker removal
 
       // Act
       const result = await graphCopyService.copyFullGraph(sourceGraphId, targetGraphId, {
@@ -504,7 +690,7 @@ describe('GraphCopyService Unit Tests', () => {
       // Assert
       expect(result.success).toBe(true);
       // Verify that batch operations were called (indicating default batch size was used)
-      expect(mockSession.run).toHaveBeenCalledTimes(4);
+      expect(mockSession.run).toHaveBeenCalledTimes(5);
     });
 
     it('should skip integrity validation when disabled', async () => {
@@ -525,7 +711,8 @@ describe('GraphCopyService Unit Tests', () => {
         } as any) // node batch
         .mockResolvedValueOnce({
           records: [{ get: vi.fn().mockReturnValue(Integer.fromNumber(3)) }]
-        } as any); // relationship batch
+        } as any) // relationship batch
+        .mockResolvedValueOnce({ records: [] } as any); // marker removal
 
       // Act
       const result = await graphCopyService.copyFullGraph(sourceGraphId, targetGraphId, {
@@ -536,7 +723,7 @@ describe('GraphCopyService Unit Tests', () => {
       expect(result.success).toBe(true);
       // Should only have 4 calls (2 for counts, 1 for nodes, 1 for relationships)
       // No additional calls for integrity validation
-      expect(mockSession.run).toHaveBeenCalledTimes(4);
+      expect(mockSession.run).toHaveBeenCalledTimes(5);
     });
   });
 

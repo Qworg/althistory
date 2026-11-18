@@ -1,3 +1,5 @@
+import { beginCommit } from './requestBudget';
+import { isWriteQuery } from './cypherWrites';
 import { inDateRange, isoOfAxisTime, toAxisTime } from '@althistory/calendar';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -1285,6 +1287,7 @@ export class LocalGraphStore {
    * Create a new node
    */
   async createNode(labels: string[], properties: GraphProperties): Promise<GraphNode> {
+    beginCommit();
     // Only a string id can address a node; anything else falls back to a
     // generated id, as a non-string id could never be looked up again.
     const id = typeof properties.id === 'string' ? properties.id : this.generateId();
@@ -1318,6 +1321,7 @@ export class LocalGraphStore {
    * Update a node's properties
    */
   async updateNode(id: string, properties: GraphProperties): Promise<GraphNode | null> {
+    beginCommit();
     const node = this.graphData.nodes.get(id);
     if (!node) {
       return null;
@@ -1336,6 +1340,7 @@ export class LocalGraphStore {
    * Delete a node and all its relationships
    */
   async deleteNode(id: string): Promise<boolean> {
+    beginCommit();
     const node = this.graphData.nodes.get(id);
     if (!node) {
       return false;
@@ -1374,6 +1379,7 @@ export class LocalGraphStore {
     /** Keep this id (restoring a stored relationship); otherwise one is generated. */
     id: string = this.generateId()
   ): Promise<GraphRelationship | null> {
+    beginCommit();
     // Verify both nodes exist
     if (!this.graphData.nodes.has(startNodeId) || !this.graphData.nodes.has(endNodeId)) {
       return null;
@@ -1422,6 +1428,7 @@ export class LocalGraphStore {
    * Delete a relationship
    */
   async deleteRelationship(id: string): Promise<boolean> {
+    beginCommit();
     const relationship = this.graphData.relationships.get(id);
     if (!relationship) {
       return false;
@@ -1437,6 +1444,9 @@ export class LocalGraphStore {
    * Execute a Cypher query
    */
   async executeQuery(query: string, parameters: GraphParameters = {}): Promise<LocalQueryResult> {
+    // A parsed write mutates `graphData` below without going through the
+    // mutators above: it is the point of no return too, whichever path wrote.
+    if (isWriteQuery(query)) beginCommit();
     try {
       const read = readEpochMillis(query, parameters);
       return CypherQueryParser.execute(read.query, read.parameters, this.graphData);
@@ -1510,6 +1520,7 @@ export class LocalGraphStore {
    * Update a relationship's properties
    */
   async updateRelationship(id: string, properties: GraphProperties): Promise<GraphRelationship | null> {
+    beginCommit();
     const relationship = this.graphData.relationships.get(id);
     if (!relationship) {
       return null;
@@ -1670,6 +1681,7 @@ export class LocalGraphStore {
    * Clear all graph data
    */
   async clear(): Promise<void> {
+    beginCommit();
     this.graphData.nodes.clear();
     this.graphData.relationships.clear();
     this.graphData.nodesByLabel.clear();

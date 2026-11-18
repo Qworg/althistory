@@ -95,7 +95,7 @@ describe('CausalService', () => {
       await expect(causalService.createCausalLink(cause, effect, relationship)).resolves.not.toThrow();
 
       expect(mockSession.run).toHaveBeenCalledWith(
-        expect.stringContaining('CREATE (cause)-[r:CAUSES'),
+        expect.stringContaining('MERGE (cause)-[r:CAUSES'),
         expect.objectContaining({
           causeId: 'cause1',
           effectId: 'effect1',
@@ -158,7 +158,7 @@ describe('CausalService', () => {
       vi.mocked(getDatabaseManager).mockReturnValue({
         getNeo4jSession: vi.fn().mockReturnValue({
           run: vi.fn().mockImplementation(async (query: string) => {
-            if (query.includes('CREATE (cause)-[r:CAUSES')) {
+            if (query.includes('MERGE (cause)-[r:CAUSES')) {
               return { records: [{ get: () => ({ properties: relationship }) }] };
             }
             return {

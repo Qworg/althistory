@@ -3,6 +3,7 @@
  */
 
 import { isoOfAxisTime, storedCalendarSet, toAxisTime } from '@althistory/calendar';
+import { beginCommit, checkpoint, commitSection } from '@/utils/requestBudget';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -17,7 +18,7 @@ import {
   MergeParent,
   EntityType,
 } from '../models/Graph';
-import { VersionRepository, EntityChanges, ResolvedGraphData, ResolveOptions } from './VersionRepository';
+import { VersionRepository, EntityChanges, ResolvedGraphData, ResolveOptions, TreeSelection } from './VersionRepository';
 
 export interface GraphRepositoryConfig {
   dataDir: string;
@@ -70,6 +71,8 @@ export class GraphRepository {
    * Create a new graph
    */
   async create(data: CreateGraphData): Promise<Graph> {
+    // The first durable step is the point of no return (see requestBudget.ts).
+    beginCommit();
     const graph = new Graph(data);
     
     // Initialize version storage for this graph
@@ -184,6 +187,7 @@ export class GraphRepository {
 
     const deleted = existing.update({ status: 'deleted' });
     await this.saveGraphMetadata(deleted);
+    this.versionRepository.forgetGraph?.(id);
 
     // Remove from active if it was active
     await this.mutateIndex((index) => {
@@ -200,6 +204,7 @@ export class GraphRepository {
    * Permanently delete a graph and all its data
    */
   async hardDelete(id: string): Promise<boolean> {
+    beginCommit();
     const existing = await this.findById(id);
     if (!existing) {
       return false;
@@ -333,6 +338,8 @@ export class GraphRepository {
     mergeParent?: MergeParent,
     expectedParentVersion?: number | null
   ): Promise<VersionRef> {
+    // A request that timed out records no version.
+    checkpoint();
     // Commit to version repository. Optional arguments are forwarded only when
     // present so a linear commit keeps its existing five-argument call shape
     // (and a merge parent is never recorded as `undefined`).
@@ -355,14 +362,88 @@ export class GraphRepository {
             userId
           );
 
-    // Update graph metadata
-    const graph = await this.findById(graphId);
-    if (graph) {
-      const metadata = await this.calculateMetadata(graphId);
-      await this.update(graphId, { metadata });
-    }
+    // Update graph metadata. The version is recorded by now, so the metadata
+    // is part of the same write: a timeout that arrives meanwhile waits for it
+    // rather than answering 408 over a version that stays.
+    await commitSection(async () => {
+      const graph = await this.findById(graphId);
+      if (graph) {
+        const parent = versionRef.parentVersion === null ? null : await this.versionRepository.getVersionRef(graphId, versionRef.parentVersion);
+        const metadata = (await this.extendMetadata(graphId, graph.metadata, changes, parent?.treeHash, versionRef.treeHash)) ?? (await this.calculateMetadata(graphId));
+        await this.update(graphId, { metadata });
+      }
+    });
 
     return versionRef;
+  }
+
+  /**
+   * The graph's metadata after a commit that only added events (or touched
+   * other kinds), from the metadata it had and the entities added: the counts
+   * come from the tree and the temporal range and actors from the added events
+   * alone, so the cost follows the commit, not the graph. Undefined (the
+   * caller recalculates from the whole head) when the commit edited or removed
+   * an event, or when the metadata kept does not describe the head before it
+   * (its counts plus the commit's changes are not the head's counts), so a
+   * stale record is recomputed, never extended.
+   */
+  private async extendMetadata(
+    graphId: string,
+    previous: GraphMetadata | undefined,
+    changes: EntityChanges,
+    parentTree: string | undefined,
+    headTree: string
+  ): Promise<GraphMetadata | undefined> {
+    // Only from metadata computed from the very head this commit followed.
+    if (!previous || !Array.isArray(previous.actors) || parentTree === undefined || previous.headTree !== parentTree) return undefined;
+    if (changes.modified.some((e) => e.type === 'event') || changes.deleted.some((e) => e.type === 'event')) return undefined;
+    const net = (type: 'event' | 'arc' | 'relationship' | 'pressure'): number =>
+      changes.added.filter((e) => e.type === type).length - changes.deleted.filter((e) => e.type === type).length;
+    const now = await this.versionRepository.getHeadCounts(graphId);
+    if (
+      previous.eventCount + net('event') !== now.events ||
+      previous.arcCount + net('arc') !== now.arcs ||
+      previous.relationshipCount + net('relationship') !== now.relationships ||
+      previous.pressureCount + net('pressure') !== now.pressures
+    ) {
+      return undefined;
+    }
+    const added = changes.added.filter((e) => e.type === 'event');
+    let temporalRange = previous.temporalRange;
+    if (added.length > 0) {
+      const times = added
+        .map((e) => e.data.timestamp as string)
+        .filter((t) => t)
+        .map((t) => toAxisTime(t))
+        .filter((t): t is bigint => t !== null);
+      if (times.length > 0) {
+        if (previous.eventCount > 0 && !previous.temporalRange) return undefined;
+        let earliest = times.reduce((a, b) => (b < a ? b : a));
+        let latest = times.reduce((a, b) => (b > a ? b : a));
+        if (previous.temporalRange) {
+          const start = toAxisTime(previous.temporalRange.start);
+          const end = toAxisTime(previous.temporalRange.end);
+          if (start === null || end === null) return undefined;
+          if (start < earliest) earliest = start;
+          if (end > latest) latest = end;
+        }
+        temporalRange = { start: isoOfAxisTime(earliest), end: isoOfAxisTime(latest) };
+      }
+    }
+    const actors = new Set<string>(previous.actors);
+    for (const event of added) {
+      const actor = event.data.actor as string;
+      if (actor) actors.add(actor);
+    }
+    return {
+      eventCount: now.events,
+      arcCount: now.arcs,
+      relationshipCount: now.relationships,
+      pressureCount: now.pressures,
+      temporalRange,
+      actors: Array.from(actors).sort(),
+      headTree,
+    };
   }
 
   /**
@@ -393,6 +474,22 @@ export class GraphRepository {
     }
 
     return read(latest.version);
+  }
+
+  /**
+   * The head's entities that `selection` names, resolved as `checkout`
+   * resolves them (same `strict` and `missing` rules) and nothing else: the
+   * objects read, and the time taken, follow the selection, not the graph.
+   */
+  async checkoutSelected(graphId: string, selection: TreeSelection, options: ResolveOptions = {}): Promise<ResolvedGraphData> {
+    const latest = await this.versionRepository.getLatestVersion(graphId);
+    if (!latest) return { events: {}, arcs: {}, relationships: {}, pressures: {} };
+    return this.versionRepository.checkoutSelected(graphId, latest.version, selection, options);
+  }
+
+  /** How many entities of each kind the head names (no objects are read). */
+  async getHeadCounts(graphId: string): Promise<{ events: number; arcs: number; relationships: number; pressures: number }> {
+    return this.versionRepository.getHeadCounts(graphId);
   }
 
   /**
@@ -479,6 +576,7 @@ export class GraphRepository {
    * Calculate metadata for a graph based on current state
    */
   async calculateMetadata(graphId: string): Promise<GraphMetadata> {
+    const latest = await this.versionRepository.getLatestVersion(graphId);
     const data = await this.checkout(graphId);
 
     const events = Object.values(data.events);
@@ -517,7 +615,8 @@ export class GraphRepository {
       relationshipCount,
       pressureCount,
       temporalRange,
-      actors: Array.from(actorSet),
+      actors: Array.from(actorSet).sort(),
+      ...(latest ? { headTree: latest.treeHash } : {}),
     };
   }
 
@@ -548,6 +647,7 @@ export class GraphRepository {
   }
 
   private async saveGraphMetadata(graph: Graph): Promise<void> {
+    beginCommit();
     const graphDir = path.join(this.dataDir, 'graphs', graph.id);
     await fs.promises.mkdir(graphDir, { recursive: true });
     
@@ -622,6 +722,7 @@ export class GraphRepository {
     // container each make their own repository over the same index.
     const key = path.resolve(this.graphsIndexPath);
     const run = (indexQueues.get(key) ?? Promise.resolve()).then(async () => {
+      beginCommit();
       const index = await this.loadIndex(true);
       if (change(index) === false) return;
       await this.saveIndex(index);

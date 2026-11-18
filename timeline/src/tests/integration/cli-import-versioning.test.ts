@@ -158,4 +158,92 @@ describe('the CLI importer', () => {
       expect(after.arcs.C).toEqual([2, 'P', 'C']);
     });
   }
+
+  describe('an id used by an arc and an event', () => {
+    for (const strategy of ['skip', 'overwrite', 'rename'] as const) {
+      it(`is refused in one document under ${strategy}, and nothing is written`, async () => {
+        const graphId = await newGraph();
+        await expect(run(document([arc('X', 0, 1800, 1900)], [event('X', 'same id')]), graphId, strategy)).rejects.toThrow(/id "X" is used by arcs\[0\] and events\[0\]/);
+        const { arcRepository, eventRepository } = await container.graphScopedRepositories(graphId);
+        expect(await eventRepository.findById('X')).toBeFalsy();
+        expect(await arcRepository.findAll()).toHaveLength(0);
+      });
+      it(`is refused when the graph holds the id for the other kind, under ${strategy}`, async () => {
+        const graphId = await newGraph();
+        await run(document([arc('A1', 0, 1800, 1900)], [event('E1', 'an event')]), graphId, 'skip');
+        const before = await versionCount(graphId);
+        await expect(run(document([], [event('A1', 'takes an arc id')]), graphId, strategy)).rejects.toThrow(/event id "A1" \(events\[0\]\) is already used by an arc/);
+        await expect(run(document([arc('E1', 0, 1800, 1900)]), graphId, strategy)).rejects.toThrow(/arc id "E1" \(arcs\[0\]\) is already used by an event/);
+        expect(await versionCount(graphId)).toBe(before);
+        const { arcRepository } = await container.graphScopedRepositories(graphId);
+        expect((await arcRepository.findAll()).map((a) => a.id)).toEqual(['A1']);
+      });
+    }
+
+    it('is refused by the API importer too, for an id the target graph uses for the other kind', async () => {
+      const graphId = await newGraph();
+      await run(document([arc('A1', 0, 1800, 1900)]), graphId, 'skip');
+      const incoming = {
+        version: '1.0',
+        metadata: { graphId: 'x', graphName: 'x', exportedAt: new Date().toISOString(), sourceVersion: '1.0.0', graphVersion: 1, checksum: '' },
+        data: { events: [{ id: 'A1', description: 'd', actor: 'A', target: 'B', timestamp: '1850-01-01T00:00:00.000Z' }], arcs: [], causalRelationships: [], inferredPressures: [] },
+      };
+      const service = new ImportService({ dataDir: testDataDir });
+      await service.initialize();
+      const result = await service.executeImport(incoming as never, { graphId, mode: 'merge', conflictResolution: 'overwrite' } as never);
+      const arcIntoEvent = {
+        ...incoming,
+        data: { ...incoming.data, events: [], arcs: [{ id: 'E9', name: 'n', description: 'd', start_time: '1800-01-01T00:00:00.000Z', end_time: '1900-01-01T00:00:00.000Z', level: 0 }] },
+      };
+      await run(document([], [event('E9', 'an event')]), graphId, 'skip');
+      const arcSide = await service.executeImport(arcIntoEvent as never, { graphId, mode: 'merge', conflictResolution: 'overwrite' } as never);
+      // The preview and the conflict list say the same.
+      const conflicts = await service.detectConflicts(incoming as never, graphId, 'merge');
+      const arcConflicts = await service.detectConflicts(arcIntoEvent as never, graphId, 'merge');
+      await service.destroy();
+      expect(arcSide.success).toBe(false);
+      expect(arcSide.errors.map((e) => e.message).join(' ')).toMatch(/ID 'E9' is used by an event in the target graph/);
+      expect(conflicts.map((c) => `${c.severity} ${c.entityType} ${c.entityId}`)).toContain('error event A1');
+      expect(arcConflicts.map((c) => `${c.severity} ${c.entityType} ${c.entityId}`)).toContain('error arc E9');
+      expect(result.success).toBe(false);
+      expect(result.errors.map((e) => e.message).join(' ')).toMatch(/ID 'A1' is used by an arc in the target graph/);
+      const { eventRepository } = await container.graphScopedRepositories(graphId);
+      expect(await eventRepository.findById('A1')).toBeFalsy();
+    });
+  });
+
+  describe('an id listed twice in the document (issue 39)', () => {
+    it('names every position when it is listed three or more times, and counts the rest', async () => {
+      const graphId = await newGraph();
+      await expect(run(document([arc('T', 0, 1800, 1900), arc('T', 0, 1800, 1900), arc('T', 0, 1800, 1900)]), graphId, 'skip')).rejects.toThrow(
+        /arc id "T" appears 3 times in the document, at arcs\[0\], arcs\[1\], arcs\[2\]/
+      );
+      const many = Array.from({ length: 7 }, (_, i) => [arc(`d${i}`, 0, 1800, 1900), arc(`d${i}`, 0, 1800, 1900)]).flat();
+      await expect(run(document(many), graphId, 'skip')).rejects.toThrow(/; and 2 more\. Each id may be listed once\./);
+    });
+
+    for (const strategy of ['skip', 'overwrite', 'rename'] as const) {
+      for (const holdsIt of [false, true]) {
+        it(`refuses a repeated arc id under ${strategy}${holdsIt ? ' into a graph that holds it' : ''}, and writes nothing`, async () => {
+          const graphId = await newGraph();
+          if (holdsIt) await run(document([arc('R', 0, 1800, 1900)]), graphId, 'skip');
+          const before = await versionCount(graphId);
+          const arcsBefore = (await container.graphScopedRepositories(graphId)).arcRepository;
+          const countBefore = (await arcsBefore.findAll()).length;
+          await expect(run(document([arc('R', 0, 1800, 1900, undefined, 'First'), arc('X', 0, 1800, 1900), arc('R', 0, 1800, 1900, undefined, 'Second')]), graphId, strategy)).rejects.toThrow(
+            /arc id "R" appears twice in the document, at arcs\[0\] and arcs\[2\]/
+          );
+          expect(await versionCount(graphId)).toBe(before);
+          expect((await arcsBefore.findAll()).length).toBe(countBefore);
+        });
+      }
+      it(`refuses a repeated event id under ${strategy}, and writes nothing`, async () => {
+        const graphId = await newGraph();
+        const before = await versionCount(graphId);
+        await expect(run(document([], [event('E', 'one'), event('E', 'two')]), graphId, strategy)).rejects.toThrow(/event id "E" appears twice in the document, at events\[0\] and events\[1\]/);
+        expect(await versionCount(graphId)).toBe(before);
+        expect(await (await container.graphScopedRepositories(graphId)).eventRepository.findById('E')).toBeFalsy();
+      });
+    }
+  });
 });

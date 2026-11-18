@@ -228,6 +228,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     response: 'GenericObject',
     status: 201,
     auth: 'required',
+    responses: { '500': 'The copy failed or could not be recorded; it was removed, and no graph was kept.' },
   },
   'GET /api/graphs/copy/:copyId': {
     summary: 'The progress of a copy.',

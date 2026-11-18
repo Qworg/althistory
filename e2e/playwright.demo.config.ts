@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
  */
 const here = path.dirname(fileURLToPath(import.meta.url))
 const frontendDir = path.resolve(here, '..', 'frontend')
-const port = 4174
+const port = Number(process.env.E2E_PORT ?? 4174)
 const baseURL = `http://127.0.0.1:${port}/`
 
 export default defineConfig({

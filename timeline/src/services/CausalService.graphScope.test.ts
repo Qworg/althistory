@@ -145,6 +145,17 @@ describe('graph-scoped causal queries (#59)', () => {
     expect(recorded[0]!.parameters.graphId).toBe(GRAPH_ID);
   });
 
+  it('reads a link at weight 0 and confidence 0 as 0, not as the defaults (#35)', async () => {
+    const row: Record<string, unknown> = { id: 'l0', cause_event_id: 'a', effect_event_id: 'b', weight: 0, confidence: 0, evidence: 'x', relationship_type: 'direct' };
+    vi.mocked(getDatabaseManager).mockReturnValue({
+      getNeo4jSession: () => ({ run: async () => ({ records: [{ get: (key: string) => row[key] }] }), close: async () => undefined }),
+    } as unknown as ReturnType<typeof getDatabaseManager>);
+
+    const [link] = await new CausalService({ graphId: GRAPH_ID }).getAllRelationships();
+
+    expect(link).toMatchObject({ weight: 0, confidence: 0 });
+  });
+
   it('finds cycles only in its own graph', async () => {
     const service = new CausalService({ graphId: GRAPH_ID });
 
@@ -181,6 +192,18 @@ describe('graph-scoped causal queries (#59)', () => {
     expect(recorded[0]!.query).toContain('cause.graphId = $graphId');
     expect(recorded[0]!.query).toContain('effect.graphId = $graphId');
     expect(recorded[0]!.query).toContain('graphId: $graphId');
+    expect(recorded[0]!.parameters.graphId).toBe(GRAPH_ID);
+  });
+
+  it('deletes a link by its id inside its own graph, endpoints included (an event id is only unique within a graph, #35)', async () => {
+    const service = new CausalService({ graphId: GRAPH_ID });
+
+    await service.deleteCausalLinkById({ id: 'link_1', cause_event_id: 'cause-1', effect_event_id: 'effect-1' });
+
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]!.query).toContain('cause.graphId = $graphId');
+    expect(recorded[0]!.query).toContain('effect.graphId = $graphId');
+    expect(recorded[0]!.query).toContain('r.graphId = $graphId');
     expect(recorded[0]!.parameters.graphId).toBe(GRAPH_ID);
   });
 

@@ -1,6 +1,8 @@
+import { rethrowCancellation } from '@/utils/requestBudget';
 import { Session, Integer } from 'neo4j-driver';
 import { Event, CreateEventRequest, UpdateEventRequest, TimeRange } from '../models/Event';
 import { readInstantValue, runTemporal } from '../utils/temporal';
+import { ValidationError } from '../utils/errors';
 import { DatabaseManager, LocalDatabaseManager, LocalSession } from '../utils/database';
 import {
   graphPatternMap,
@@ -222,6 +224,11 @@ export class EventRepository {
 
       return event;
     } catch (error) {
+      rethrowCancellation(error);
+      // An id is unique within a graph (a `(graphId, id)` constraint); another graph may hold the same one.
+      if ((error as { code?: string } | null)?.code === 'Neo.ClientError.Schema.ConstraintValidationFailed') {
+        throw new ValidationError(`An event with the id "${event.id}" already exists in this graph; a create cannot take its place`, 'id', event.id);
+      }
       throw new Error(`Failed to create event: ${error}`);
     } finally {
       await session.close();
@@ -250,6 +257,7 @@ export class EventRepository {
 
       return this.mapRecordToEvent(result.records[0]);
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to find event by ID: ${error}`);
     } finally {
       await session.close();
@@ -280,6 +288,7 @@ export class EventRepository {
       const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToEvent(record));
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to find events: ${error}`);
     } finally {
       await session.close();
@@ -314,6 +323,7 @@ export class EventRepository {
       const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToEvent(record));
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to find events by time range: ${error}`);
     } finally {
       await session.close();
@@ -344,6 +354,7 @@ export class EventRepository {
       const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToEvent(record));
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to find events by actor: ${error}`);
     } finally {
       await session.close();
@@ -374,6 +385,7 @@ export class EventRepository {
       const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToEvent(record));
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to find events by target: ${error}`);
     } finally {
       await session.close();
@@ -411,6 +423,7 @@ export class EventRepository {
       const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToEvent(record));
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to find events by actor and time range: ${error}`);
     } finally {
       await session.close();
@@ -462,6 +475,7 @@ export class EventRepository {
 
       return updatedEvent;
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to update event: ${error}`);
     } finally {
       await session.close();
@@ -490,6 +504,7 @@ export class EventRepository {
       const result = await runTemporal(session, query, parameters);
       return readCount(result, 'deletedCount') > 0;
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to delete event: ${error}`);
     } finally {
       await session.close();
@@ -513,6 +528,7 @@ export class EventRepository {
       const result = await runTemporal(session, query, parameters);
       return readCount(result, 'total');
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to count events: ${error}`);
     } finally {
       await session.close();
@@ -536,6 +552,7 @@ export class EventRepository {
       const result = await runTemporal(session, query, parameters);
       return readCount(result, 'total');
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to count events by actor: ${error}`);
     } finally {
       await session.close();
@@ -563,6 +580,7 @@ export class EventRepository {
       const result = await runTemporal(session, query, parameters);
       return readCount(result, 'total');
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to count events by time range: ${error}`);
     } finally {
       await session.close();
@@ -586,6 +604,7 @@ export class EventRepository {
       const result = await runTemporal(session, query, parameters);
       return Boolean(readFirstField(result, 'exists'));
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to check if event exists: ${error}`);
     } finally {
       await session.close();
@@ -701,6 +720,7 @@ export class AdvancedEventRepository extends EventRepository {
       const result = await runTemporal(session, query, parameters);
       return result.records.map(record => this.mapRecordToEvent(record));
     } catch (error) {
+      rethrowCancellation(error);
       throw new Error(`Failed to search events: ${error}`);
     } finally {
       await session.close();
