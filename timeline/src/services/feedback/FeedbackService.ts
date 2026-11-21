@@ -167,31 +167,31 @@ export function readFeedbackConfig(env: NodeJS.ProcessEnv = process.env): Feedba
 const ZWSP = '\u200B';
 
 /**
- * Character references GitHub decodes to `@` or `#` (`&#64;`, `&#x40;`,
- * `&commat;`, `&#35;`, `&num;`, ...), with or without the semicolon an HTML
- * block may leave off. They are decoded first, so the rule below sees them.
- */
-const AT_REFERENCE = /&(?:commat;|#0*64;?|#x0*40;?)/gi;
-const HASH_REFERENCE = /&(?:num;|#0*35;?|#x0*23;?)/gi;
-
-/**
  * Make text inert on GitHub: no `@mention` notifies anyone and no `#123`,
- * `owner/repo#123`, `GH-123` or issue URL cross-references an issue. A
- * zero-width space after the `@` or `#` (or before the number) is what
- * Dependabot and Renovate do; the text still reads the same.
+ * `owner/repo#123`, `GH-123`, issue, pull or commit URL cross-references
+ * anything. A zero-width space goes after each `@` or `#` that could start a
+ * reference (what Dependabot and Renovate do), so the text still reads the same.
  *
- * An email address is left alone: GitHub does not mention from one, because
- * its `@` follows a word character. A backtick does not protect a mention: after
- * a closed code span, `` `x`@user `` mentions. The rule is idempotent.
+ * The rule is deliberately blunt, because every narrower one leaked:
+ *
+ *  - every `@` followed by a name character is broken, whatever comes before
+ *    it, so markup that renders away (`` `x`@a ``, `_a_@a`, `<div>&amp@a`)
+ *    cannot leave a live mention behind. An email address gets one too; it
+ *    still reads the same;
+ *  - every `&` is followed by a zero-width space, so no character reference is
+ *    ever decoded: `&#x40;`, `&#x23;`, `&#x31;`, `&#x2F;` and the like show as
+ *    the literal text, and cannot become an `@`, a `#`, a digit or a slash
+ *    after this rule has run.
+ *
+ * Idempotent: every insertion is skipped where the space is already there.
  */
 export function neutralizeGitHubReferences(text: string): string {
   return text
-    .replace(AT_REFERENCE, '@')
-    .replace(HASH_REFERENCE, '#')
-    .replace(/(^|[^A-Za-z0-9_])@(?=[A-Za-z0-9_-])/g, `$1@${ZWSP}`)
+    .replace(/&(?!\u200B)/g, `&${ZWSP}`)
+    .replace(/@(?=[A-Za-z0-9_-])/g, `@${ZWSP}`)
     .replace(/#(?=\d)/g, `#${ZWSP}`)
-    .replace(/\bGH-(?=\d)/gi, (match) => `${match}${ZWSP}`)
-    .replace(/\/(issues|pull|pulls|discussions)\/(?=\d)/gi, `/$1/${ZWSP}`);
+    .replace(/GH-(?=\d)/gi, (match) => `${match}${ZWSP}`)
+    .replace(/\/(issues|pull|pulls|discussions|commit|commits)\/(?=[0-9a-f])/gi, `/$1/${ZWSP}`);
 }
 
 const SIGNATURES: Array<{ type: 'png' | 'jpeg' | 'webp'; test: (bytes: Buffer) => boolean }> = [
@@ -514,14 +514,22 @@ export class FeedbackService {
     } catch {
       // Not JSON; the status says enough.
     }
-    const limited = response.status === 429 || (response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0');
-    const retryAfter = Number(response.headers.get('retry-after'));
+    // GitHub limits a token three ways: 429, a 403 with no requests left (reset
+    // time in x-ratelimit-reset), or a 403 with retry-after (the secondary limit).
+    const retryAfterHeader = Number(response.headers.get('retry-after'));
+    const hasRetryAfter = Number.isFinite(retryAfterHeader) && retryAfterHeader > 0;
+    const remaining = response.headers.get('x-ratelimit-remaining');
+    const resetAt = Number(response.headers.get('x-ratelimit-reset'));
+    const limited = response.status === 429 || (response.status === 403 && (remaining === '0' || hasRetryAfter));
+    let retryAfter: number | undefined;
+    if (hasRetryAfter) retryAfter = retryAfterHeader;
+    else if (Number.isFinite(resetAt) && resetAt > 0) retryAfter = Math.max(1, Math.ceil(resetAt - Date.now() / 1000));
     return new UpstreamServiceError(
       `GitHub refused to ${action} (${response.status}${detail})`,
       limited ? 503 : 502,
       'github',
       response.status,
-      limited && Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined
+      limited ? retryAfter : undefined
     );
   }
 }

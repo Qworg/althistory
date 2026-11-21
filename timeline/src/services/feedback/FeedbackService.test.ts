@@ -55,9 +55,10 @@ describe('neutralizeGitHubReferences', () => {
     );
   });
 
-  it('leaves email addresses, headings and non-numeric hashes alone', () => {
-    const text = 'mail jo@example.com\n## Heading\ncolour #fff and pull/requests';
+  it('leaves headings and non-numeric hashes alone, and an email address reads the same', () => {
+    const text = '## Heading\ncolour #fff and pull/requests';
     expect(neutralizeGitHubReferences(text)).toBe(text);
+    expect(neutralizeGitHubReferences('mail jo@example.com')).toBe(`mail jo@${ZWSP}example.com`);
   });
 
   it('catches a mention at the start of a line and after punctuation', () => {
@@ -340,18 +341,43 @@ describe('first review: what got through', () => {
 
   it.each([
     ['a mention right after a code span', '`x`@octocat', `\`x\`@${ZWSP}octocat`],
-    ['&commat;', '&commat;octocat', `@${ZWSP}octocat`],
-    ['&#64;', '&#64;octocat', `@${ZWSP}octocat`],
-    ['&#x40; (any case, no semicolon)', '&#X40octocat', `@${ZWSP}octocat`],
-    ['&#x23; as a cross-repository reference', 'octocat/Hello-World&#x23;1', `octocat/Hello-World#${ZWSP}1`],
-    ['&num;', 'see &num;1', `see #${ZWSP}1`],
-    ['&#0035; with leading zeros', '&#0035;1', `#${ZWSP}1`],
+    ['a mention after emphasis', '_a_@octocat', `_a_@${ZWSP}octocat`],
+    ['a reference without its semicolon in an HTML block', '<div>&amp@octocat</div>', `<div>&${ZWSP}amp@${ZWSP}octocat</div>`],
+    ['&#x40;', '&#x40;octocat', `&${ZWSP}#x40;octocat`],
+    ['&commat;', '&commat;octocat', `&${ZWSP}commat;octocat`],
+    ['a digit written as a reference', '#&#x31;', `#&${ZWSP}#x31;`],
+    ['a slash written as a reference', 'github.com/o/r/pull&#x2F;1', `github.com/o/r/pull&${ZWSP}#x2F;1`],
+    ['a reference that builds another', '&&&#35;x23;x40;octocat', `&${ZWSP}&${ZWSP}&${ZWSP}#${ZWSP}35;x23;x40;octocat`],
+    ['a commit reference', 'o/r@7fd1a60 and github.com/o/r/commit/7fd1a60', `o/r@${ZWSP}7fd1a60 and github.com/o/r/commit/${ZWSP}7fd1a60`],
   ])('neutralises %s', (_name, input, expected) => {
     expect(neutralizeGitHubReferences(input)).toBe(expected);
   });
 
+  /** A small seeded generator: strings built from the pieces references are made of. */
+  function randomTexts(count: number, seed = 49): string[] {
+    const pieces = ['@', '#', '&', ';', 'x', '4', '0', '2', '3', '1', '9', '_', '`', '*', '<', '>', '/', 'div', 'issues/', 'pull/',
+      'GH-', 'gh-', 'amp', 'commat', 'num', '#x', '#6', 'octocat', 'a', ' ', '\n', '-', '.', 'é', '\\'];
+    let state = seed;
+    const next = () => (state = (state * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+    return Array.from({ length: count }, () =>
+      Array.from({ length: 1 + Math.floor(next() * 24) }, () => pieces[Math.floor(next() * pieces.length)]).join('')
+    );
+  }
+
+  it('over 20,000 random texts: no live @name, #digit, GH-digit or character reference is left, twice is once, and the text reads the same', () => {
+    for (const text of randomTexts(20_000)) {
+      const once = neutralizeGitHubReferences(text);
+      expect(neutralizeGitHubReferences(once)).toBe(once);
+      expect(once.replace(/\u200B/g, '')).toBe(text);
+      expect(once).not.toMatch(/@[A-Za-z0-9_-]/);
+      expect(once).not.toMatch(/#\d/);
+      expect(once).not.toMatch(/GH-\d/i);
+      expect(once).not.toMatch(/&(?!\u200B)/);
+    }
+  });
+
   it('is idempotent, so neutralising twice changes nothing', () => {
-    const once = neutralizeGitHubReferences('@a #1 &#64;b GH-2 x/y/issues/3');
+    const once = neutralizeGitHubReferences('@a #1 &#64;b GH-2 x/y/issues/3 &&&#35;x23;');
     expect(neutralizeGitHubReferences(once)).toBe(once);
   });
 
@@ -462,5 +488,58 @@ describe('first review: what got through', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('second review: every way GitHub limits a token', () => {
+  const refuse = async (headers: Record<string, string>, status = 403): Promise<UpstreamServiceError> => {
+    const service = new FeedbackService(config(), async () => new Response(JSON.stringify({ message: 'limited' }), { status, headers }));
+    try {
+      await service.file({ kind: 'bug', title: 'x', body: '' });
+    } catch (error) {
+      return error as UpstreamServiceError;
+    }
+    throw new Error('expected GitHub to refuse');
+  };
+
+  it('reads the wait from x-ratelimit-reset when there is no retry-after', async () => {
+    const reset = Math.floor(Date.now() / 1000) + 120;
+    const error = await refuse({ 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(reset) });
+    expect(error.statusCode).toBe(503);
+    expect(error.retryAfterSeconds).toBeGreaterThanOrEqual(119);
+    expect(error.retryAfterSeconds).toBeLessThanOrEqual(121);
+  });
+
+  it('treats a 403 with retry-after as the secondary limit, even with requests left', async () => {
+    const error = await refuse({ 'x-ratelimit-remaining': '4000', 'retry-after': '45' });
+    expect(error.statusCode).toBe(503);
+    expect(error.retryAfterSeconds).toBe(45);
+  });
+
+  it('keeps a plain 403 a refusal', async () => {
+    const error = await refuse({ 'x-ratelimit-remaining': '4000' });
+    expect(error.statusCode).toBe(502);
+    expect(error.retryAfterSeconds).toBeUndefined();
+  });
+});
+
+describe('the app’s copy of the rule', () => {
+  it('is the same as this one, line for line', async () => {
+    // The app neutralises the state it captures with its own copy (it cannot
+    // import the server's code). A change to one must be made to both.
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const rule = (source: string) => {
+      const start = source.indexOf('export function neutralizeGitHubReferences');
+      const body = source.slice(start, source.indexOf('\n}\n', start));
+      return body
+        .split('\n')
+        .filter((line) => line.trim().startsWith('.replace('))
+        .map((line) => line.trim().replace(/;$/, ''));
+    };
+    const server = rule(readFileSync(resolve(__dirname, 'FeedbackService.ts'), 'utf8'));
+    const app = rule(readFileSync(resolve(__dirname, '../../../../frontend/src/components/feedback/issueBody.ts'), 'utf8'));
+    expect(server).toHaveLength(5);
+    expect(app).toEqual(server);
   });
 });

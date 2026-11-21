@@ -143,18 +143,19 @@ describe('buildPrefilledIssue', () => {
 describe('neutralizeGitHubReferences', () => {
   it('matches the server’s rule', () => {
     expect(neutralizeGitHubReferences('@a #1 o/r#2 GH-3 github.com/a/b/issues/4 me@example.com')).toBe(
-      `@${ZWSP}a #${ZWSP}1 o/r#${ZWSP}2 GH-${ZWSP}3 github.com/a/b/issues/${ZWSP}4 me@example.com`
+      `@${ZWSP}a #${ZWSP}1 o/r#${ZWSP}2 GH-${ZWSP}3 github.com/a/b/issues/${ZWSP}4 me@${ZWSP}example.com`
     )
   })
 })
 
-describe('neutralizeGitHubReferences, after the first review', () => {
+describe('neutralizeGitHubReferences, after the second review', () => {
   it.each([
     ['`x`@octocat', `\`x\`@${ZWSP}octocat`],
-    ['&#x40;octocat', `@${ZWSP}octocat`],
-    ['&commat;octocat', `@${ZWSP}octocat`],
-    ['o/r&#x23;1', `o/r#${ZWSP}1`],
+    ['_a_@octocat', `_a_@${ZWSP}octocat`],
+    ['&#x40;octocat', `&${ZWSP}#x40;octocat`],
+    ['#&#x31;', `#&${ZWSP}#x31;`],
   ])('neutralises %s in captured text', (input, expected) => {
     expect(neutralizeGitHubReferences(input)).toBe(expected)
   })
+
 })

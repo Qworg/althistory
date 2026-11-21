@@ -30,15 +30,20 @@ export const PREFILLED_URL_BUDGET = 7500
 
 const ZWSP = '​'
 
-/** See the server's `neutralizeGitHubReferences`: the same rule. */
+/**
+ * See the server's `neutralizeGitHubReferences`: the same rule, which is
+ * deliberately blunt (every narrower one leaked). A zero-width space follows
+ * every `&` (so no character reference is decoded), every `@` before a name
+ * character, every `#` or `GH-` before a digit, and the start of an issue,
+ * pull or commit number in a URL. It is idempotent, and the text reads the same.
+ */
 export function neutralizeGitHubReferences(text: string): string {
   return text
-    .replace(/&(?:commat;|#0*64;?|#x0*40;?)/gi, '@')
-    .replace(/&(?:num;|#0*35;?|#x0*23;?)/gi, '#')
-    .replace(/(^|[^A-Za-z0-9_])@(?=[A-Za-z0-9_-])/g, `$1@${ZWSP}`)
+    .replace(/&(?!\u200B)/g, `&${ZWSP}`)
+    .replace(/@(?=[A-Za-z0-9_-])/g, `@${ZWSP}`)
     .replace(/#(?=\d)/g, `#${ZWSP}`)
-    .replace(/\bGH-(?=\d)/gi, (match) => `${match}${ZWSP}`)
-    .replace(/\/(issues|pull|pulls|discussions)\/(?=\d)/gi, `/$1/${ZWSP}`)
+    .replace(/GH-(?=\d)/gi, (match) => `${match}${ZWSP}`)
+    .replace(/\/(issues|pull|pulls|discussions|commit|commits)\/(?=[0-9a-f])/gi, `/$1/${ZWSP}`)
 }
 
 /** A code fence longer than any run of backticks in the text, so the text cannot close it. */

@@ -100,11 +100,16 @@ issue is filed without the picture.
 Server filing lets anyone who can reach the app open issues with the server's
 token, so the server does not trust what it is sent:
 
-- **Mentions and references** in the title and body are neutralised. A
-  zero-width space follows each `@` or `#`, as Dependabot does, so a report
-  cannot notify anyone or cross-reference another repository's issues. Character
-  references that GitHub would decode to `@` or `#` (`&#64;`, `&#x40;`,
-  `&commat;`, `&num;`, ...) are decoded first. The text reads the same.
+- **Mentions and references** in the title and body are neutralised, as
+  Dependabot does: a zero-width space follows every `@` before a name
+  character, every `#` or `GH-` before a digit, and the start of an issue,
+  pull or commit number in a URL. So a report cannot notify anyone or
+  cross-reference another repository's issues. Every narrower rule leaked
+  (markup that renders away, such as `` `x`@a `` or `_a_@a`, left a live
+  mention), so this one is blunt. An email address gets a space too, and the
+  text still reads the same. A zero-width space also follows every `&`, so no
+  character reference is decoded: `&#x40;` shows as written instead of
+  becoming an `@`.
 - **Sizes.** A title is one line of at most 200 characters, and a body at
   most 60,000, both measured after neutralising. A screenshot is at most 2 MB,
   and must start with the signature of the PNG, JPEG or WebP its data URL
