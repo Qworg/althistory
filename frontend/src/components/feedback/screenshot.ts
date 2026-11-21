@@ -81,9 +81,79 @@ function inFlow(element: Element): element is HTMLElement {
   return position !== 'absolute' && position !== 'fixed'
 }
 
+/** Jump, never animate: `scroll-behavior: smooth` would glide the page back under the dialog. */
+function jump(target: Window | HTMLElement, left: number, top: number): void {
+  if (typeof target.scrollTo === 'function') {
+    try {
+      target.scrollTo({ left, top, behavior: 'instant' })
+      return
+    } catch {
+      // An old engine without the options form: fall through.
+    }
+  }
+  if (target instanceof HTMLElement) {
+    target.scrollLeft = left
+    target.scrollTop = top
+  }
+}
+
+/** Run once, however often called. */
+function once(fn: () => void): () => void {
+  let done = false
+  return () => {
+    if (done) return
+    done = true
+    fn()
+  }
+}
+
 /**
- * Show each scrolled element's content without its scroll (see above), and
- * return what puts everything back.
+ * Shift `children` by (-left, -top) for the capture, and return what puts
+ * them back. Block flow and a column of flex items are shifted with negative
+ * margins: the first child carries the rest down the page, and each child
+ * moves sideways on its own. A grid or a row of flex items lays its items in
+ * tracks or lines, which negative margins would collapse, so each item is
+ * moved with `translate`, which leaves layout alone.
+ */
+function shift(container: HTMLElement, left: number, top: number): () => void {
+  const children = Array.from(container.children).filter(inFlow)
+  if (children.length === 0) return () => undefined
+  const style = getComputedStyle(container)
+  const tracks = style.display.includes('grid') || (style.display.includes('flex') && !style.flexDirection.startsWith('column'))
+  const saved = children.map((child) => ({
+    child,
+    marginTop: child.style.marginTop,
+    marginLeft: child.style.marginLeft,
+    translate: child.style.translate,
+  }))
+
+  if (tracks) {
+    for (const child of children) {
+      const [x = 0, y = 0] = (getComputedStyle(child).translate || 'none')
+        .split(/\s+/)
+        .map((part) => (part === 'none' ? 0 : px(part)))
+      child.style.translate = `${x - left}px ${y - top}px`
+    }
+  } else {
+    const first = children[0]
+    if (first && top > 0) first.style.marginTop = `${px(getComputedStyle(first).marginTop) - top}px`
+    if (left > 0) for (const child of children) child.style.marginLeft = `${px(getComputedStyle(child).marginLeft) - left}px`
+  }
+
+  return () => {
+    for (const { child, marginTop, marginLeft, translate } of saved) {
+      child.style.marginTop = marginTop
+      child.style.marginLeft = marginLeft
+      child.style.translate = translate
+    }
+  }
+}
+
+/**
+ * Show the window's and each scrolled element's content without its scroll
+ * (see above), and return what puts everything back. The returned function
+ * runs once, however often it is called, so a cancelled capture can put the
+ * page back at once and its late `finally` changes nothing.
  */
 export function flattenScrolling(root: HTMLElement): () => void {
   const restores: Array<() => void> = []
@@ -93,71 +163,74 @@ export function flattenScrolling(root: HTMLElement): () => void {
   // Shift body's content up instead, and draw the top of the page.
   const { scrollX, scrollY } = window
   if (scrollX > 0 || scrollY > 0) {
-    const children = Array.from(document.body.children).filter(inFlow)
-    const saved = children.map((child) => ({ child, top: child.style.marginTop, left: child.style.marginLeft }))
-    const first = children[0]
-    if (first && scrollY > 0) first.style.marginTop = `${px(getComputedStyle(first).marginTop) - scrollY}px`
-    if (scrollX > 0) {
-      for (const child of children) child.style.marginLeft = `${px(getComputedStyle(child).marginLeft) - scrollX}px`
-    }
-    window.scrollTo(0, 0)
+    const unshift = shift(document.body, scrollX, scrollY)
+    jump(window, 0, 0)
     restores.push(() => {
-      for (const { child, top, left } of saved) {
-        child.style.marginTop = top
-        child.style.marginLeft = left
-      }
-      window.scrollTo(scrollX, scrollY)
+      unshift()
+      jump(window, scrollX, scrollY)
     })
   }
+
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT)
   for (let node = walker.currentNode as Element | null; node; node = walker.nextNode() as Element | null) {
     if (!(node instanceof HTMLElement) || node === document.body || node === document.documentElement) continue
     const { scrollTop: top, scrollLeft: left } = node
     if (top <= 0 && left <= 0) continue
-
-    const style = getComputedStyle(node)
-    const row = (style.display.includes('flex') && !style.flexDirection.startsWith('column')) || style.display.includes('grid')
-    const children = Array.from(node.children).filter(inFlow)
-    if (children.length === 0) continue
-    // Down the page, shifting the first child moves the rest after it; across a
-    // row, each item sits on its own, so each is shifted. Sideways, the reverse.
-    const shiftTop = row ? children : children.slice(0, 1)
-    const shiftLeft = row ? children.slice(0, 1) : children
-
-    const saved = children.map((child) => ({ child, top: child.style.marginTop, left: child.style.marginLeft }))
-    if (top > 0) {
-      for (const child of shiftTop) child.style.marginTop = `${px(getComputedStyle(child).marginTop) - top}px`
-    }
-    if (left > 0) {
-      for (const child of shiftLeft) child.style.marginLeft = `${px(getComputedStyle(child).marginLeft) - left}px`
-    }
-    node.scrollTop = 0
-    node.scrollLeft = 0
+    const unshift = shift(node, left, top)
+    jump(node, 0, 0)
     const element = node
     restores.push(() => {
-      for (const { child, top: savedTop, left: savedLeft } of saved) {
-        child.style.marginTop = savedTop
-        child.style.marginLeft = savedLeft
-      }
-      element.scrollTop = top
-      element.scrollLeft = left
+      unshift()
+      jump(element, left, top)
     })
   }
-  return () => {
+  return once(() => {
     for (const restore of restores.reverse()) restore()
-  }
+  })
 }
 
-export async function captureScreenshot(root: HTMLElement = document.body): Promise<Screenshot> {
+/** Captures run one at a time: a new one waits until the last has put the page back. */
+let lastCapture: Promise<unknown> = Promise.resolve()
+
+/**
+ * Draw the page. `signal` cancels it (Escape, or the store's time limit): the
+ * page is put back at once, and the drawing, which cannot be stopped, is
+ * thrown away when it ends.
+ */
+export function captureScreenshot(root: HTMLElement = document.body, signal?: AbortSignal): Promise<Screenshot> {
+  const run = lastCapture.catch(() => undefined).then(() => drawScreenshot(root, signal))
+  lastCapture = run
+  return run
+}
+
+async function drawScreenshot(root: HTMLElement, signal?: AbortSignal): Promise<Screenshot> {
+  const cancelled = () => (signal?.reason instanceof Error ? signal.reason : new Error('The capture was cancelled'))
+  if (signal?.aborted) throw cancelled()
   const scale = 1
   const background = getComputedStyle(document.body).backgroundColor || '#ffffff'
   const restore = flattenScrolling(root)
   let full: HTMLCanvasElement
   try {
-    full = await toCanvas(root, {
-      pixelRatio: scale,
-      backgroundColor: background,
-      filter: (node) => !(node instanceof HTMLElement && node.hasAttribute('data-feedback-ignore')),
+    full = await new Promise<HTMLCanvasElement>((resolve, reject) => {
+      const abort = () => {
+        restore()
+        reject(cancelled())
+      }
+      signal?.addEventListener('abort', abort, { once: true })
+      toCanvas(root, {
+        pixelRatio: scale,
+        backgroundColor: background,
+        filter: (node) => !(node instanceof HTMLElement && node.hasAttribute('data-feedback-ignore')),
+      }).then(
+        (canvas) => {
+          signal?.removeEventListener('abort', abort)
+          resolve(canvas)
+        },
+        (error: unknown) => {
+          signal?.removeEventListener('abort', abort)
+          reject(error instanceof Error ? error : new Error(String(error)))
+        }
+      )
     })
   } finally {
     restore()

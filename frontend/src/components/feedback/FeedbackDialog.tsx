@@ -35,7 +35,10 @@ type Outcome =
   | { kind: 'form' }
   | { kind: 'sending' }
   | { kind: 'filed'; number: number; url: string; screenshotStored: boolean }
-  | { kind: 'opened'; clipboard: 'image' | 'text' | 'failed' | 'none'; bodyOnClipboard: boolean }
+  | { kind: 'opened'; clipboard: 'pending' | 'image' | 'text' | 'failed' | 'none'; bodyOnClipboard: boolean }
+
+/** The server's own refusals: GitHub said no, or the server was never going to ask it. Nothing was filed. */
+const REFUSAL_CODES = new Set(['FEEDBACK_NOT_CONFIGURED', 'FEEDBACK_REFUSED', 'FEEDBACK_GITHUB_LIMITED', 'FEEDBACK_RATE_LIMITED'])
 
 function downloadScreenshot(blob: Blob) {
   const url = URL.createObjectURL(blob)
@@ -92,6 +95,12 @@ export function FeedbackDialog() {
   const config = useFeedbackConfig(isOpen)
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'form' })
   const [serverProblem, setServerProblem] = useState<React.ReactNode>(null)
+  // Counts problems, so focus moves to each new one (the Send button that had it was disabled).
+  const [problemSeen, setProblemSeen] = useState(0)
+  const problemRef = useRef<HTMLParagraphElement>(null)
+  useEffect(() => {
+    if (problemSeen > 0) problemRef.current?.focus()
+  }, [problemSeen])
   const [titleTouched, setTitleTouched] = useState(false)
   const ids = useId()
 
@@ -155,27 +164,42 @@ export function FeedbackDialog() {
       const status = error instanceof APIError ? error.status : 0
       const code = error instanceof APIError ? error.code : undefined
       setOutcome({ kind: 'form' })
-      // No answer, or GitHub's was lost: the issue may exist. Sending again
-      // (either way) could file it twice, so the reporter looks first.
-      if (code === 'FEEDBACK_MAYBE_FILED' || status === 0) {
+      setProblemSeen((seen) => seen + 1)
+      // Refused (a 4xx, or one of the server's own codes): nothing was filed,
+      // so the form is the way on.
+      if ((status >= 400 && status < 500) || (code && REFUSAL_CODES.has(code))) {
+        setServerDeclined(true)
         setServerProblem(
-          <>
-            The report may have been filed: the answer was lost on the way.{' '}
-            <a href={issuesUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-baseline underline">
-              Check the latest feedback issues
-            </a>{' '}
-            before sending it again.
-          </>
+          code === 'FEEDBACK_NOT_CONFIGURED'
+            ? 'This server does not file reports, so the report goes through GitHub’s form instead.'
+            : status === 429 || code === 'FEEDBACK_GITHUB_LIMITED'
+              ? `${error instanceof Error ? error.message : 'Too many reports.'} You can still send it through GitHub’s form.`
+              : 'The server could not file the report. You can send it through GitHub’s form instead; nothing you wrote is lost.'
         )
         return
       }
-      setServerDeclined(true)
+      // Anything else (no answer, a gateway's 5xx, or the server's
+      // FEEDBACK_MAYBE_FILED) may follow a filing. Sending again, either way,
+      // could file it twice, so the reporter looks first, then chooses.
       setServerProblem(
-        code === 'FEEDBACK_NOT_CONFIGURED'
-          ? 'This server does not file reports, so the report goes through GitHub’s form instead.'
-          : status === 429
-            ? `${error instanceof Error ? error.message : 'Too many reports.'} You can still send it through GitHub’s form.`
-            : 'The server could not file the report. You can send it through GitHub’s form instead; nothing you wrote is lost.'
+        <>
+          The server did not say whether the report was filed.{' '}
+          <a href={issuesUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-baseline underline">
+            Check the latest feedback issues
+          </a>
+          . If it is not there, send it again, or{' '}
+          <button
+            type="button"
+            onClick={() => {
+              setServerDeclined(true)
+              setServerProblem(null)
+            }}
+            className="font-medium text-baseline underline"
+          >
+            use GitHub’s form instead
+          </button>
+          .
+        </>
       )
     }
   }
@@ -195,8 +219,11 @@ export function FeedbackDialog() {
     // The link opens GitHub itself (a link is never popup-blocked); the clipboard
     // write starts in the same click, while the browser still allows it.
     const png = draft.includeScreenshot && screenshot ? screenshot.png : null
-    void copyForForm(prefilled.bodyOnClipboard ? null : png, prefilled.bodyOnClipboard ? prefilled.fullBody : null).then(
-      (clipboard) => setOutcome({ kind: 'opened', clipboard, bodyOnClipboard: prefilled.bodyOnClipboard })
+    const bodyOnClipboard = prefilled.bodyOnClipboard
+    // The report has gone to GitHub from this click on: closing now clears the draft.
+    setOutcome({ kind: 'opened', clipboard: 'pending', bodyOnClipboard })
+    void copyForForm(bodyOnClipboard ? null : png, bodyOnClipboard ? prefilled.fullBody : null).then((clipboard) =>
+      setOutcome((current) => (current.kind === 'opened' ? { kind: 'opened', clipboard, bodyOnClipboard } : current))
     )
   }
 
@@ -313,7 +340,12 @@ export function FeedbackDialog() {
         </p>
 
         {serverProblem && (
-          <p role="alert" className="rounded-md border border-line bg-subtle px-3 py-2 text-sm text-ink">
+          <p
+            ref={problemRef}
+            tabIndex={-1}
+            role="alert"
+            className="rounded-md border border-line bg-subtle px-3 py-2 text-sm text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-selected"
+          >
             {serverProblem}
           </p>
         )}

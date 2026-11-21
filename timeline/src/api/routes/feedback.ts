@@ -101,8 +101,20 @@ export function createFeedbackRouter(resolve: () => FeedbackService = () => getC
           });
           return;
         }
-        if (error instanceof UpstreamServiceError && error.retryAfterSeconds) {
-          res.setHeader('Retry-After', String(error.retryAfterSeconds));
+        // GitHub refused, so nothing was filed. Said with a code of our own, so
+        // the app can tell it from a gateway's 502 (which might follow a filing).
+        if (error instanceof UpstreamServiceError) {
+          if (error.retryAfterSeconds) res.setHeader('Retry-After', String(error.retryAfterSeconds));
+          res.status(error.statusCode).json({
+            success: false,
+            error: {
+              code: error.statusCode === 503 ? 'FEEDBACK_GITHUB_LIMITED' : 'FEEDBACK_REFUSED',
+              message: error.message,
+              ...(error.retryAfterSeconds ? { retryAfter: error.retryAfterSeconds } : {}),
+              requestId: req.requestId,
+            },
+          });
+          return;
         }
         throw error;
       }

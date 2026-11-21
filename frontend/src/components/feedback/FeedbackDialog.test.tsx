@@ -111,8 +111,8 @@ describe('FeedbackDialog, when the server files reports', () => {
     expect(api.submit).not.toHaveBeenCalled()
   })
 
-  it('falls back to GitHub’s form when the server fails, keeping what was written', async () => {
-    api.submit.mockRejectedValue(new APIError('GitHub refused', 502, 'UPSTREAM'))
+  it('falls back to GitHub’s form when GitHub refused, keeping what was written', async () => {
+    api.submit.mockRejectedValue(new APIError('GitHub refused', 502, 'FEEDBACK_REFUSED'))
     await openDialog()
     const user = userEvent.setup()
     await user.type(screen.getByLabelText('Title'), 'Kept')
@@ -268,7 +268,8 @@ describe('FeedbackDialog, after the first review', () => {
     await user.type(screen.getByLabelText('Title'), 'x')
     for (let attempt = 0; attempt < 2; attempt++) {
       await user.click(await screen.findByRole('button', { name: 'Send report' }))
-      expect(await screen.findByRole('alert')).toHaveTextContent(/may have been filed/)
+      expect(await screen.findByRole('alert')).toHaveTextContent(/did not say whether the report was filed/)
+      expect(screen.getByRole('alert')).toHaveFocus()
       expect(screen.getByRole('link', { name: 'Check the latest feedback issues' })).toHaveAttribute(
         'href',
         expect.stringContaining('https://github.com/owner/repo/issues?q=')
@@ -323,3 +324,43 @@ describe('FeedbackHost, after the first review', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })
+
+describe('FeedbackDialog, after the second review', () => {
+  beforeEach(() => api.getConfig.mockResolvedValue({ serverFiling: true, repo: 'owner/repo' }))
+
+  it('treats a gateway’s 502 with no code of ours as “may have been filed”, and lets the reporter choose the form', async () => {
+    api.submit.mockRejectedValue(new APIError('Bad Gateway', 502, undefined))
+    await openDialog()
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText('Title'), 'x')
+    await user.click(await screen.findByRole('button', { name: 'Send report' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/did not say whether/)
+    expect(screen.queryByRole('link', { name: /Continue on GitHub/ })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'use GitHub’s form instead' }))
+    expect(screen.getByRole('link', { name: /Continue on GitHub/ })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('moves focus to a refusal, since the Send button that had it was disabled', async () => {
+    api.submit.mockRejectedValue(new APIError('GitHub refused', 502, 'FEEDBACK_REFUSED'))
+    await openDialog()
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText('Title'), 'x')
+    await user.click(await screen.findByRole('button', { name: 'Send report' }))
+    expect(await screen.findByRole('alert')).toHaveFocus()
+  })
+
+  it('counts the report as gone from the click on GitHub, before the clipboard answers', async () => {
+    api.getConfig.mockResolvedValue({ serverFiling: false, repo: 'owner/repo' })
+    const dialog = await openDialog()
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText('Title'), 'Gone')
+    stubClipboard()
+    clipboardWrite.mockReturnValueOnce(new Promise(() => undefined))
+    fireEvent.click(await screen.findByRole('link', { name: /Continue on GitHub/ }))
+    expect(await screen.findByText('GitHub’s form is open in a new tab, filled in.')).toBeInTheDocument()
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(useFeedbackStore.getState().draft.title).toBe('')
+  })
+})
+

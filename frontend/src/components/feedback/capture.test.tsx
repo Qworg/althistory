@@ -97,7 +97,7 @@ describe('captureScreenshot', () => {
     const shot = await captureScreenshot()
     expect(shiftedDuringDraw).toBe('-500px')
     expect(content.style.marginTop).toBe('')
-    expect(scrollTo.mock.calls).toEqual([[0, 0], [0, 500]])
+    expect(scrollTo.mock.calls).toEqual([[{ left: 0, top: 0, behavior: 'instant' }], [{ left: 0, top: 500, behavior: 'instant' }]])
     content.remove()
     expect(drawImage).toHaveBeenCalledWith(expect.anything(), 0, 0, 1280, 800, 0, 0, 1280, 800)
     expect(shot).toMatchObject({ width: 1280, height: 800 })
@@ -241,5 +241,52 @@ describe('capturing, after the first review', () => {
     })
     expect(useFeedbackStore.getState().phase).toBe('capturing')
     act(() => useFeedbackStore.getState().closeFeedback())
+  })
+})
+
+describe('captureScreenshot, after the second review', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 0 })
+  })
+
+  it('a cancelled capture puts the page back at once, and the next one starts from the real page', async () => {
+    // Earlier tests can leave queued answers behind.
+    toCanvas.mockReset()
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 500 })
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined)
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D)
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((callback) => callback(new Blob(['x'], { type: 'image/png' })))
+    const content = document.createElement('div')
+    document.body.prepend(content)
+
+    // The first drawing never ends on its own.
+    let endFirst: (canvas: HTMLCanvasElement) => void = () => undefined
+    toCanvas.mockReturnValueOnce(new Promise((resolve) => (endFirst = resolve)))
+    const controller = new AbortController()
+    const first = captureScreenshot(document.body, controller.signal).catch((error: Error) => error.message)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(content.style.marginTop).toBe('-500px')
+
+    controller.abort(new Error('cancelled'))
+    expect(await first).toBe('cancelled')
+    expect(content.style.marginTop).toBe('')
+    expect(scrollTo).toHaveBeenLastCalledWith({ left: 0, top: 500, behavior: 'instant' })
+
+    // A second capture sees the real margin, and the first's late end changes nothing.
+    let seen = ''
+    toCanvas.mockImplementationOnce(async () => {
+      seen = content.style.marginTop
+      const page = document.createElement('canvas')
+      page.width = 100
+      page.height = 100
+      return page
+    })
+    await captureScreenshot()
+    endFirst(document.createElement('canvas'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(seen).toBe('-500px')
+    expect(content.style.marginTop).toBe('')
+    content.remove()
   })
 })

@@ -98,6 +98,7 @@ describe('/api/feedback', () => {
     );
     const res = await request(await makeApp(service)).post('/api/feedback').send({ kind: 'bug', title: 'x' });
     expect(res.status).toBe(502);
+    expect(res.body.error.code).toBe('FEEDBACK_REFUSED');
     expect(JSON.stringify(res.body)).not.toContain('secret');
   });
 
@@ -143,6 +144,7 @@ describe('/api/feedback, after the first review', () => {
     );
     const res = await request(await makeApp(service)).post('/api/feedback').send({ kind: 'bug', title: 'x' });
     expect(res.status).toBe(503);
+    expect(res.body.error.code).toBe('FEEDBACK_GITHUB_LIMITED');
     expect(res.headers['retry-after']).toBe('30');
   });
 });

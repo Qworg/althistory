@@ -170,11 +170,18 @@ test.describe('feedback', () => {
       panel.innerHTML =
         '<div style="height:200px;background:#c00"></div><div style="height:200px;background:#06c"></div>'
       document.getElementById('main-view')!.prepend(panel)
+      // And a grid that scrolls, whose tracks negative margins would collapse.
+      const grid = document.createElement('div')
+      grid.id = 'probe-grid'
+      grid.style.cssText = 'height:100px;overflow:auto;display:grid;grid-template-columns:1fr 1fr;margin:8px'
+      grid.innerHTML = ['#c00', '#c00', '#0a0', '#0a0'].map((c) => `<div style="height:100px;background:${c}"></div>`).join('')
+      panel.after(grid)
     })
     await page.waitForTimeout(600)
 
     const scrolled = await page.evaluate(() => {
       document.getElementById('probe-panel')!.scrollTop = 200
+      document.getElementById('probe-grid')!.scrollTop = 100
       window.scrollTo(0, 60)
       const rect = document.getElementById('probe-panel')!.getBoundingClientRect()
       return {
@@ -183,6 +190,10 @@ test.describe('feedback', () => {
         // The middle of the panel, where it is in the window.
         x: rect.left + rect.width / 2,
         y: rect.top + rect.height / 2,
+        grid: (() => {
+          const g = document.getElementById('probe-grid')!.getBoundingClientRect()
+          return { x: g.left + g.width / 4, y: g.top + g.height / 2 }
+        })(),
       }
     })
     expect(scrolled.panel).toBe(200)
@@ -211,6 +222,23 @@ test.describe('feedback', () => {
     }, { src: captured, x: scrolled.x, y: scrolled.y })
     expect(colour.b).toBeGreaterThan(150)
     expect(colour.r).toBeLessThan(80)
+
+    // The grid shows its second row (green), and its first (red) is out of view.
+    const gridColour = await page.evaluate(async ({ src, x, y }) => {
+      const img = new Image()
+      img.src = src
+      await img.decode()
+      const canvas = document.createElement('canvas')
+      canvas.width = img.naturalWidth
+      canvas.height = img.naturalHeight
+      const context = canvas.getContext('2d')!
+      context.drawImage(img, 0, 0)
+      const scale = img.naturalWidth / window.innerWidth
+      const [r, g] = context.getImageData(Math.round(x * scale), Math.round(y * scale), 1, 1).data
+      return { r, g }
+    }, { src: captured, x: scrolled.grid.x, y: scrolled.grid.y })
+    expect(gridColour.g).toBeGreaterThan(120)
+    expect(gridColour.r).toBeLessThan(80)
 
     // And the page is put back as it was.
     expect(await page.evaluate(() => [document.getElementById('probe-panel')!.scrollTop, window.scrollY])).toEqual([200, 60])

@@ -19,8 +19,15 @@ const EMPTY_DRAFT: FeedbackDraft = {
   includeState: true,
 }
 
-/** A page html-to-image cannot finish drawing should not keep the dialog from opening. */
+/**
+ * A page html-to-image cannot finish drawing should not keep the dialog from
+ * opening. The limit is checked between the drawing's steps: a very large page
+ * can hold the browser for longer in one step, and opens late.
+ */
 const CAPTURE_TIMEOUT_MS = 8000
+
+/** The capture in progress, so closing (Escape) can cancel it and put the page back. */
+let capturing: AbortController | null = null
 
 interface FeedbackState {
   /** `capturing` while the screen is drawn, before the dialog appears (so it is not in the picture). */
@@ -54,22 +61,6 @@ function afterPaint(): Promise<void> {
   })
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Drawing the screen took too long')), ms)
-    promise.then(
-      (value) => {
-        clearTimeout(timer)
-        resolve(value)
-      },
-      (error: unknown) => {
-        clearTimeout(timer)
-        reject(error instanceof Error ? error : new Error(String(error)))
-      }
-    )
-  })
-}
-
 /**
  * The feedback dialog's state (issue #49). Mounted once (FeedbackHost, in
  * MainLayout) and opened from the header button, the phone's More sheet, the
@@ -93,10 +84,16 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
     const context = captureContext(get().extras)
     let screenshot: Screenshot | null = null
     let screenshotError: string | null = null
+    const controller = new AbortController()
+    capturing = controller
+    const timer = setTimeout(() => controller.abort(new Error('Drawing the screen took too long')), CAPTURE_TIMEOUT_MS)
     try {
-      screenshot = await withTimeout(captureScreenshot(), CAPTURE_TIMEOUT_MS)
+      screenshot = await captureScreenshot(document.body, controller.signal)
     } catch (error) {
       screenshotError = error instanceof Error ? error.message : 'The screen could not be captured'
+    } finally {
+      clearTimeout(timer)
+      if (capturing === controller) capturing = null
     }
     // Cancelled while capturing (Escape, handled by FeedbackHost): stay closed. And
     // if it was cancelled and opened again, this capture is not the new one's.
@@ -104,7 +101,12 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
     set({ phase: 'open', context, screenshot, screenshotError })
   },
 
-  closeFeedback: () => set({ phase: 'closed', screenshot: null, context: null, screenshotError: null }),
+  closeFeedback: () => {
+    // Cancelling puts the page back now, not when the drawing ends.
+    capturing?.abort(new Error('The capture was cancelled'))
+    capturing = null
+    set({ phase: 'closed', screenshot: null, context: null, screenshotError: null })
+  },
   updateDraft: (patch) => set((state) => ({ draft: { ...state.draft, ...patch } })),
   clearDraft: () => set({ draft: EMPTY_DRAFT }),
   setExtras: (extras) => set({ extras }),

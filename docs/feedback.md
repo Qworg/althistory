@@ -36,8 +36,13 @@ The screenshot and the state are read before the dialog appears. Whatever
 opened it (the More sheet, the Help dialog) has already closed, so neither is in
 the picture. A small "Capturing the screen…" notice shows meanwhile, and is
 left out of the picture too. While it shows, keys do nothing except Escape,
-which cancels. The window and any panel that has been scrolled are drawn as
-scrolled.
+which cancels and puts the page back at once. The window and any panel that
+has been scrolled are drawn as scrolled. For the moment of the capture, the
+scrolling is moved into negative margins (a grid's or a row's items are moved
+with `translate`), then put back. html-to-image works on the browser's main
+thread, so on a very large page (many thousands of elements) the page can
+freeze for several seconds while it draws. Escape and the 8-second limit take
+effect only when it next pauses.
 
 - **Screenshot.** What is in view, drawn by [html-to-image](https://github.com/bubkoo/html-to-image).
   That includes the D3 timeline and Cytoscape's canvases. It is at most 1600 px
@@ -122,10 +127,13 @@ token, so the server does not trust what it is sent:
 - **Failure.** If the screenshot cannot be stored, the issue is still filed
   and says so. If GitHub refuses the issue, the app gets `502`, or `503` with
   `Retry-After` when GitHub is limiting the token, and the dialog offers the
-  form. If GitHub may have filed it but the server cannot tell, the answer is
-  `502` with the code `FEEDBACK_MAYBE_FILED`: a timeout, a 5xx, or a reply it
-  cannot read. The dialog then asks the reporter to check the repository before
-  sending again.
+  form. A refusal carries a code of the server's own (`FEEDBACK_REFUSED`,
+  `FEEDBACK_GITHUB_LIMITED`). If GitHub may have filed the issue but the server
+  cannot tell, the answer is `502` with the code `FEEDBACK_MAYBE_FILED`: a
+  timeout, a 5xx, or a reply it cannot read. The app treats that the same way
+  as no answer at all, or a proxy's 5xx without one of those codes, since any
+  of them can follow a filing. It asks the reporter to check the latest
+  feedback issues, then to send again or use GitHub's form.
 - **Timeouts.** `/api/feedback` has a 45-second budget. A report's GitHub calls
   share 35 seconds, at most 10 each, and the issue always gets a full call's
   time. Once the server starts writing to GitHub the request is past its
