@@ -1,12 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
-import { apiClient } from '@/services/api'
+import { apiClient, APIError } from '@/services/api'
 import { DEMO_MODE } from '@/demo/flag'
+import { FEEDBACK_BUILT_IN } from './buildFlag'
 
-/**
- * Whether this build has feedback at all. `VITE_FEEDBACK_ENABLED=false` at
- * build time leaves it out: no button, no shortcut, nothing captured.
- */
-export const FEEDBACK_BUILT_IN = import.meta.env.VITE_FEEDBACK_ENABLED !== 'false'
+export { FEEDBACK_BUILT_IN }
 
 /**
  * What the server says about feedback (`GET /api/feedback/config`): whether it
@@ -19,21 +16,21 @@ export function useFeedbackConfig() {
     queryFn: () => apiClient.feedback.getConfig(),
     enabled: FEEDBACK_BUILT_IN && !DEMO_MODE,
     staleTime: Infinity,
-    retry: false,
+    // The app's usual retries: one failed call must not decide it.
   })
 }
 
 /**
- * Whether to offer feedback: built in, and not turned off by the server. Until
- * the server has answered it is not offered, so a private install that turned
- * it off never shows the button, even for a moment. If the server cannot say
- * (an older server, or no connection), it is offered: GitHub's form needs no
- * server.
+ * Whether to offer feedback: built in, and not turned off by the server. It
+ * fails closed. Until the server has answered it is not offered, so a private
+ * install that turned it off never shows the button, even for a moment. Only a
+ * 404, a server older than this feature, offers it without an answer (GitHub's
+ * form needs no server). A 5xx while the API restarts, a network error, or a
+ * proxy's 403 says nothing about the operator's choice, so it offers nothing.
  */
-export function feedbackAvailable(config: ReturnType<typeof useFeedbackConfig>): boolean {
+export function feedbackAvailable(config: Pick<ReturnType<typeof useFeedbackConfig>, 'data' | 'error'>): boolean {
   if (!FEEDBACK_BUILT_IN) return false
   if (DEMO_MODE) return true
-  if (config.isError) return true
-  if (!config.data) return false
-  return config.data.enabled !== false
+  if (config.data) return config.data.enabled !== false
+  return config.error instanceof APIError && config.error.status === 404
 }

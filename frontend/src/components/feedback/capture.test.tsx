@@ -222,12 +222,14 @@ describe('capturing, after the first review', () => {
     useFeedbackStore.setState({ phase: 'closed' })
     let finishFirst: (canvas: HTMLCanvasElement) => void = () => undefined
     toCanvas.mockReturnValueOnce(new Promise((resolve) => (finishFirst = resolve)))
+    // The server has said feedback is on (no request is made: the answer is cached).
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    client.setQueryData(['feedback-config'], { enabled: true, serverFiling: false, repo: 'o/r' })
     render(
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <QueryClientProvider client={client}>
         <FeedbackHost />
       </QueryClientProvider>
     )
-    // No server here: the config fails, and feedback is offered (GitHub's form needs none).
     await waitFor(() => expect(useFeedbackStore.getState().available).toBe(true))
 
     const first = useFeedbackStore.getState().openFeedback()

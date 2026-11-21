@@ -10,6 +10,8 @@
  * both capped, because an error message can quote what the person typed.
  */
 
+import { FEEDBACK_BUILT_IN } from './buildFlag'
+
 export type DiagnosticKind = 'error' | 'rejection' | 'boundary' | 'api'
 
 export interface Diagnostic {
@@ -44,6 +46,8 @@ export function scrubSecrets(text: string): string {
 }
 
 function push(entry: Diagnostic): void {
+  // A build without feedback keeps nothing.
+  if (!FEEDBACK_BUILT_IN) return
   entries.push(entry)
   if (entries.length > MAX_ENTRIES) entries.splice(0, entries.length - MAX_ENTRIES)
 }

@@ -55,10 +55,12 @@ function ShortcutRow({ shortcut }: { shortcut: Shortcut }) {
 
 function ShortcutsPanel() {
   const headingPrefix = useId()
+  // Feedback's key is listed only where feedback is offered.
+  const feedbackAvailable = useFeedbackStore((state) => state.available)
   return (
     <div className="space-y-5">
       {SHORTCUT_SCOPES.map((scope) => {
-        const shortcuts = shortcutsForScope(scope.id)
+        const shortcuts = shortcutsForScope(scope.id).filter((shortcut) => feedbackAvailable || shortcut.id !== 'feedback')
         if (shortcuts.length === 0) return null
         const headingId = `${headingPrefix}-${scope.id}`
         return (

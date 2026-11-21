@@ -4,6 +4,7 @@ import { apiClient, APIError } from '@/services/api'
 import { DEMO_MODE } from '@/demo/flag'
 import { useFeedbackStore } from './feedbackStore'
 import { useFeedbackConfig } from './availability'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   DEFAULT_FEEDBACK_REPO,
   buildIssueBody,
@@ -83,6 +84,7 @@ export function FeedbackDialog() {
 
   const isOpen = phase === 'open'
   const config = useFeedbackConfig()
+  const queryClient = useQueryClient()
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'form' })
   const [serverProblem, setServerProblem] = useState<React.ReactNode>(null)
   // Counts problems, so focus moves to each new one (the Send button that had it was disabled).
@@ -153,6 +155,16 @@ export function FeedbackDialog() {
     } catch (error) {
       const status = error instanceof APIError ? error.status : 0
       const code = error instanceof APIError ? error.code : undefined
+      // The operator turned feedback off since this tab asked: stop offering it
+      // here (the host reads the config), rather than send it to GitHub instead.
+      if (code === 'FEEDBACK_DISABLED') {
+        queryClient.setQueryData(['feedback-config'], (old: { serverFiling: boolean; repo: string | null } | undefined) => ({
+          ...(old ?? { serverFiling: false, repo: null }),
+          enabled: false,
+        }))
+        closeFeedback()
+        return
+      }
       setOutcome({ kind: 'form' })
       setProblemSeen((seen) => seen + 1)
       // Refused (a 4xx, or one of the server's own codes): nothing was filed,

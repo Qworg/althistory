@@ -16,12 +16,19 @@ switches:
 | `FEEDBACK_ENABLED=false` | The API's environment (compose passes it through from `.env`) | No rebuild. `GET /api/feedback/config` answers `enabled: false`, so the app offers no button, More entry, Help link or Shift+I, and `POST /api/feedback` answers `404` (`FEEDBACK_DISABLED`), whatever token is set. |
 | `VITE_FEEDBACK_ENABLED=false` | A build argument of the SPA (`docker compose build web`) | The app never offers feedback and never asks the server, and does not record recent errors for reports. |
 
-Until the server has answered, the app does not show the button. So an install
-that turned feedback off never shows it, even for a moment. If the server
-cannot say, because it is older than this feature or unreachable, the app
-offers feedback through GitHub's form, which needs no server. Any value of
-`FEEDBACK_ENABLED` other than a yes (`true`, `1`, `yes`, `on`) or a no turns
-feedback off, and the API logs why.
+Both read their value the same way: unset, `true`, `1`, `yes` or `on` is on;
+`false`, `0`, `no`, `off`, or anything that is not clearly a yes, is off. The
+API logs a value it had to read as off.
+
+The app fails closed. Until the server has said feedback is on, the app does
+not show the button, so an install that turned feedback off never shows it,
+even for a moment. A failed answer (a `502` while the API restarts after
+`.env` changed, no connection, a proxy's `403`) says nothing about the
+operator's choice, so the app offers nothing, and asks again with its usual
+retries. Only a `404`, from a server older than this feature, makes the app
+offer feedback without an answer, through GitHub's form, which needs no server.
+A tab that was open when feedback was turned off learns it from its next
+report (`404 FEEDBACK_DISABLED`): the dialog closes and the button goes.
 
 ## How a report reaches GitHub
 
