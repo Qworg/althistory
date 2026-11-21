@@ -1027,6 +1027,29 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     responses: { 207: 'Not atomic, and a step failed; the other steps were applied (the arc steps all fail together).' },
   },
 
+  // --- feedback ------------------------------------------------------------
+  'GET /api/feedback/config': {
+    summary: 'Whether this server files in-app feedback as GitHub issues, and the repository to send people to otherwise.',
+    response: 'FeedbackConfig',
+    auth: 'optional',
+  },
+  'POST /api/feedback': {
+    summary:
+      'File an in-app feedback report as a GitHub issue, with its screenshot. Limited per client and across ' +
+      'clients (FEEDBACK_RATE_PER_CLIENT, FEEDBACK_RATE_GLOBAL). 503 when the server has no token: use the ' +
+      'GitHub form. A key is needed when the entity routes need one (API_AUTH_REQUIRED).',
+    request: 'FeedbackReport',
+    requestRequired: true,
+    response: 'FiledFeedback',
+    status: 201,
+    auth: ENTITY_AUTH,
+    responses: {
+      429: 'Too many reports; `Retry-After` says when to try again.',
+      502: 'GitHub refused the report.',
+      503: 'This server does not file feedback (FEEDBACK_GITHUB_TOKEN unset), or GitHub is limiting it.',
+    },
+  },
+
   // --- stream --------------------------------------------------------------
   'POST /api/stream/token': {
     summary:

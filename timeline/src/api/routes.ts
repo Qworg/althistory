@@ -14,6 +14,7 @@ import { suggestRoutes } from './routes/suggest';
 import { createIngestRouter } from './routes/ingest';
 import { streamRoutes } from './routes/stream';
 import { generateRoutes } from './routes/generate';
+import { feedbackRoutes } from './routes/feedback';
 import { loadConfig } from '../utils/config';
 import type { ReplacedReason } from '../services/ChangeFeedService';
 import { getContainer } from '../container';
@@ -72,7 +73,8 @@ apiRouter.get('/', (_req, res) => {
       batch: '/api/batch',
       validate: '/api/validate',
       suggest: '/api/suggest',
-      stream: '/api/stream'
+      stream: '/api/stream',
+      feedback: '/api/feedback'
     },
     timestamp: new Date().toISOString()
   });
@@ -117,6 +119,9 @@ mountApi(apiRouter, '/suggest', suggestRoutes);
 // Phase 5: WebSocket stream token issuance (the socket itself is served by the
 // HTTP `upgrade` handler, not by Express).
 mountApi(apiRouter, '/stream', streamRoutes);
+
+// In-app feedback, filed as GitHub issues when the server has a token (issue #49).
+mountApi(apiRouter, '/feedback', feedbackRoutes);
 
 // The OpenAPI description of the API.
 apiRouter.get('/openapi.json', (_req, res) => {

@@ -892,6 +892,33 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     },
     required: ['text'],
   },
+  FeedbackConfig: {
+    type: 'object',
+    required: ['serverFiling', 'repo'],
+    properties: {
+      serverFiling: { type: 'boolean', description: 'Whether POST /api/feedback files reports. When false, the app opens GitHub\'s prefilled new-issue form.' },
+      repo: { type: 'string', nullable: true, description: 'The `owner/name` reports go to (FEEDBACK_GITHUB_REPO), or null when unset.' },
+    },
+  },
+  FeedbackReport: {
+    type: 'object',
+    required: ['kind', 'title'],
+    properties: {
+      kind: { type: 'string', enum: ['bug', 'idea', 'other'], description: '`bug` is labelled `bug`, `idea` `enhancement`; every report also gets FEEDBACK_LABELS (default `feedback`).' },
+      title: { type: 'string', maxLength: 200, description: 'One line; whitespace is collapsed.' },
+      body: { type: 'string', maxLength: 60000, description: 'Markdown. Every @mention and issue reference is neutralised before filing.' },
+      screenshot: { type: 'string', description: 'A `data:image/png|jpeg|webp;base64,` URL of at most 2 MB, committed to FEEDBACK_SCREENSHOT_BRANCH and linked from the issue.' },
+    },
+  },
+  FiledFeedback: {
+    type: 'object',
+    required: ['number', 'url', 'screenshotStored'],
+    properties: {
+      number: { type: 'integer' },
+      url: { type: 'string', description: 'The issue on GitHub.' },
+      screenshotStored: { type: 'boolean', description: 'False when a screenshot was sent but could not be stored; the issue says so.' },
+    },
+  },
   StreamTokenRequest: {
     type: 'object',
     properties: {
@@ -1156,6 +1183,7 @@ const AREA_TAGS: Array<{ prefix: string; tag: string }> = [
   { prefix: '/api/batch', tag: 'batch' },
   { prefix: '/api/stream', tag: 'stream' },
   { prefix: '/api/generate', tag: 'generate' },
+  { prefix: '/api/feedback', tag: 'feedback' },
   { prefix: '/api', tag: 'service' },
 ]
 
@@ -1377,6 +1405,7 @@ export function buildOpenApiDocument(routes: RouteEntry[]): Record<string, unkno
       { name: 'keys', description: 'API key management.' },
       { name: 'batch', description: 'Batch operations.' },
       { name: 'stream', description: 'WebSocket sessions: writes, and the live change feed.' },
+      { name: 'feedback', description: 'In-app feedback, filed as GitHub issues when the server has a token.' },
       { name: 'generate', description: 'Drafting timelines, branches and expansions as cancellable jobs.' },
     ],
     paths,
