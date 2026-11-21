@@ -40,6 +40,10 @@ const KIND_LABEL: Record<FeedbackKind, string | null> = {
   other: null,
 };
 
+/** GitHub's own caps on an issue. */
+const GITHUB_TITLE_CHARS = 256;
+const GITHUB_BODY_CHARS = 65_536;
+
 export const FEEDBACK_LIMITS = {
   /** GitHub caps an issue title at 256; a title is a line, not a paragraph. */
   titleChars: 200,
@@ -245,19 +249,28 @@ export function readFeedbackReport(raw: unknown): FeedbackReport {
   }
 
   if (typeof input.title !== 'string') throw new ValidationError('title is required', 'title');
-  // A title is one line: GitHub would show a newline as a space anyway. It is
-  // measured as it will be filed, after neutralising (which adds characters).
-  const title = neutralizeGitHubReferences(input.title.replace(/\s+/g, ' ').trim());
-  if (title.length === 0) throw new ValidationError('title is required', 'title');
-  if (title.length > FEEDBACK_LIMITS.titleChars) {
+  // A title is one line: GitHub would show a newline as a space anyway. The
+  // limit is on what the reporter wrote; neutralising adds an invisible
+  // character per @, # or &, which GitHub's own cap (256) still has room for.
+  const written = input.title.replace(/\s+/g, ' ').trim();
+  if (written.length === 0) throw new ValidationError('title is required', 'title');
+  if (written.length > FEEDBACK_LIMITS.titleChars) {
     throw new ValidationError(`title is longer than ${FEEDBACK_LIMITS.titleChars} characters`, 'title');
+  }
+  const title = neutralizeGitHubReferences(written);
+  if (title.length > GITHUB_TITLE_CHARS) {
+    throw new ValidationError('title has too many @, # and & characters to file', 'title');
   }
 
   const rawBody = input.body ?? '';
   if (typeof rawBody !== 'string') throw new ValidationError('body must be text', 'body');
-  const body = neutralizeGitHubReferences(rawBody);
-  if (body.length > FEEDBACK_LIMITS.bodyChars) {
+  if (rawBody.length > FEEDBACK_LIMITS.bodyChars) {
     throw new ValidationError(`body is longer than ${FEEDBACK_LIMITS.bodyChars} characters`, 'body');
+  }
+  const body = neutralizeGitHubReferences(rawBody);
+  // GitHub's cap less room for the server's own lines (screenshot link, footer).
+  if (body.length > GITHUB_BODY_CHARS - 1_000) {
+    throw new ValidationError('body has too many @, # and & characters to file', 'body');
   }
 
   const screenshot = readScreenshot(input.screenshot);

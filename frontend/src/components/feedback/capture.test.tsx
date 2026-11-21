@@ -11,6 +11,12 @@ import { useFeedbackShortcut } from './useFeedbackShortcut'
 import { clearDiagnostics, recordApiFailure } from './diagnostics'
 import { useGlobalStore } from '@/stores/globalStore'
 
+// A capture left running by one test would hold up the next (captures run one
+// at a time): closing cancels it, as Escape does in the app.
+afterEach(() => {
+  useFeedbackStore.getState().closeFeedback()
+})
+
 describe('captureContext', () => {
   beforeEach(() => clearDiagnostics())
 
@@ -288,5 +294,18 @@ describe('captureScreenshot, after the second review', () => {
     expect(seen).toBe('-500px')
     expect(content.style.marginTop).toBe('')
     content.remove()
+  })
+})
+
+describe('openFeedback, after the third review', () => {
+  it('Escape before the first paint cancels the capture: nothing is drawn and nothing shifts', async () => {
+    useFeedbackStore.setState({ phase: 'closed' })
+    toCanvas.mockReset()
+    const opening = useFeedbackStore.getState().openFeedback()
+    // Before the two frames openFeedback waits for.
+    useFeedbackStore.getState().closeFeedback()
+    await opening
+    expect(toCanvas).not.toHaveBeenCalled()
+    expect(useFeedbackStore.getState().phase).toBe('closed')
   })
 })

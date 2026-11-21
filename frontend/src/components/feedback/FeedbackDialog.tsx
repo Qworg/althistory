@@ -174,7 +174,9 @@ export function FeedbackDialog() {
             ? 'This server does not file reports, so the report goes through GitHub’s form instead.'
             : status === 429 || code === 'FEEDBACK_GITHUB_LIMITED'
               ? `${error instanceof Error ? error.message : 'Too many reports.'} You can still send it through GitHub’s form.`
-              : 'The server could not file the report. You can send it through GitHub’s form instead; nothing you wrote is lost.'
+              : status === 400 && error instanceof Error
+                ? `The server could not take the report (${error.message}). You can send it through GitHub’s form instead; nothing you wrote is lost.`
+                : 'The server could not file the report. You can send it through GitHub’s form instead; nothing you wrote is lost.'
         )
         return
       }

@@ -381,9 +381,16 @@ describe('first review: what got through', () => {
     expect(neutralizeGitHubReferences(once)).toBe(once);
   });
 
+  it('takes a full 200-character title with references in it (the room is GitHub’s 256)', () => {
+    const title = '#1'.repeat(20) + 'x'.repeat(160);
+    expect(title).toHaveLength(200);
+    expect(readFeedbackReport({ kind: 'bug', title }).title).toHaveLength(220);
+  });
+
   it('measures the title and body as they will be filed', () => {
-    expect(() => readFeedbackReport({ kind: 'bug', title: '#1'.repeat(80) })).toThrow(/title is longer/);
-    expect(() => readFeedbackReport({ kind: 'bug', title: 'x', body: '#1'.repeat(25_000) })).toThrow(/body is longer/);
+    expect(() => readFeedbackReport({ kind: 'bug', title: '&'.repeat(200) })).toThrow(/too many @, # and &/);
+    expect(() => readFeedbackReport({ kind: 'bug', title: 'x'.repeat(201) })).toThrow(/title is longer/);
+    expect(() => readFeedbackReport({ kind: 'bug', title: 'x', body: '&'.repeat(40_000) })).toThrow(/too many @, # and &/);
     expect(readFeedbackReport({ kind: 'bug', title: 'see #1', body: '@a' })).toMatchObject({
       title: `see #${ZWSP}1`,
       body: `@${ZWSP}a`,

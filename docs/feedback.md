@@ -90,7 +90,7 @@ for GitHub drops the full state, keeping the summary.
 | `FEEDBACK_GITHUB_TOKEN` | — | The token the server files with. It never leaves the server |
 | `FEEDBACK_SCREENSHOT_BRANCH` | `feedback-screenshots` | Where screenshots are committed. It is created from the default branch the first time |
 | `FEEDBACK_LABELS` | `feedback` | Labels every report gets, comma-separated. A bug also gets `bug`, an idea `enhancement` |
-| `FEEDBACK_RATE_PER_CLIENT` | `5` | Reports per client (API key, else address) per 15 minutes |
+| `FEEDBACK_RATE_PER_CLIENT` | `5` | Reports per address per 15 minutes (not per key: the app shares one) |
 | `FEEDBACK_RATE_GLOBAL` | `30` | Reports per hour from all clients together |
 | `FEEDBACK_GITHUB_API` | `https://api.github.com` | For GitHub Enterprise |
 
@@ -116,7 +116,9 @@ token, so the server does not trust what it is sent:
   character reference is decoded: `&#x40;` shows as written instead of
   becoming an `@`.
 - **Sizes.** A title is one line of at most 200 characters, and a body at
-  most 60,000, both measured after neutralising. A screenshot is at most 2 MB,
+  most 60,000, as written. After neutralising, which adds an invisible
+  character per `@`, `#` or `&`, they must still fit GitHub's caps of 256 and
+  65,536 (with room for the server's own lines). A screenshot is at most 2 MB,
   and must start with the signature of the PNG, JPEG or WebP its data URL
   claims. That is a signature check, not a decoder.
 - **Limits.** Reports are limited per address and across all addresses, as

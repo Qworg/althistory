@@ -79,13 +79,19 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
     if (get().phase !== 'closed') return
     set((state) => ({ phase: 'capturing', screenshot: null, screenshotError: null, context: null, openCount: state.openCount + 1 }))
     const opening = get().openCount
+    // Made before waiting for paint, so Escape in those frames cancels it too.
+    const controller = new AbortController()
+    capturing = controller
     await afterPaint()
+    // Cancelled while waiting: draw nothing, so the page is never shifted.
+    if (controller.signal.aborted || get().openCount !== opening) {
+      if (capturing === controller) capturing = null
+      return
+    }
     // The state first: it is what the reporter saw, before anything else changes.
     const context = captureContext(get().extras)
     let screenshot: Screenshot | null = null
     let screenshotError: string | null = null
-    const controller = new AbortController()
-    capturing = controller
     const timer = setTimeout(() => controller.abort(new Error('Drawing the screen took too long')), CAPTURE_TIMEOUT_MS)
     try {
       screenshot = await captureScreenshot(document.body, controller.signal)
