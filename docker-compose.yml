@@ -100,6 +100,10 @@ services:
       # Same-origin through Caddy, so this only matters to non-browser clients.
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
       QUERY_TIMEOUT_MS: ${QUERY_TIMEOUT_MS:-2000}
+      # In-app feedback filed as GitHub issues (docs/feedback.md). Blank token:
+      # the app opens GitHub's prefilled form instead.
+      FEEDBACK_GITHUB_REPO: ${FEEDBACK_GITHUB_REPO:-}
+      FEEDBACK_GITHUB_TOKEN: ${FEEDBACK_GITHUB_TOKEN:-}
     volumes:
       # Graph/export/job/version/key state is file-backed even in cloud mode, so
       # it must outlive the container. One replica only: see

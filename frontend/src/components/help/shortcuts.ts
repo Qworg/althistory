@@ -164,6 +164,12 @@ export const SHORTCUTS: readonly Shortcut[] = [
     note: 'When something is selected',
   },
   {
+    id: 'feedback',
+    scope: 'global',
+    combos: [['Shift', 'I']],
+    description: 'Send feedback: report a problem or suggest an idea',
+  },
+  {
     id: 'copy-graph',
     scope: 'global',
     combos: [['Shift', 'B']],

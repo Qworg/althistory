@@ -135,6 +135,7 @@ every command.
 | [`docs/api-integration.md`](docs/api-integration.md) | Using the API from outside: keys, permissions, graph scoping, rate limits, jobs, webhooks. |
 | [`docs/branch-merge-resolver.md`](docs/branch-merge-resolver.md) | Combining two graphs, and the anomalies the merge checks. |
 | [`docs/production-deployment.md`](docs/production-deployment.md) | Running it. |
+| [`docs/feedback.md`](docs/feedback.md) | The in-app feedback button: what a report captures, and how it becomes a GitHub issue. |
 | [`docs/mcp-agent-guide.md`](docs/mcp-agent-guide.md) | The MCP surface. |
 | [`calendar/README.md`](calendar/README.md) | The shared date and calendar package: what is in it, how both apps compile it, and its property tests. |
 | [`docs/specs/`](docs/specs/) | Feature requirements; the `Req N` numbers in code comments point here. [`deep-time.md`](docs/specs/deep-time.md) says how a moment is held past a `Date`'s range (`AxisTime`). |
@@ -226,6 +227,7 @@ live routers by a test, so it cannot drift. The shape of it:
 | Inference, pressures, simulation | `/api/inference` |
 | Ingest, import, export | `/api/ingest`, `/api/import`, `/api/export` |
 | Keys and usage | `/api/keys` |
+| In-app feedback (GitHub issues) | `/api/feedback` |
 
 Most graph-scoped routes read the graph from the `X-Graph-Id` header;
 `POST /api/import` takes `targetGraphId` in the body instead. The entity routes

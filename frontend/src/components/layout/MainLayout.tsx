@@ -10,6 +10,7 @@ import { CopyCompletionNotifier } from '@/components/notifications/CopyCompletio
 import { LiveChangeNotices } from '@/components/notifications/LiveChangeNotices'
 import { useLiveChanges } from '@/hooks/useLiveChanges'
 import { HelpDialog } from '@/components/help/HelpDialog'
+import { FeedbackHost } from '@/components/feedback/FeedbackHost'
 import { useHelpShortcut } from '@/components/help/useHelpShortcut'
 import { useActiveGraphReconciler } from '@/hooks/useGraphs'
 import { NoActiveGraph } from '@/components/graphs/NoActiveGraph'
@@ -210,6 +211,9 @@ export function MainLayout({ children }: MainLayoutProps) {
       {/* Help & reference (shortcuts + glossary): opened from the header, the
           user menu or `?`. */}
       <HelpDialog />
+
+      {/* Feedback (issue #49): the dialog, Shift+I, and what a report says about the page. */}
+      <FeedbackHost />
     </div>
   )
 }

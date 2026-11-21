@@ -10,6 +10,7 @@ import {
 } from './shortcuts'
 import { GLOSSARY, filterGlossary } from './glossary'
 import { Keycap } from './Keycap'
+import { useFeedbackStore } from '@/components/feedback/feedbackStore'
 
 const TABS: ReadonlyArray<{ id: HelpTab; label: string }> = [
   { id: 'shortcuts', label: 'Keyboard shortcuts' },
@@ -182,7 +183,29 @@ export function HelpDialog() {
   return (
     // Not an interactive element: it only stops key events bubbling out of the dialog.
     <div onKeyDown={containKeys}>
-      <ModalBase isOpen onClose={closeHelp} title="Help & reference" size="2xl">
+      <ModalBase
+        isOpen
+        onClose={closeHelp}
+        title="Help & reference"
+        size="2xl"
+        footer={
+          <p className="mr-auto text-sm text-ink-secondary">
+            Found a problem, or have an idea?{' '}
+            <button
+              type="button"
+              onClick={() => {
+                // Closed first, so the report's screenshot shows the page, not this dialog.
+                closeHelp()
+                void useFeedbackStore.getState().openFeedback()
+              }}
+              className="font-medium text-baseline underline hover:no-underline focus:outline-none focus-visible:ring-2 focus-visible:ring-selected rounded-sm"
+            >
+              Send feedback
+            </button>{' '}
+            <span className="text-ink-muted">(Shift+I)</span>
+          </p>
+        }
+      >
         <div
           role="tablist"
           aria-label="Help sections"

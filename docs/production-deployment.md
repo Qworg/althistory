@@ -116,6 +116,11 @@ full list. The values that matter most:
   page. There is no key-entry screen (see
   [api-integration.md](api-integration.md#getting-a-key-into-the-bundled-ui)).
   Leave it blank and the UI gets `401` from every entity route.
+- `FEEDBACK_GITHUB_REPO`, `FEEDBACK_GITHUB_TOKEN` — where the app's feedback
+  button sends reports, and the token the API files them with. Without the
+  token the app opens GitHub's prefilled form instead. The token is the
+  server's, so reports are rate-limited; screenshots are committed to a branch
+  of that repository. See [feedback.md](feedback.md).
 
 ## 4. State and persistence
 

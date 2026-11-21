@@ -9,6 +9,7 @@ import { startOfflineSync } from './offline/offlineSync'
 import { registerServiceWorker } from './offline/registerServiceWorker'
 import { DEMO_MODE } from './demo/flag'
 import { DemoBanner } from './demo/DemoBanner'
+import { installDiagnostics } from './components/feedback/diagnostics'
 // Self-hosted typefaces (latin subset, font-display: swap). Only the weights
 // the type scale in index.css uses; add a weight here before using it.
 import '@fontsource/ibm-plex-sans/latin-400.css'
@@ -26,6 +27,9 @@ import './index.css'
 startOfflineSync()
 // The demo is served from a sub-path of GitHub Pages; a worker registered at
 // the site root would be out of scope, and there is no app shell to cache.
+// What went wrong recently, for a feedback report (issue #49).
+installDiagnostics()
+
 if (!DEMO_MODE) registerServiceWorker()
 
 createRoot(document.getElementById('root')!).render(

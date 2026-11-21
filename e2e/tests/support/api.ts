@@ -146,6 +146,8 @@ export interface ApiStubState {
   deletedJobs: string[]
   /** Each `POST /api/stream/token`: the graph header it sent (null for none) and its body. */
   streamTokenRequests: StreamTokenRequest[]
+  /** Each `POST /api/feedback` body (issue #49). */
+  feedbackReports: Array<Record<string, unknown>>
   unhandled: string[]
 }
 
@@ -313,6 +315,11 @@ export interface InstallApiStubOptions {
    * `attempt` counts from 1.
    */
   streamToken?: StreamTokenAnswer
+  /**
+   * Whether the server files feedback (`GET /api/feedback/config`). Without
+   * it the app uses GitHub's prefilled form, as with a server with no token.
+   */
+  feedbackServerFiling?: boolean
 }
 
 /** A feed token the app accepts, for `streamToken`. */
@@ -340,6 +347,7 @@ export async function installApiStub(
     approveCalls: [],
     deletedJobs: [],
     streamTokenRequests: [],
+    feedbackReports: [],
     unhandled: [],
   }
 
@@ -507,6 +515,19 @@ export async function installApiStub(
         return json(route, answer.status, answer.body)
       }
       return json(route, 503, { success: false, message: 'live feed unavailable in the stubbed API' })
+    }
+
+    // In-app feedback (issue #49).
+    if (path === '/feedback/config' && method === 'GET') {
+      return json(route, 200, { success: true, data: { serverFiling: options.feedbackServerFiling === true, repo: 'owner/repo' } })
+    }
+    if (path === '/feedback' && method === 'POST') {
+      state.feedbackReports.push((request.postDataJSON() as Record<string, unknown> | null) ?? {})
+      if (options.feedbackServerFiling !== true) {
+        return json(route, 503, { success: false, error: { code: 'FEEDBACK_NOT_CONFIGURED', message: 'no token' } })
+      }
+      const number = 100 + state.feedbackReports.length
+      return json(route, 201, { success: true, data: { number, url: `https://github.com/owner/repo/issues/${number}`, screenshotStored: true } })
     }
 
     state.unhandled.push(`${method} ${path}`)

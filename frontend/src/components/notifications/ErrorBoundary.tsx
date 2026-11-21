@@ -1,4 +1,5 @@
 import { Component, ErrorInfo, ReactNode } from 'react'
+import { recordBoundaryError } from '@/components/feedback/diagnostics'
 
 export interface ErrorBoundaryProps {
   children: ReactNode
@@ -36,6 +37,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     // Keep the original stack visible for debugging; React only forwards it here.
     console.error('ErrorBoundary caught an error:', error, errorInfo)
+    recordBoundaryError(error)
   }
 
   private handleReload = (): void => {

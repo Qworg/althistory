@@ -23,6 +23,8 @@ import { SimulationLauncherPanel } from '@/components/branch/SimulationLauncherP
 import { useLiveChangesStore } from '@/stores/liveChangesStore'
 import { DEMO_MODE } from '@/demo/flag'
 import { MoreSheet } from '@/components/layout/MoreSheet'
+import { FeedbackIcon } from '@/components/feedback/FeedbackButton'
+import { useFeedbackStore } from '@/components/feedback/feedbackStore'
 import { CalendarSwitcher } from '@/components/layout/CalendarSwitcher'
 import { useWorldCalendarStore } from '@/stores/worldCalendarStore'
 import { useMoreSheetStore } from '@/components/layout/moreSheetStore'
@@ -707,6 +709,17 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
                 description: withoutShortcut(action.tooltip),
                 onClick: action.onClick
               }))
+            },
+            {
+              // Feedback (issue #49): the header has no room for it on a phone.
+              label: 'Help',
+              items: [{
+                id: 'feedback',
+                label: 'Send feedback',
+                icon: <FeedbackIcon />,
+                description: 'Report a problem or suggest an idea, with a picture of this screen',
+                onClick: () => void useFeedbackStore.getState().openFeedback()
+              }]
             }
           ]}
           footer={
