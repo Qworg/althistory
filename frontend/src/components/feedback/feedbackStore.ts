@@ -33,6 +33,8 @@ interface FeedbackState {
   draft: FeedbackDraft
   /** What only a mounted component knows (the open graph's name); set by FeedbackHost. */
   extras: ContextExtras
+  /** Counts openings: the dialog is keyed on it, so each opening starts with fresh local state. */
+  openCount: number
   openFeedback: () => Promise<void>
   closeFeedback: () => void
   updateDraft: (patch: Partial<FeedbackDraft>) => void
@@ -80,10 +82,12 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
   context: null,
   draft: EMPTY_DRAFT,
   extras: {},
+  openCount: 0,
 
   openFeedback: async () => {
     if (get().phase !== 'closed') return
-    set({ phase: 'capturing', screenshot: null, screenshotError: null, context: null })
+    set((state) => ({ phase: 'capturing', screenshot: null, screenshotError: null, context: null, openCount: state.openCount + 1 }))
+    const opening = get().openCount
     await afterPaint()
     // The state first: it is what the reporter saw, before anything else changes.
     const context = captureContext(get().extras)
@@ -94,8 +98,9 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
     } catch (error) {
       screenshotError = error instanceof Error ? error.message : 'The screen could not be captured'
     }
-    // Closed while capturing (Escape on the notice): stay closed.
-    if (get().phase !== 'capturing') return
+    // Cancelled while capturing (Escape, handled by FeedbackHost): stay closed. And
+    // if it was cancelled and opened again, this capture is not the new one's.
+    if (get().phase !== 'capturing' || get().openCount !== opening) return
     set({ phase: 'open', context, screenshot, screenshotError })
   },
 

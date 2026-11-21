@@ -35,7 +35,9 @@ link asks for it to be pasted.
 The screenshot and the state are read before the dialog appears. Whatever
 opened it (the More sheet, the Help dialog) has already closed, so neither is in
 the picture. A small "Capturing the screen…" notice shows meanwhile, and is
-left out of the picture too.
+left out of the picture too. While it shows, keys do nothing except Escape,
+which cancels. The window and any panel that has been scrolled are drawn as
+scrolled.
 
 - **Screenshot.** What is in view, drawn by [html-to-image](https://github.com/bubkoo/html-to-image).
   That includes the D3 timeline and Cytoscape's canvases. It is at most 1600 px
@@ -43,8 +45,9 @@ left out of the picture too.
   seconds, the dialog opens without one and says why.
 - **Where.** The route (with `?event=` kept, the rest of the query dropped),
   the view, the graph's id and name, and whether this is the demo.
-- **State.** The selected event and arc ids (up to 20 of each), the filters as
-  counts ("3 actors", "a search of 12 characters"), the timeline's zoom and
+- **State.** The selected event and arc ids (up to 20 of each); the filters,
+  with any text in them as counts ("3 actors", "a search of 12 characters") and
+  the date range, arc levels, link weights and confidence as they are; the timeline's zoom and
   centre, the causal layout, the layout mode, the theme, and the panels open.
 - **Environment.** The app's version and commit, the browser, the language,
   the window size and pixel ratio, whether the app is online, and how many
@@ -58,7 +61,9 @@ A report holds **ids, not content**. The text of events, arcs, filters and
 searches is never put in it, though whatever is on screen is in the
 screenshot. No API key, request body or header is ever included. Two boxes
 leave out the screenshot or the state, and **See what is sent** shows the issue
-body exactly as it will be filed.
+body the app builds. Two things can change it afterwards. The server
+neutralises it again and adds a note that it filed the issue. A link too long
+for GitHub drops the full state, keeping the summary.
 
 ## Setting up server filing
 

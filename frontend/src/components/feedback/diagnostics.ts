@@ -36,9 +36,11 @@ function cap(text: string, max: number): string {
 /** Strip anything secret-shaped a message might carry: a bearer token, an `api_key=` or a long key. */
 export function scrubSecrets(text: string): string {
   return text
-    .replace(/\b(Bearer)\s+[A-Za-z0-9._~+/-]+=*/gi, '$1 [redacted]')
+    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/-]+=*/gi, '$1 [redacted]')
+    // A JSON Web Token: three base64url parts, the first two starting with `eyJ`.
+    .replace(/eyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*/g, '[redacted token]')
     .replace(/\b(api[_-]?key|token|password|secret)(["']?\s*[:=]\s*["']?)[^\s"'&,;]+/gi, '$1$2[redacted]')
-    .replace(/\bak_[A-Za-z0-9_-]{16,}/g, '[redacted key]')
+    .replace(/ak_[A-Za-z0-9_-]{16,}/g, '[redacted key]')
 }
 
 function push(entry: Diagnostic): void {

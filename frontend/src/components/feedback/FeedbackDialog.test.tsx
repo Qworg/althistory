@@ -226,3 +226,100 @@ describe('FeedbackDialog, in general', () => {
     expect(screen.queryByLabelText('Include the screenshot')).not.toBeInTheDocument()
   })
 })
+
+describe('FeedbackDialog, after the first review', () => {
+  it('cannot be closed while sending, and the answer is shown when it comes', async () => {
+    api.getConfig.mockResolvedValue({ serverFiling: true, repo: 'owner/repo' })
+    let answer: (value: unknown) => void = () => undefined
+    api.submit.mockReturnValue(new Promise((resolve) => (answer = resolve)))
+    const dialog = await openDialog()
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText('Title'), 'x')
+    await user.click(await screen.findByRole('button', { name: 'Send report' }))
+    expect(await screen.findByRole('button', { name: 'Sending…' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Close feedback' })).not.toBeInTheDocument()
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(useFeedbackStore.getState().phase).toBe('open')
+    await act(async () => answer({ number: 9, url: 'https://github.com/owner/repo/issues/9', screenshotStored: true }))
+    expect(await screen.findByText(/Your report is issue #9/)).toBeInTheDocument()
+  })
+
+  it('clears the draft however a sent report is dismissed, and moves focus to Done', async () => {
+    api.getConfig.mockResolvedValue({ serverFiling: true, repo: 'owner/repo' })
+    api.submit.mockResolvedValue({ number: 3, url: 'https://github.com/owner/repo/issues/3', screenshotStored: true })
+    const dialog = await openDialog()
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText('Title'), 'Sent once')
+    await user.click(await screen.findByRole('button', { name: 'Send report' }))
+    await screen.findByText(/Your report is issue #3/)
+    expect(screen.getByRole('button', { name: 'Done' })).toHaveFocus()
+    expect(screen.getByRole('status')).toHaveTextContent('Report sent. It is issue 3.')
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(useFeedbackStore.getState().draft.title).toBe('')
+  })
+
+  it('asks the reporter to check before sending again when the issue may exist', async () => {
+    api.getConfig.mockResolvedValue({ serverFiling: true, repo: 'owner/repo' })
+    api.submit
+      .mockRejectedValueOnce(new APIError('lost', 502, 'FEEDBACK_MAYBE_FILED'))
+      .mockRejectedValueOnce(new APIError('Network error - please check your connection', 0, 'NETWORK_ERROR'))
+    await openDialog()
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText('Title'), 'x')
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await user.click(await screen.findByRole('button', { name: 'Send report' }))
+      expect(await screen.findByRole('alert')).toHaveTextContent(/may have been filed/)
+      expect(screen.getByRole('link', { name: 'Check the latest feedback issues' })).toHaveAttribute(
+        'href',
+        expect.stringContaining('https://github.com/owner/repo/issues?q=')
+      )
+      // Still the server's route: the reporter has not been sent to the form.
+      expect(screen.getByRole('button', { name: 'Send report' })).toBeInTheDocument()
+    }
+  })
+
+  it('cannot go to GitHub before it knows where reports go', async () => {
+    api.getConfig.mockReturnValue(new Promise(() => undefined))
+    await openDialog()
+    expect(screen.getByRole('button', { name: 'Checking how to send…' })).toBeDisabled()
+    expect(screen.queryByRole('link', { name: /Continue on GitHub/ })).not.toBeInTheDocument()
+  })
+
+  it('shows a long report to copy when the clipboard refuses it', async () => {
+    api.getConfig.mockResolvedValue({ serverFiling: false, repo: 'owner/repo' })
+    clipboardWriteText.mockRejectedValueOnce(new Error('denied'))
+    await openDialog()
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText('Title'), 'Long')
+    fireEvent.change(screen.getByLabelText('Details'), { target: { value: 'é'.repeat(3000) } })
+    stubClipboard()
+    fireEvent.click(await screen.findByRole('link', { name: /Continue on GitHub/ }))
+    const copy = await screen.findByLabelText('The report, to copy into GitHub’s form')
+    expect((copy as HTMLTextAreaElement).value).toContain('é'.repeat(3000))
+    await user.click(screen.getByRole('button', { name: 'Try copying again' }))
+    await waitFor(() => expect(clipboardWriteText).toHaveBeenCalledTimes(2))
+  })
+})
+
+describe('FeedbackHost, after the first review', () => {
+  it('starts each opening fresh, even if the last one ended mid-answer', async () => {
+    const { FeedbackHost } = await import('./FeedbackHost')
+    api.getConfig.mockResolvedValue({ serverFiling: true, repo: 'owner/repo' })
+    api.submit.mockRejectedValue(new APIError('GitHub refused', 502, 'UPSTREAM'))
+    renderWithProviders(<FeedbackHost />)
+    await act(async () => {
+      await useFeedbackStore.getState().openFeedback()
+    })
+    const user = userEvent.setup()
+    await user.type(await screen.findByLabelText('Title'), 'x')
+    await user.click(await screen.findByRole('button', { name: 'Send report' }))
+    await screen.findByRole('alert')
+    act(() => useFeedbackStore.getState().closeFeedback())
+    await act(async () => {
+      await useFeedbackStore.getState().openFeedback()
+    })
+    // A new opening asks the server again and shows no old alert.
+    expect(await screen.findByRole('button', { name: 'Send report' })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+})

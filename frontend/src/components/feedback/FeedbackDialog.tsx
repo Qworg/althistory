@@ -1,4 +1,4 @@
-import React, { useId, useMemo, useState } from 'react'
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ModalBase } from '@/components/modals/ModalBase'
 import { apiClient, APIError } from '@/services/api'
@@ -65,7 +65,7 @@ async function copyForForm(png: Blob | null, text: string | null): Promise<'imag
 }
 
 const inputClass =
-  'mt-1 w-full rounded-md border border-line bg-card px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-selected'
+  'mt-1 min-h-11 w-full rounded-md border border-line bg-card px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-selected'
 const buttonClass =
   'inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md px-4 py-2 text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-selected disabled:cursor-not-allowed disabled:opacity-60'
 const primaryClass = `${buttonClass} bg-baseline text-on-accent hover:bg-baseline/90`
@@ -91,7 +91,7 @@ export function FeedbackDialog() {
   const isOpen = phase === 'open'
   const config = useFeedbackConfig(isOpen)
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'form' })
-  const [serverProblem, setServerProblem] = useState<string | null>(null)
+  const [serverProblem, setServerProblem] = useState<React.ReactNode>(null)
   const [titleTouched, setTitleTouched] = useState(false)
   const ids = useId()
 
@@ -120,19 +120,24 @@ export function FeedbackDialog() {
   )
 
   const titleMissing = draft.title.trim().length === 0
+  const sending = outcome.kind === 'sending'
+  const doneRef = useRef<HTMLButtonElement>(null)
 
+  // The dialog is keyed per opening (FeedbackHost), so its local state starts
+  // fresh each time. Once the report has gone (filed, or handed to GitHub's
+  // form) any way of closing clears the draft, so it cannot be sent twice.
   const close = () => {
-    setOutcome({ kind: 'form' })
-    setServerProblem(null)
-    setServerDeclined(false)
-    setTitleTouched(false)
+    if (sending) return
+    if (outcome.kind === 'filed' || outcome.kind === 'opened') clearDraft()
     closeFeedback()
   }
 
-  const finish = () => {
-    clearDraft()
-    close()
-  }
+  // Focus follows the dialog to its new content: otherwise it falls to <body>.
+  useEffect(() => {
+    if (outcome.kind === 'filed' || outcome.kind === 'opened') doneRef.current?.focus()
+  }, [outcome.kind])
+
+  const issuesUrl = `https://github.com/${repo}/issues?q=${encodeURIComponent('is:issue label:feedback sort:created-desc')}`
 
   const send = async () => {
     setTitleTouched(true)
@@ -149,8 +154,22 @@ export function FeedbackDialog() {
     } catch (error) {
       const status = error instanceof APIError ? error.status : 0
       const code = error instanceof APIError ? error.code : undefined
-      setServerDeclined(true)
       setOutcome({ kind: 'form' })
+      // No answer, or GitHub's was lost: the issue may exist. Sending again
+      // (either way) could file it twice, so the reporter looks first.
+      if (code === 'FEEDBACK_MAYBE_FILED' || status === 0) {
+        setServerProblem(
+          <>
+            The report may have been filed: the answer was lost on the way.{' '}
+            <a href={issuesUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-baseline underline">
+              Check the latest feedback issues
+            </a>{' '}
+            before sending it again.
+          </>
+        )
+        return
+      }
+      setServerDeclined(true)
       setServerProblem(
         code === 'FEEDBACK_NOT_CONFIGURED'
           ? 'This server does not file reports, so the report goes through GitHub’s form instead.'
@@ -159,6 +178,12 @@ export function FeedbackDialog() {
             : 'The server could not file the report. You can send it through GitHub’s form instead; nothing you wrote is lost.'
       )
     }
+  }
+
+  const retryCopy = () => {
+    void copyForForm(null, prefilled.fullBody).then((clipboard) =>
+      setOutcome({ kind: 'opened', clipboard, bodyOnClipboard: true })
+    )
   }
 
   const openForm = (event: React.MouseEvent<HTMLAnchorElement>) => {
@@ -180,6 +205,7 @@ export function FeedbackDialog() {
   const containKeys = (event: React.KeyboardEvent) => {
     if (event.key === 'Tab') return
     event.stopPropagation()
+    // While sending, the dialog stays: the answer says whether the issue exists.
     if (event.key === 'Escape') {
       event.preventDefault()
       close()
@@ -193,9 +219,18 @@ export function FeedbackDialog() {
   let body: React.ReactNode
   let footer: React.ReactNode
 
+  const announcement =
+    outcome.kind === 'filed'
+      ? `Report sent. It is issue ${outcome.number}.`
+      : outcome.kind === 'opened'
+        ? 'GitHub’s form is open in a new tab.'
+        : sending
+          ? 'Sending the report.'
+          : ''
+
   if (outcome.kind === 'filed') {
     body = (
-      <div role="status" className="space-y-3 text-sm text-ink-secondary">
+      <div className="space-y-3 text-sm text-ink-secondary">
         <p className="text-base text-ink">Thank you. Your report is issue #{outcome.number}.</p>
         <p>
           <a href={outcome.url} target="_blank" rel="noopener noreferrer" className="font-medium text-baseline underline">
@@ -207,24 +242,36 @@ export function FeedbackDialog() {
       </div>
     )
     footer = (
-      <button type="button" className={primaryClass} onClick={finish} data-autofocus>
+      <button ref={doneRef} type="button" className={primaryClass} onClick={close}>
         Done
       </button>
     )
   } else if (outcome.kind === 'opened') {
     body = (
-      <div role="status" className="space-y-3 text-sm text-ink-secondary">
+      <div className="space-y-3 text-sm text-ink-secondary">
         <p className="text-base text-ink">GitHub’s form is open in a new tab, filled in.</p>
         {outcome.clipboard === 'image' && <p>The screenshot is on your clipboard: paste it into the form (Ctrl+V or ⌘V).</p>}
         {outcome.clipboard === 'text' && (
           <p>The report was too long for a link, so it is on your clipboard: paste it into the form’s description.</p>
         )}
-        {outcome.clipboard === 'failed' && (
-          <p>
-            {outcome.bodyOnClipboard
-              ? 'The report could not be put on your clipboard. Copy it from “See what is sent” and paste it into the form.'
-              : 'The screenshot could not be put on your clipboard. Download it and drag the file into the form.'}
-          </p>
+        {outcome.clipboard === 'failed' && !outcome.bodyOnClipboard && (
+          <p>The screenshot could not be put on your clipboard. Download it and drag the file into the form.</p>
+        )}
+        {outcome.clipboard === 'failed' && outcome.bodyOnClipboard && (
+          <div className="space-y-2">
+            <p>The report could not be put on your clipboard. Copy it from here and paste it into the form’s description:</p>
+            <textarea
+              readOnly
+              value={prefilled.fullBody}
+              aria-label="The report, to copy into GitHub’s form"
+              rows={6}
+              onFocus={(event) => event.currentTarget.select()}
+              className={`${inputClass} font-mono-code text-xs`}
+            />
+            <button type="button" className={secondaryClass} onClick={retryCopy}>
+              Try copying again
+            </button>
+          </div>
         )}
         <p>
           If no tab opened,{' '}
@@ -242,13 +289,12 @@ export function FeedbackDialog() {
             Download the screenshot
           </button>
         )}
-        <button type="button" className={primaryClass} onClick={finish} data-autofocus>
+        <button ref={doneRef} type="button" className={primaryClass} onClick={close}>
           Done
         </button>
       </>
     )
   } else {
-    const sending = outcome.kind === 'sending'
     body = (
       <form
         id={`${ids}-form`}
@@ -278,7 +324,7 @@ export function FeedbackDialog() {
             {KINDS.map((kind) => (
               <label
                 key={kind.id}
-                className={`inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-md border px-3 py-1.5 text-sm ${
+                className={`inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-md border px-3 py-1.5 text-sm ${
                   draft.kind === kind.id ? 'border-selected bg-subtle text-ink' : 'border-line text-ink-secondary hover:bg-subtle'
                 }`}
               >
@@ -339,7 +385,7 @@ export function FeedbackDialog() {
         <div className="space-y-2 rounded-md border border-line p-3">
           {screenshot ? (
             <>
-              <label className="flex items-center gap-2 text-sm text-ink">
+              <label className="flex min-h-11 items-center gap-2 text-sm text-ink lg:min-h-0">
                 <input
                   type="checkbox"
                   checked={draft.includeScreenshot}
@@ -359,7 +405,7 @@ export function FeedbackDialog() {
             </p>
           )}
 
-          <label className="flex items-center gap-2 text-sm text-ink">
+          <label className="flex min-h-11 items-center gap-2 text-sm text-ink lg:min-h-0">
             <input
               type="checkbox"
               checked={draft.includeState}
@@ -368,7 +414,7 @@ export function FeedbackDialog() {
             Include the page, app state, browser and recent errors
           </label>
           <details className="text-sm">
-            <summary className="cursor-pointer text-ink-secondary hover:text-ink">See what is sent</summary>
+            <summary className="cursor-pointer py-3 text-ink-secondary hover:text-ink lg:py-0">See what is sent</summary>
             <pre className="font-mono-code mt-2 max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-sm bg-subtle p-2 text-xs text-ink">
               {preview}
             </pre>
@@ -386,8 +432,12 @@ export function FeedbackDialog() {
         <button type="button" className={secondaryClass} onClick={close} disabled={sending}>
           Cancel
         </button>
-        {serverFiling ? (
-          <button type="submit" form={`${ids}-form`} className={primaryClass} disabled={sending || waitingForConfig}>
+        {waitingForConfig ? (
+          <button type="button" className={primaryClass} disabled>
+            Checking how to send…
+          </button>
+        ) : serverFiling ? (
+          <button type="submit" form={`${ids}-form`} className={primaryClass} disabled={sending}>
             {sending ? 'Sending…' : 'Send report'}
           </button>
         ) : (
@@ -396,8 +446,7 @@ export function FeedbackDialog() {
             target="_blank"
             rel="noopener noreferrer"
             onClick={openForm}
-            aria-disabled={waitingForConfig || undefined}
-            className={`${primaryClass} ${waitingForConfig ? 'pointer-events-none opacity-60' : ''}`}
+            className={primaryClass}
           >
             Continue on GitHub
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
@@ -413,7 +462,21 @@ export function FeedbackDialog() {
   return (
     // Not an interactive element: it only stops key events bubbling out of the dialog.
     <div onKeyDown={containKeys}>
-      <ModalBase isOpen onClose={close} title="Send feedback" size="xl" footer={footer} closeLabel="Close feedback">
+      <ModalBase
+        isOpen
+        onClose={close}
+        title="Send feedback"
+        size="xl"
+        footer={footer}
+        closeLabel="Close feedback"
+        closeOnEscape={!sending}
+        closeOnBackdrop={!sending}
+        showCloseButton={!sending}
+      >
+        {/* One live region for the whole dialog, so each change of content is announced. */}
+        <div role="status" aria-live="polite" className="sr-only">
+          {announcement}
+        </div>
         {body}
       </ModalBase>
     </div>

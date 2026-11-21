@@ -27,10 +27,10 @@ import './index.css'
 startOfflineSync()
 // The demo is served from a sub-path of GitHub Pages; a worker registered at
 // the site root would be out of scope, and there is no app shell to cache.
+if (!DEMO_MODE) registerServiceWorker()
+
 // What went wrong recently, for a feedback report (issue #49).
 installDiagnostics()
-
-if (!DEMO_MODE) registerServiceWorker()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

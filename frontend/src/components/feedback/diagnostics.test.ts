@@ -74,3 +74,11 @@ describe('diagnostics', () => {
     expect(recentDiagnostics()[0]!.request!.path).toBe('/a')
   })
 })
+
+describe('scrubSecrets, after the first review', () => {
+  it('redacts Basic credentials, JSON Web Tokens and a key glued to a word', () => {
+    expect(scrubSecrets('Authorization: Basic dXNlcjpwYXNz')).toBe('Authorization: Basic [redacted]')
+    expect(scrubSecrets('jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.abc_DEF-123')).toBe('jwt [redacted token]')
+    expect(scrubSecrets('xak_ABCDEFGHIJKLMNOPQRSTUVWXYZ')).toBe('x[redacted key]')
+  })
+})

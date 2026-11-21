@@ -154,4 +154,66 @@ test.describe('feedback', () => {
     await expect(page.getByRole('dialog', { name: 'Send feedback' })).toBeVisible()
     await expect(help).toHaveCount(0)
   })
+
+  test('the picture shows the view as scrolled, the window or a panel, not its top', async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 520 }, serviceWorkers: 'block' })
+    const page = await context.newPage()
+    await installApiStub(page)
+    await page.goto('/')
+    await waitForTimeline(page)
+    // A panel that scrolls inside the page, as the inspector and dialogs do:
+    // html-to-image clones it unscrolled, so the capture has to show it scrolled.
+    await page.evaluate(() => {
+      const panel = document.createElement('div')
+      panel.id = 'probe-panel'
+      panel.style.cssText = 'height:200px;overflow:auto;margin:8px'
+      panel.innerHTML =
+        '<div style="height:200px;background:#c00"></div><div style="height:200px;background:#06c"></div>'
+      document.getElementById('main-view')!.prepend(panel)
+    })
+    await page.waitForTimeout(600)
+
+    const scrolled = await page.evaluate(() => {
+      document.getElementById('probe-panel')!.scrollTop = 200
+      window.scrollTo(0, 60)
+      const rect = document.getElementById('probe-panel')!.getBoundingClientRect()
+      return {
+        panel: document.getElementById('probe-panel')!.scrollTop,
+        window: window.scrollY,
+        // The middle of the panel, where it is in the window.
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      }
+    })
+    expect(scrolled.panel).toBe(200)
+    expect(scrolled.window).toBe(60)
+    expect(scrolled.y).toBeLessThan(400)
+
+    await page.keyboard.press('Shift+I')
+    const picture = page.getByRole('img', { name: 'The page as it was when you opened this' })
+    await expect(picture).toBeVisible()
+    const captured = (await picture.getAttribute('src'))!
+
+    // Where the panel is in view (the window's scroll), the picture shows its
+    // second, blue, block (the panel's scroll), not its first, red, one.
+    const colour = await page.evaluate(async ({ src, x, y }) => {
+      const img = new Image()
+      img.src = src
+      await img.decode()
+      const canvas = document.createElement('canvas')
+      canvas.width = img.naturalWidth
+      canvas.height = img.naturalHeight
+      const context = canvas.getContext('2d')!
+      context.drawImage(img, 0, 0)
+      const scale = img.naturalWidth / window.innerWidth
+      const [r, g, b] = context.getImageData(Math.round(x * scale), Math.round(y * scale), 1, 1).data
+      return { r, g, b }
+    }, { src: captured, x: scrolled.x, y: scrolled.y })
+    expect(colour.b).toBeGreaterThan(150)
+    expect(colour.r).toBeLessThan(80)
+
+    // And the page is put back as it was.
+    expect(await page.evaluate(() => [document.getElementById('probe-panel')!.scrollTop, window.scrollY])).toEqual([200, 60])
+    await context.close()
+  })
 })

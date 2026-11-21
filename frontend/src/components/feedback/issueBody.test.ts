@@ -147,3 +147,14 @@ describe('neutralizeGitHubReferences', () => {
     )
   })
 })
+
+describe('neutralizeGitHubReferences, after the first review', () => {
+  it.each([
+    ['`x`@octocat', `\`x\`@${ZWSP}octocat`],
+    ['&#x40;octocat', `@${ZWSP}octocat`],
+    ['&commat;octocat', `@${ZWSP}octocat`],
+    ['o/r&#x23;1', `o/r#${ZWSP}1`],
+  ])('neutralises %s in captured text', (input, expected) => {
+    expect(neutralizeGitHubReferences(input)).toBe(expected)
+  })
+})

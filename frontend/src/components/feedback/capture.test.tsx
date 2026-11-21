@@ -81,8 +81,25 @@ describe('captureScreenshot', () => {
   })
 
   it('draws only the part of the page in view, and leaves out what asks to be left out', async () => {
+    // The window is scrolled 500 px: it is drawn from the top with its content
+    // shifted up, then scrolled back.
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined)
+    const content = document.createElement('div')
+    document.body.prepend(content)
+    let shiftedDuringDraw = ''
+    toCanvas.mockImplementationOnce(async () => {
+      shiftedDuringDraw = content.style.marginTop
+      const page = document.createElement('canvas')
+      page.width = 1280
+      page.height = 800
+      return page
+    })
     const shot = await captureScreenshot()
-    expect(drawImage).toHaveBeenCalledWith(expect.anything(), 0, 500, 1280, 800, 0, 0, 1280, 800)
+    expect(shiftedDuringDraw).toBe('-500px')
+    expect(content.style.marginTop).toBe('')
+    expect(scrollTo.mock.calls).toEqual([[0, 0], [0, 500]])
+    content.remove()
+    expect(drawImage).toHaveBeenCalledWith(expect.anything(), 0, 0, 1280, 800, 0, 0, 1280, 800)
     expect(shot).toMatchObject({ width: 1280, height: 800 })
     expect(shot.dataUrl).toMatch(/^data:image\/png;base64,/)
 
@@ -189,5 +206,40 @@ describe('Shift+I', () => {
     fireEvent.keyDown(document.body, { key: 'I', shiftKey: true })
     expect(useFeedbackStore.getState().phase).toBe('closed')
     dialog.remove()
+  })
+})
+
+describe('capturing, after the first review', () => {
+  it('Escape cancels the capture, other keys are swallowed, and a stale capture never lands', async () => {
+    const { FeedbackHost } = await import('./FeedbackHost')
+    const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
+    useFeedbackStore.setState({ phase: 'closed' })
+    let finishFirst: (canvas: HTMLCanvasElement) => void = () => undefined
+    toCanvas.mockReturnValueOnce(new Promise((resolve) => (finishFirst = resolve)))
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <FeedbackHost />
+      </QueryClientProvider>
+    )
+
+    const first = useFeedbackStore.getState().openFeedback()
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 30)))
+    const other = vi.fn()
+    document.addEventListener('keydown', other)
+    fireEvent.keyDown(document.body, { key: '?' })
+    expect(other).not.toHaveBeenCalled()
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    document.removeEventListener('keydown', other)
+    expect(useFeedbackStore.getState().phase).toBe('closed')
+
+    // Opened again: the first capture finishing must not open the dialog with its picture.
+    toCanvas.mockReturnValueOnce(new Promise(() => undefined))
+    void useFeedbackStore.getState().openFeedback()
+    await act(async () => {
+      finishFirst(document.createElement('canvas'))
+      await first
+    })
+    expect(useFeedbackStore.getState().phase).toBe('capturing')
+    act(() => useFeedbackStore.getState().closeFeedback())
   })
 })
