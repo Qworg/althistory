@@ -6,6 +6,23 @@ Help dialog, or **Shift+I** anywhere. It opens a short form (kind, title,
 details), with a picture of the page and the app's state as they were the
 moment it was asked for. The report becomes a GitHub issue (#49).
 
+## Turning it off
+
+Feedback is on by default. A private install that does not want it has two
+switches:
+
+| Switch | Where | Effect |
+| --- | --- | --- |
+| `FEEDBACK_ENABLED=false` | The API's environment (compose passes it through from `.env`) | No rebuild. `GET /api/feedback/config` answers `enabled: false`, so the app offers no button, More entry, Help link or Shift+I, and `POST /api/feedback` answers `404` (`FEEDBACK_DISABLED`), whatever token is set. |
+| `VITE_FEEDBACK_ENABLED=false` | A build argument of the SPA (`docker compose build web`) | The app never offers feedback and never asks the server, and does not record recent errors for reports. |
+
+Until the server has answered, the app does not show the button. So an install
+that turned feedback off never shows it, even for a moment. If the server
+cannot say, because it is older than this feature or unreachable, the app
+offers feedback through GitHub's form, which needs no server. Any value of
+`FEEDBACK_ENABLED` other than a yes (`true`, `1`, `yes`, `on`) or a no turns
+feedback off, and the API logs why.
+
 ## How a report reaches GitHub
 
 The app chooses one of two routes, and the reporter sees which:
@@ -86,6 +103,7 @@ for GitHub drops the full state, keeping the summary.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `FEEDBACK_ENABLED` | `true` | `false` turns feedback off (see [Turning it off](#turning-it-off)) |
 | `FEEDBACK_GITHUB_REPO` | — | `owner/name`. Without a token, it still tells the app where the form is |
 | `FEEDBACK_GITHUB_TOKEN` | — | The token the server files with. It never leaves the server |
 | `FEEDBACK_SCREENSHOT_BRANCH` | `feedback-screenshots` | Where screenshots are committed. It is created from the default branch the first time |

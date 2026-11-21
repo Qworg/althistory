@@ -1,9 +1,9 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { ModalBase } from '@/components/modals/ModalBase'
 import { apiClient, APIError } from '@/services/api'
 import { DEMO_MODE } from '@/demo/flag'
 import { useFeedbackStore } from './feedbackStore'
+import { useFeedbackConfig } from './availability'
 import {
   DEFAULT_FEEDBACK_REPO,
   buildIssueBody,
@@ -20,16 +20,6 @@ const KINDS: ReadonlyArray<{ id: FeedbackKind; label: string; placeholder: strin
 
 const CONFIGURED_REPO = (import.meta.env.VITE_FEEDBACK_REPO as string | undefined)?.trim() || DEFAULT_FEEDBACK_REPO
 
-/** Whether the server files reports. The demo has no server; an error means "no". */
-function useFeedbackConfig(enabled: boolean) {
-  return useQuery({
-    queryKey: ['feedback-config'],
-    queryFn: () => apiClient.feedback.getConfig(),
-    enabled: enabled && !DEMO_MODE,
-    staleTime: Infinity,
-    retry: false,
-  })
-}
 
 type Outcome =
   | { kind: 'form' }
@@ -92,7 +82,7 @@ export function FeedbackDialog() {
   const closeFeedback = useFeedbackStore((state) => state.closeFeedback)
 
   const isOpen = phase === 'open'
-  const config = useFeedbackConfig(isOpen)
+  const config = useFeedbackConfig()
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'form' })
   const [serverProblem, setServerProblem] = useState<React.ReactNode>(null)
   // Counts problems, so focus moves to each new one (the Send button that had it was disabled).

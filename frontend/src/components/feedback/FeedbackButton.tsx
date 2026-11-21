@@ -20,6 +20,8 @@ export function FeedbackIcon({ className = 'h-5 w-5' }: { className?: string }) 
 export function FeedbackButton() {
   const openFeedback = useFeedbackStore((state) => state.openFeedback)
   const phase = useFeedbackStore((state) => state.phase)
+  const available = useFeedbackStore((state) => state.available)
+  if (!available) return null
 
   return (
     <button

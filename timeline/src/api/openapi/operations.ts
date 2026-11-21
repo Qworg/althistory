@@ -1029,7 +1029,9 @@ export const OPERATIONS: Record<string, OperationSpec> = {
 
   // --- feedback ------------------------------------------------------------
   'GET /api/feedback/config': {
-    summary: 'Whether this server files in-app feedback as GitHub issues, and the repository to send people to otherwise.',
+    summary:
+      'Whether in-app feedback is on (FEEDBACK_ENABLED), whether this server files it as GitHub issues, and the ' +
+      'repository to send people to otherwise.',
     response: 'FeedbackConfig',
     auth: 'optional',
   },
@@ -1046,6 +1048,7 @@ export const OPERATIONS: Record<string, OperationSpec> = {
     responses: {
       429: 'Too many reports; `Retry-After` says when to try again.',
       502: 'GitHub refused the report.',
+      404: 'Feedback is turned off on this server (FEEDBACK_ENABLED=false).',
       503: 'This server does not file feedback (FEEDBACK_GITHUB_TOKEN unset), or GitHub is limiting it.',
     },
   },

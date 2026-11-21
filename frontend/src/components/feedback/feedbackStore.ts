@@ -42,6 +42,9 @@ interface FeedbackState {
   extras: ContextExtras
   /** Counts openings: the dialog is keyed on it, so each opening starts with fresh local state. */
   openCount: number
+  /** Whether feedback is offered here (built in, and not turned off by the server); set by FeedbackHost. */
+  available: boolean
+  setAvailable: (available: boolean) => void
   openFeedback: () => Promise<void>
   closeFeedback: () => void
   updateDraft: (patch: Partial<FeedbackDraft>) => void
@@ -74,9 +77,12 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
   draft: EMPTY_DRAFT,
   extras: {},
   openCount: 0,
+  available: false,
+  setAvailable: (available) => set({ available }),
 
   openFeedback: async () => {
-    if (get().phase !== 'closed') return
+    // Turned off on this install (or not known yet): every way in leads here, so it stops here.
+    if (!get().available || get().phase !== 'closed') return
     set((state) => ({ phase: 'capturing', screenshot: null, screenshotError: null, context: null, openCount: state.openCount + 1 }))
     const opening = get().openCount
     // Made before waiting for paint, so Escape in those frames cancels it too.

@@ -320,6 +320,8 @@ export interface InstallApiStubOptions {
    * it the app uses GitHub's prefilled form, as with a server with no token.
    */
   feedbackServerFiling?: boolean
+  /** `false` answers as a server with FEEDBACK_ENABLED=false. */
+  feedbackEnabled?: boolean
 }
 
 /** A feed token the app accepts, for `streamToken`. */
@@ -519,7 +521,13 @@ export async function installApiStub(
 
     // In-app feedback (issue #49).
     if (path === '/feedback/config' && method === 'GET') {
-      return json(route, 200, { success: true, data: { serverFiling: options.feedbackServerFiling === true, repo: 'owner/repo' } })
+      if (options.feedbackEnabled === false) {
+        return json(route, 200, { success: true, data: { enabled: false, serverFiling: false, repo: null } })
+      }
+      return json(route, 200, {
+        success: true,
+        data: { enabled: true, serverFiling: options.feedbackServerFiling === true, repo: 'owner/repo' },
+      })
     }
     if (path === '/feedback' && method === 'POST') {
       state.feedbackReports.push((request.postDataJSON() as Record<string, unknown> | null) ?? {})

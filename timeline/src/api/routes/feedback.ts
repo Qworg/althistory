@@ -1,8 +1,9 @@
 /**
  * In-app feedback (issue #49).
  *
- * GET  /api/feedback/config  whether this server files reports, and which repository the app should
- *                            send people to when it does not (no key needed: it holds no secret)
+ * GET  /api/feedback/config  whether feedback is on (FEEDBACK_ENABLED), whether this server files
+ *                            reports, and which repository the app should send people to when it
+ *                            does not (no key needed: it holds no secret)
  * POST /api/feedback         file a report as a GitHub issue; 201 with the issue's number and link
  *
  * A report needs a key when the entity routes do (`API_AUTH_REQUIRED`), and is
@@ -56,6 +57,13 @@ export function createFeedbackRouter(resolve: () => FeedbackService = () => getC
     ...guard,
     asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       const service = resolve();
+      if (!service.config.enabled) {
+        res.status(404).json({
+          success: false,
+          error: { code: 'FEEDBACK_DISABLED', message: 'Feedback is turned off on this server.', requestId: req.requestId },
+        });
+        return;
+      }
       if (!service.enabled) {
         res.status(503).json({
           success: false,

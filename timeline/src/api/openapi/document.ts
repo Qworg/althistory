@@ -894,8 +894,9 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
   },
   FeedbackConfig: {
     type: 'object',
-    required: ['serverFiling', 'repo'],
+    required: ['enabled', 'serverFiling', 'repo'],
     properties: {
+      enabled: { type: 'boolean', description: 'False when the operator turned feedback off (FEEDBACK_ENABLED=false): the app offers no feedback, and POST /api/feedback answers 404.' },
       serverFiling: { type: 'boolean', description: 'Whether POST /api/feedback files reports. When false, the app opens GitHub\'s prefilled new-issue form.' },
       repo: { type: 'string', nullable: true, description: 'The `owner/name` reports go to (FEEDBACK_GITHUB_REPO), or null when unset.' },
     },

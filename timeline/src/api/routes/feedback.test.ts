@@ -49,7 +49,7 @@ describe('/api/feedback', () => {
     const { service } = makeService();
     const res = await request(await makeApp(service)).get('/api/feedback/config');
     expect(res.status).toBe(200);
-    expect(res.body.data).toEqual({ serverFiling: true, repo: 'owner/repo' });
+    expect(res.body.data).toEqual({ enabled: true, serverFiling: true, repo: 'owner/repo' });
     expect(JSON.stringify(res.body)).not.toContain('tok');
   });
 
@@ -146,5 +146,22 @@ describe('/api/feedback, after the first review', () => {
     expect(res.status).toBe(503);
     expect(res.body.error.code).toBe('FEEDBACK_GITHUB_LIMITED');
     expect(res.headers['retry-after']).toBe('30');
+  });
+});
+
+describe('/api/feedback, turned off', () => {
+  beforeEach(async () => {
+    authRequired.value = false;
+    await freshModules();
+  });
+
+  it('says it is off, and refuses reports without calling GitHub', async () => {
+    const { service, fetchImpl } = makeService({ FEEDBACK_ENABLED: 'false', FEEDBACK_GITHUB_REPO: 'owner/repo', FEEDBACK_GITHUB_TOKEN: 't' });
+    const app = await makeApp(service);
+    expect((await request(app).get('/api/feedback/config')).body.data).toEqual({ enabled: false, serverFiling: false, repo: null });
+    const res = await request(app).post('/api/feedback').send({ kind: 'bug', title: 'x' });
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('FEEDBACK_DISABLED');
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

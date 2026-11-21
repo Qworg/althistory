@@ -138,6 +138,8 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
   } | null>(null)
 
   const moreSheetOpen = useMoreSheetStore((state) => state.isOpen)
+  // Feedback is in the More sheet unless this install turned it off.
+  const feedbackAvailable = useFeedbackStore((state) => state.available)
 
   const calendarCount = useWorldCalendarStore((state) => state.set?.calendars.length ?? 0)
   const setMoreSheetOpen = useMoreSheetStore((state) => state.setOpen)
@@ -713,13 +715,13 @@ export function ViewToolbar({ viewMode, className = '', compact = false }: ViewT
             {
               // Feedback (issue #49): the header has no room for it on a phone.
               label: 'Help',
-              items: [{
+              items: feedbackAvailable ? [{
                 id: 'feedback',
                 label: 'Send feedback',
                 icon: <FeedbackIcon />,
                 description: 'Report a problem or suggest an idea, with a picture of this screen',
                 onClick: () => void useFeedbackStore.getState().openFeedback()
-              }]
+              }] : []
             }
           ]}
           footer={

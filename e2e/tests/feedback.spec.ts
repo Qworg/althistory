@@ -244,4 +244,23 @@ test.describe('feedback', () => {
     expect(await page.evaluate(() => [document.getElementById('probe-panel')!.scrollTop, window.scrollY])).toEqual([200, 60])
     await context.close()
   })
+
+  test('a private install that turned feedback off shows no way in', async ({ page }) => {
+    const state = await installApiStub(page, { feedbackEnabled: false })
+    await page.goto('/')
+    await waitForTimeline(page)
+    await expect(page.getByRole('button', { name: 'Help: keyboard shortcuts and glossary' })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Send feedback/ })).toHaveCount(0)
+
+    await page.keyboard.press('Shift+I')
+    await page.waitForTimeout(300)
+    await expect(page.getByRole('dialog', { name: 'Send feedback' })).toHaveCount(0)
+
+    await page.keyboard.press('?')
+    const help = page.getByRole('dialog', { name: 'Help & reference' })
+    await expect(help).toBeVisible()
+    await expect(help.getByRole('button', { name: 'Send feedback' })).toHaveCount(0)
+    expect(state.feedbackReports).toEqual([])
+    expect(state.unhandled).toEqual([])
+  })
 })

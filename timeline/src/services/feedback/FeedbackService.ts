@@ -59,6 +59,8 @@ export interface RateWindow {
 }
 
 export interface FeedbackConfig {
+  /** False when the operator turned feedback off (FEEDBACK_ENABLED=false): the app shows no button. */
+  enabled: boolean;
   /** `owner/name`, or null when unset (or not a repository name). */
   repo: string | null;
   /** The token the server files with; null leaves filing off. */
@@ -77,6 +79,8 @@ export interface FeedbackConfig {
 
 /** What the app may know: whether the server files reports, and where people should go otherwise. */
 export interface FeedbackPublicConfig {
+  /** Whether the app offers feedback at all. */
+  enabled: boolean;
   serverFiling: boolean;
   repo: string | null;
 }
@@ -112,6 +116,7 @@ function positiveInt(raw: string | undefined, fallback: number): number {
 /**
  * Read the feedback settings from the environment.
  *
+ * FEEDBACK_ENABLED       `false` turns feedback off: no button, no reports (default `true`)
  * FEEDBACK_GITHUB_REPO   `owner/name`: where reports go (also tells the app where to send people)
  * FEEDBACK_GITHUB_TOKEN  a token that may create issues and write contents there; without it, the
  *                        app uses GitHub's prefilled form
@@ -123,6 +128,15 @@ function positiveInt(raw: string | undefined, fallback: number): number {
  */
 export function readFeedbackConfig(env: NodeJS.ProcessEnv = process.env): FeedbackConfig {
   const problems: string[] = [];
+
+  const rawEnabled = env.FEEDBACK_ENABLED?.trim().toLowerCase();
+  let enabled = true;
+  if (rawEnabled === 'false' || rawEnabled === '0' || rawEnabled === 'no' || rawEnabled === 'off') enabled = false;
+  else if (rawEnabled && !['true', '1', 'yes', 'on'].includes(rawEnabled)) {
+    // An operator who wrote something to turn it off meant off.
+    problems.push(`FEEDBACK_ENABLED is "${env.FEEDBACK_ENABLED}", not true or false; feedback is off`);
+    enabled = false;
+  }
 
   const rawRepo = env.FEEDBACK_GITHUB_REPO?.trim() || '';
   let repo: string | null = null;
@@ -157,8 +171,10 @@ export function readFeedbackConfig(env: NodeJS.ProcessEnv = process.env): Feedba
   const apiBase = (env.FEEDBACK_GITHUB_API?.trim() || 'https://api.github.com').replace(/\/+$/, '');
 
   return {
+    enabled,
     repo,
-    token,
+    // Off means off: no report is filed, whatever else is set.
+    token: enabled ? token : null,
     screenshotBranch,
     labels,
     perClient: { max: positiveInt(env.FEEDBACK_RATE_PER_CLIENT, 5), windowMs: 15 * 60_000 },
@@ -356,7 +372,8 @@ export class FeedbackService {
   }
 
   publicConfig(): FeedbackPublicConfig {
-    return { serverFiling: this.enabled, repo: this.config.repo };
+    if (!this.config.enabled) return { enabled: false, serverFiling: false, repo: null };
+    return { enabled: true, serverFiling: this.enabled, repo: this.config.repo };
   }
 
   /**

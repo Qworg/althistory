@@ -135,11 +135,12 @@ describe('readFeedbackConfig', () => {
     expect(cfg.repo).toBeNull();
     expect(cfg.token).toBeNull();
     expect(cfg.problem).toBeUndefined();
-    expect(new FeedbackService(cfg).publicConfig()).toEqual({ serverFiling: false, repo: null });
+    expect(new FeedbackService(cfg).publicConfig()).toEqual({ enabled: true, serverFiling: false, repo: null });
   });
 
   it('names the repository without a token, so the app can send people to its form', () => {
     expect(new FeedbackService(readFeedbackConfig({ FEEDBACK_GITHUB_REPO: 'a/b' })).publicConfig()).toEqual({
+      enabled: true,
       serverFiling: false,
       repo: 'a/b',
     });
@@ -548,5 +549,25 @@ describe('the app’s copy of the rule', () => {
     const app = rule(readFileSync(resolve(__dirname, '../../../../frontend/src/components/feedback/issueBody.ts'), 'utf8'));
     expect(server).toHaveLength(5);
     expect(app).toEqual(server);
+  });
+});
+
+describe('FEEDBACK_ENABLED', () => {
+  it.each(['false', 'FALSE', '0', 'no', 'off'])('turns feedback off with %s, whatever else is set', (value) => {
+    const service = new FeedbackService(
+      readFeedbackConfig({ FEEDBACK_ENABLED: value, FEEDBACK_GITHUB_REPO: 'a/b', FEEDBACK_GITHUB_TOKEN: 't' })
+    );
+    expect(service.publicConfig()).toEqual({ enabled: false, serverFiling: false, repo: null });
+    expect(service.enabled).toBe(false);
+  });
+
+  it.each([undefined, '', 'true', '1', 'yes'])('leaves it on with %s', (value) => {
+    expect(readFeedbackConfig({ FEEDBACK_ENABLED: value }).enabled).toBe(true);
+  });
+
+  it('turns it off, and says so, when the value is not a yes or a no', () => {
+    const cfg = readFeedbackConfig({ FEEDBACK_ENABLED: 'disabled' });
+    expect(cfg.enabled).toBe(false);
+    expect(cfg.problem).toMatch(/FEEDBACK_ENABLED/);
   });
 });

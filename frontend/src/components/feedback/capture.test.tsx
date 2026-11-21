@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, fireEvent, act } from '@testing-library/react'
+import { render, fireEvent, act, waitFor } from '@testing-library/react'
 
 const toCanvas = vi.hoisted(() => vi.fn())
 vi.mock('html-to-image', () => ({ toCanvas }))
@@ -132,7 +132,7 @@ describe('captureScreenshot', () => {
 })
 
 describe('openFeedback', () => {
-  beforeEach(() => useFeedbackStore.setState({ phase: 'closed', screenshot: null, context: null, screenshotError: null }))
+  beforeEach(() => useFeedbackStore.setState({ phase: 'closed', screenshot: null, context: null, screenshotError: null, available: true }))
 
   it('captures before the dialog opens', async () => {
     const page = document.createElement('canvas')
@@ -178,7 +178,7 @@ describe('Shift+I', () => {
   }
 
   beforeEach(() => {
-    useFeedbackStore.setState({ phase: 'closed' })
+    useFeedbackStore.setState({ phase: 'closed', available: true })
     toCanvas.mockReturnValue(new Promise(() => undefined))
   })
 
@@ -223,10 +223,12 @@ describe('capturing, after the first review', () => {
     let finishFirst: (canvas: HTMLCanvasElement) => void = () => undefined
     toCanvas.mockReturnValueOnce(new Promise((resolve) => (finishFirst = resolve)))
     render(
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <FeedbackHost />
       </QueryClientProvider>
     )
+    // No server here: the config fails, and feedback is offered (GitHub's form needs none).
+    await waitFor(() => expect(useFeedbackStore.getState().available).toBe(true))
 
     const first = useFeedbackStore.getState().openFeedback()
     await act(async () => new Promise((resolve) => setTimeout(resolve, 30)))
@@ -299,7 +301,7 @@ describe('captureScreenshot, after the second review', () => {
 
 describe('openFeedback, after the third review', () => {
   it('Escape before the first paint cancels the capture: nothing is drawn and nothing shifts', async () => {
-    useFeedbackStore.setState({ phase: 'closed' })
+    useFeedbackStore.setState({ phase: 'closed', available: true })
     toCanvas.mockReset()
     const opening = useFeedbackStore.getState().openFeedback()
     // Before the two frames openFeedback waits for.

@@ -3,6 +3,7 @@ import { useActiveGraph } from '@/hooks/useGraphs'
 import { useFeedbackStore } from './feedbackStore'
 import { FeedbackDialog } from './FeedbackDialog'
 import { useFeedbackShortcut } from './useFeedbackShortcut'
+import { feedbackAvailable, useFeedbackConfig } from './availability'
 
 /** Says the screen is being captured. Left out of the picture itself (`data-feedback-ignore`). */
 function CapturingNotice() {
@@ -50,6 +51,9 @@ export function FeedbackHost() {
   useFeedbackShortcut()
   useCaptureKeys()
   const openCount = useFeedbackStore((state) => state.openCount)
+  const available = feedbackAvailable(useFeedbackConfig())
+  const setAvailable = useFeedbackStore((state) => state.setAvailable)
+  useEffect(() => setAvailable(available), [available, setAvailable])
   const { data: graph } = useActiveGraph()
   const setExtras = useFeedbackStore((state) => state.setExtras)
 

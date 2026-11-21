@@ -34,6 +34,10 @@ ENV VITE_API_BASE_URL=/api
 # docs/api-integration.md). Compose forwards `.env`'s VITE_API_KEY here.
 ARG VITE_API_KEY=
 ENV VITE_API_KEY=$VITE_API_KEY
+# `false` leaves the feedback button out of the bundle's UI (docs/feedback.md).
+# FEEDBACK_ENABLED=false on the API turns it off without a rebuild.
+ARG VITE_FEEDBACK_ENABLED=true
+ENV VITE_FEEDBACK_ENABLED=$VITE_FEEDBACK_ENABLED
 RUN npm run build
 
 # --- Production-only dependencies -----------------------------------------

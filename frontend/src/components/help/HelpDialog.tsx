@@ -129,6 +129,7 @@ export function HelpDialog() {
   const tab = useHelpStore((state) => state.tab)
   const setTab = useHelpStore((state) => state.setTab)
   const closeHelp = useHelpStore((state) => state.closeHelp)
+  const feedbackAvailable = useFeedbackStore((state) => state.available)
 
   const idPrefix = useId()
   const tabRefs = useRef<Partial<Record<HelpTab, HTMLButtonElement | null>>>({})
@@ -189,6 +190,7 @@ export function HelpDialog() {
         title="Help & reference"
         size="2xl"
         footer={
+          feedbackAvailable && (
           <p className="mr-auto text-sm text-ink-secondary">
             Found a problem, or have an idea?{' '}
             <button
@@ -204,6 +206,7 @@ export function HelpDialog() {
             </button>{' '}
             <span className="text-ink-muted">(Shift+I)</span>
           </p>
+          )
         }
       >
         <div

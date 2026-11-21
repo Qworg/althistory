@@ -323,9 +323,9 @@ class APIClient {
 
     // In-app feedback (issue #49): filed as a GitHub issue when the server has a token.
     feedback = {
-        getConfig: async (): Promise<{ serverFiling: boolean; repo: string | null }> => {
+        getConfig: async (): Promise<{ enabled?: boolean; serverFiling: boolean; repo: string | null }> => {
             try {
-                const response: AxiosResponse<{ success: boolean; data: { serverFiling: boolean; repo: string | null } }> =
+                const response: AxiosResponse<{ success: boolean; data: { enabled?: boolean; serverFiling: boolean; repo: string | null } }> =
                     await this.client.get('/feedback/config')
                 return response.data.data
             } catch (error) {

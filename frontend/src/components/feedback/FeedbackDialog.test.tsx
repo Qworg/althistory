@@ -48,7 +48,7 @@ const clipboardWrite = vi.fn(async () => undefined)
 const clipboardWriteText = vi.fn(async () => undefined)
 
 beforeEach(() => {
-  useFeedbackStore.setState({ phase: 'closed', screenshot: null, context: null, screenshotError: null })
+  useFeedbackStore.setState({ phase: 'closed', screenshot: null, context: null, screenshotError: null, available: true })
   useFeedbackStore.getState().clearDraft()
   api.getConfig.mockReset()
   api.submit.mockReset()
@@ -308,6 +308,8 @@ describe('FeedbackHost, after the first review', () => {
     api.getConfig.mockResolvedValue({ serverFiling: true, repo: 'owner/repo' })
     api.submit.mockRejectedValue(new APIError('GitHub refused', 502, 'UPSTREAM'))
     renderWithProviders(<FeedbackHost />)
+    // The host offers feedback once the server has said it is on.
+    await waitFor(() => expect(useFeedbackStore.getState().available).toBe(true))
     await act(async () => {
       await useFeedbackStore.getState().openFeedback()
     })
