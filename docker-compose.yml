@@ -100,6 +100,12 @@ services:
       # Same-origin through Caddy, so this only matters to non-browser clients.
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
       QUERY_TIMEOUT_MS: ${QUERY_TIMEOUT_MS:-2000}
+      # In-app feedback filed as GitHub issues (docs/feedback.md). Blank token:
+      # the app opens GitHub's prefilled form instead.
+      # `false` turns feedback off for this install: no button, no reports.
+      FEEDBACK_ENABLED: ${FEEDBACK_ENABLED:-true}
+      FEEDBACK_GITHUB_REPO: ${FEEDBACK_GITHUB_REPO:-}
+      FEEDBACK_GITHUB_TOKEN: ${FEEDBACK_GITHUB_TOKEN:-}
     volumes:
       # Graph/export/job/version/key state is file-backed even in cloud mode, so
       # it must outlive the container. One replica only: see
@@ -129,6 +135,8 @@ services:
         # means the UI sends no key and gets 401 from the entity routes.
         # Rebuild the web image to change it.
         VITE_API_KEY: ${VITE_API_KEY:-}
+        # `false` builds the SPA without the feedback button (docs/feedback.md).
+        VITE_FEEDBACK_ENABLED: ${VITE_FEEDBACK_ENABLED:-true}
     environment:
       CADDY_SITE_ADDRESS: ${CADDY_SITE_ADDRESS:-:80}
     ports:

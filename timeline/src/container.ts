@@ -30,6 +30,7 @@ import {
 import { AppConfig } from '@/utils/config';
 import { LiveStoreSyncService } from '@/services/LiveStoreSyncService';
 import { ChangeFeedService, replacedSummary } from '@/services/ChangeFeedService';
+import { FeedbackService } from '@/services/feedback/FeedbackService';
 import { GenerationJobService } from '@/services/GenerationJobService';
 
 /**
@@ -168,6 +169,7 @@ export class Container implements ServiceContainer {
   private _graphWriteVersioningService?: GraphWriteVersioningService;
   private _liveStoreSyncService?: LiveStoreSyncService;
   private _changeFeedService?: ChangeFeedService;
+  private _feedbackService?: FeedbackService;
   private _generationJobService?: GenerationJobService;
   
   // Phase 1 I/O repositories
@@ -515,6 +517,21 @@ export class Container implements ServiceContainer {
       this._changeFeedService = new ChangeFeedService();
     }
     return this._changeFeedService;
+  }
+
+  /**
+   * In-app feedback (singleton): files the app's reports as GitHub issues when
+   * FEEDBACK_GITHUB_TOKEN and FEEDBACK_GITHUB_REPO are set (issue #49). One
+   * instance, so its rate limits hold across requests.
+   */
+  get feedbackService(): FeedbackService {
+    if (!this._feedbackService) {
+      this._feedbackService = new FeedbackService();
+      if (this._feedbackService.config.problem) {
+        console.warn(`[feedback] ${this._feedbackService.config.problem}`);
+      }
+    }
+    return this._feedbackService;
   }
 
   /**

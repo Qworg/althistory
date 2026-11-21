@@ -6,6 +6,7 @@ import { UserProfileMenu } from './UserProfileMenu'
 import { GraphSelector, GraphManagerModal } from '@/components/graphs'
 import { CalendarSwitcher } from './CalendarSwitcher'
 import { HelpButton } from '@/components/help/HelpButton'
+import { FeedbackButton } from '@/components/feedback/FeedbackButton'
 import { useGlobalStore } from '@/stores/globalStore'
 import { useApiAccess } from '@/hooks/useGraphs'
 import { LayoutMode } from '@/types'
@@ -94,6 +95,9 @@ export function Header({ isMobile, layoutMode }: HeaderProps) {
             {!isMobile && <CalendarSwitcher />}
 
             {showViewSwitcher && <Navigation />}
+
+            {/* Feedback (issue #49); on a phone it is in the More sheet. */}
+            {!isMobile && <FeedbackButton />}
 
             <HelpButton touch={isMobile} />
 

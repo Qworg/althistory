@@ -3,6 +3,7 @@ import type { AxiosInstance, AxiosResponse, AxiosError } from 'axios'
 import { toGraphVersion, type ServerVersionRef } from './graphVersions'
 import { noticeRateLimited, rateLimitedMessage, refusalStem, retryAfterSeconds } from './rateLimitNotice'
 import { CLIENT_ID, CLIENT_ID_HEADER, CLIENT_KIND_HEADER } from './clientIdentity'
+import { recordApiFailure } from '@/components/feedback/diagnostics'
 
 /** One entity a version added, changed or deleted, by kind and id. */
 export interface VersionEntityRef {
@@ -292,6 +293,20 @@ class APIClient {
                 // A refused request is told to the person, wherever it came from.
                 noticeRateLimited(error.response, error.config)
 
+                // Kept (path, status, code and request id only) for a feedback report.
+                const failure = error.response?.data as { error?: { code?: unknown; requestId?: unknown }; requestId?: unknown } | undefined
+                const requestId = failure?.error?.requestId ?? failure?.requestId
+                const code = failure?.error?.code
+                recordApiFailure({
+                    method: error.config?.method,
+                    url: error.config?.url,
+                    baseURL: error.config?.baseURL,
+                    status: error.response?.status,
+                    code: typeof code === 'string' ? code : error.code,
+                    requestId: typeof requestId === 'string' ? requestId : undefined,
+                    message: error.message,
+                })
+
                 // Log error for debugging
                 console.error('API Error:', {
                     url: error.config?.url,
@@ -304,6 +319,35 @@ class APIClient {
                 return Promise.reject(error)
             }
         )
+    }
+
+    // In-app feedback (issue #49): filed as a GitHub issue when the server has a token.
+    feedback = {
+        getConfig: async (): Promise<{ enabled?: boolean; serverFiling: boolean; repo: string | null }> => {
+            try {
+                const response: AxiosResponse<{ success: boolean; data: { enabled?: boolean; serverFiling: boolean; repo: string | null } }> =
+                    await this.client.get('/feedback/config')
+                return response.data.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
+
+        /** Several GitHub calls, the screenshot among them: longer than the default timeout. */
+        submit: async (report: {
+            kind: 'bug' | 'idea' | 'other'
+            title: string
+            body: string
+            screenshot?: string
+        }): Promise<{ number: number; url: string; screenshotStored: boolean }> => {
+            try {
+                const response: AxiosResponse<{ success: boolean; data: { number: number; url: string; screenshotStored: boolean } }> =
+                    await this.client.post('/feedback', report, { timeout: 60_000 })
+                return response.data.data
+            } catch (error) {
+                handleAPIError(error as AxiosError)
+            }
+        },
     }
 
     // Event operations

@@ -236,6 +236,8 @@ Frequently used variables; the full set with defaults and validation lives in
 | `INGEST_TIMEOUT_MS` | `300000` | Request budget for `/api/ingest`; everything else keeps `QUERY_TIMEOUT_MS` (2 s) |
 | `COPY_TIMEOUT_MS` | `120000` | Request budget for `/api/graphs/copy`; everything else keeps `QUERY_TIMEOUT_MS` (2 s) |
 | `LOCAL_EXPORT_ASYNC_ENTITY_THRESHOLD` | `10000` | Entity count above which an export becomes an async job |
+| `FEEDBACK_ENABLED` | `true` | `false` turns in-app feedback off: no button, no reports ([docs/feedback.md](docs/feedback.md#turning-it-off)) |
+| `FEEDBACK_GITHUB_REPO`, `FEEDBACK_GITHUB_TOKEN` | — | Where in-app feedback goes, and the token the API files it with; without the token the app opens GitHub's prefilled form ([docs/feedback.md](docs/feedback.md)) |
 
 ## API description
 

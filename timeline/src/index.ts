@@ -256,6 +256,8 @@ class Application {
       requestTimeout(this.config.performance.queryTimeoutMs, {
         '/api/ingest': this.config.performance.ingestTimeoutMs ?? 300000,
         '/api/graphs/copy': this.config.performance.copyTimeoutMs ?? 120000,
+        // Filing a report is a few GitHub calls, each with its own 10 s deadline.
+        '/api/feedback': 45000,
       })
     );
     this.app.use(validateJsonRequest);

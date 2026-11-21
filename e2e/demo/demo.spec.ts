@@ -284,3 +284,31 @@ test('a link opens on deep time, 252 million years on one axis', async ({ page }
   await expect(page.getByRole('button', { name: /Search and select an actor/ })).toBeVisible()
   expect(errors).toEqual([])
 })
+
+test('feedback goes to GitHub’s form, with nothing sent from the page itself', async ({ page, context, baseURL }) => {
+  const outside = forbidNetwork(page, baseURL!)
+  const opened: string[] = []
+  await context.route('https://github.com/**', (route) => {
+    opened.push(route.request().url())
+    return route.fulfill({ status: 200, contentType: 'text/html', body: '<title>GitHub</title>' })
+  })
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+
+  await page.goto('./')
+  await expect(page.getByText(COUNTS)).toBeVisible()
+  await page.getByRole('button', { name: /Send feedback/ }).click()
+  const dialog = page.getByRole('dialog', { name: 'Send feedback' })
+  await expect(dialog.getByRole('img', { name: 'The page as it was when you opened this' })).toBeVisible()
+  await dialog.getByLabel('Title').fill('A demo report')
+
+  const tab = context.waitForEvent('page')
+  await dialog.getByRole('link', { name: /Continue on GitHub/ }).click()
+  await (await tab).waitForLoadState()
+
+  const url = new URL(opened[0]!)
+  expect(url.origin + url.pathname).toBe('https://github.com/Qworg/althistory/issues/new')
+  expect(url.searchParams.get('body')).toContain('the Pages demo')
+  await expect(dialog.getByText(/screenshot is on your clipboard: paste it/)).toBeVisible()
+  // The demo has no server to ask, and the capture fetched nothing from elsewhere.
+  expect(outside).toEqual([])
+})

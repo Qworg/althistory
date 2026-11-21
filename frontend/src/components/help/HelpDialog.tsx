@@ -10,6 +10,7 @@ import {
 } from './shortcuts'
 import { GLOSSARY, filterGlossary } from './glossary'
 import { Keycap } from './Keycap'
+import { useFeedbackStore } from '@/components/feedback/feedbackStore'
 
 const TABS: ReadonlyArray<{ id: HelpTab; label: string }> = [
   { id: 'shortcuts', label: 'Keyboard shortcuts' },
@@ -54,10 +55,12 @@ function ShortcutRow({ shortcut }: { shortcut: Shortcut }) {
 
 function ShortcutsPanel() {
   const headingPrefix = useId()
+  // Feedback's key is listed only where feedback is offered.
+  const feedbackAvailable = useFeedbackStore((state) => state.available)
   return (
     <div className="space-y-5">
       {SHORTCUT_SCOPES.map((scope) => {
-        const shortcuts = shortcutsForScope(scope.id)
+        const shortcuts = shortcutsForScope(scope.id).filter((shortcut) => feedbackAvailable || shortcut.id !== 'feedback')
         if (shortcuts.length === 0) return null
         const headingId = `${headingPrefix}-${scope.id}`
         return (
@@ -128,6 +131,7 @@ export function HelpDialog() {
   const tab = useHelpStore((state) => state.tab)
   const setTab = useHelpStore((state) => state.setTab)
   const closeHelp = useHelpStore((state) => state.closeHelp)
+  const feedbackAvailable = useFeedbackStore((state) => state.available)
 
   const idPrefix = useId()
   const tabRefs = useRef<Partial<Record<HelpTab, HTMLButtonElement | null>>>({})
@@ -182,7 +186,31 @@ export function HelpDialog() {
   return (
     // Not an interactive element: it only stops key events bubbling out of the dialog.
     <div onKeyDown={containKeys}>
-      <ModalBase isOpen onClose={closeHelp} title="Help & reference" size="2xl">
+      <ModalBase
+        isOpen
+        onClose={closeHelp}
+        title="Help & reference"
+        size="2xl"
+        footer={
+          feedbackAvailable && (
+          <p className="mr-auto text-sm text-ink-secondary">
+            Found a problem, or have an idea?{' '}
+            <button
+              type="button"
+              onClick={() => {
+                // Closed first, so the report's screenshot shows the page, not this dialog.
+                closeHelp()
+                void useFeedbackStore.getState().openFeedback()
+              }}
+              className="font-medium text-baseline underline hover:no-underline focus:outline-none focus-visible:ring-2 focus-visible:ring-selected rounded-sm"
+            >
+              Send feedback
+            </button>{' '}
+            <span className="text-ink-muted">(Shift+I)</span>
+          </p>
+          )
+        }
+      >
         <div
           role="tablist"
           aria-label="Help sections"
