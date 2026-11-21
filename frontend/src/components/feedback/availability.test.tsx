@@ -86,7 +86,7 @@ describe('turning feedback off', () => {
     expect(useFeedbackStore.getState().available).toBe(false)
   })
 
-  it('stops offering it, and closes, when a report finds the server has turned it off since', async () => {
+  it('says a report was not sent, with the text to keep, when the server has turned feedback off since', async () => {
     api.getConfig.mockResolvedValue({ enabled: true, serverFiling: true, repo: 'o/r' })
     api.submit.mockRejectedValue(new APIError('Feedback is turned off on this server.', 404, 'FEEDBACK_DISABLED'))
     renderWithProviders(<App />)
@@ -94,11 +94,42 @@ describe('turning feedback off', () => {
     await act(async () => {
       await useFeedbackStore.getState().openFeedback()
     })
-    fireEvent.change(await screen.findByLabelText('Title'), { target: { value: 'x' } })
+    fireEvent.change(await screen.findByLabelText('Title'), { target: { value: 'Kept title' } })
+    fireEvent.change(screen.getByLabelText('Details'), { target: { value: 'Kept words' } })
     fireEvent.click(await screen.findByRole('button', { name: 'Send report' }))
-    await waitFor(() => expect(useFeedbackStore.getState().phase).toBe('closed'))
+
+    expect(await screen.findByText('Your report was not sent.')).toBeInTheDocument()
+    expect((screen.getByLabelText('What you wrote') as HTMLTextAreaElement).value).toBe('Kept title\n\nKept words')
+    expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus()
+    // Not offered any more in this tab.
     await waitFor(() => expect(useFeedbackStore.getState().available).toBe(false))
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(useFeedbackStore.getState().phase).toBe('closed')
     expect(screen.queryByRole('button', { name: /Send feedback/ })).not.toBeInTheDocument()
+  })
+
+  it('a tab open since before feedback was turned off learns it when feedback is next opened', async () => {
+    api.getConfig.mockResolvedValueOnce({ enabled: true, serverFiling: false, repo: 'o/r' })
+    renderWithProviders(<App />)
+    expect(await screen.findByRole('button', { name: /Send feedback/ })).toBeInTheDocument()
+
+    // The operator turns it off; this tab still has the old answer.
+    api.getConfig.mockResolvedValue({ enabled: false, serverFiling: false, repo: null })
+    fireEvent.click(screen.getByRole('button', { name: /Send feedback/ }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Send feedback/ })).not.toBeInTheDocument())
+    await waitFor(() => expect(useFeedbackStore.getState().phase).toBe('closed'))
+    expect(screen.queryByRole('dialog', { name: 'Send feedback' })).not.toBeInTheDocument()
+  })
+
+  it('keeps the earlier answer when the server cannot be asked again as feedback opens', async () => {
+    api.getConfig.mockResolvedValueOnce({ enabled: true, serverFiling: false, repo: 'o/r' })
+    renderWithProviders(<App />)
+    await waitFor(() => expect(useFeedbackStore.getState().available).toBe(true))
+    api.getConfig.mockRejectedValue(new APIError('Bad Gateway', 502))
+    await act(async () => {
+      await useFeedbackStore.getState().openFeedback()
+    })
+    expect(await screen.findByRole('dialog', { name: 'Send feedback' })).toBeInTheDocument()
   })
 
   it('leaves Shift+I alone, and does not list it in Help, where feedback is off', async () => {

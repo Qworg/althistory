@@ -26,6 +26,7 @@ type Outcome =
   | { kind: 'form' }
   | { kind: 'sending' }
   | { kind: 'filed'; number: number; url: string; screenshotStored: boolean }
+  | { kind: 'disabled' }
   | { kind: 'opened'; clipboard: 'pending' | 'image' | 'text' | 'failed' | 'none'; bodyOnClipboard: boolean }
 
 /** The server's own refusals: GitHub said no, or the server was never going to ask it. Nothing was filed. */
@@ -129,13 +130,13 @@ export function FeedbackDialog() {
   // form) any way of closing clears the draft, so it cannot be sent twice.
   const close = () => {
     if (sending) return
-    if (outcome.kind === 'filed' || outcome.kind === 'opened') clearDraft()
+    if (outcome.kind === 'filed' || outcome.kind === 'opened' || outcome.kind === 'disabled') clearDraft()
     closeFeedback()
   }
 
   // Focus follows the dialog to its new content: otherwise it falls to <body>.
   useEffect(() => {
-    if (outcome.kind === 'filed' || outcome.kind === 'opened') doneRef.current?.focus()
+    if (outcome.kind === 'filed' || outcome.kind === 'opened' || outcome.kind === 'disabled') doneRef.current?.focus()
   }, [outcome.kind])
 
   const issuesUrl = `https://github.com/${repo}/issues?q=${encodeURIComponent('is:issue label:feedback sort:created-desc')}`
@@ -162,7 +163,8 @@ export function FeedbackDialog() {
           ...(old ?? { serverFiling: false, repo: null }),
           enabled: false,
         }))
-        closeFeedback()
+        // Said, with the text to keep: closing silently would look like success.
+        setOutcome({ kind: 'disabled' })
         return
       }
       setOutcome({ kind: 'form' })
@@ -253,13 +255,36 @@ export function FeedbackDialog() {
   const announcement =
     outcome.kind === 'filed'
       ? `Report sent. It is issue ${outcome.number}.`
-      : outcome.kind === 'opened'
+      : outcome.kind === 'disabled'
+        ? 'Not sent: feedback has been turned off on this server.'
+        : outcome.kind === 'opened'
         ? 'GitHub’s form is open in a new tab.'
         : sending
           ? 'Sending the report.'
           : ''
 
-  if (outcome.kind === 'filed') {
+  if (outcome.kind === 'disabled') {
+    const kept = [draft.title.trim(), draft.description.trim()].filter(Boolean).join('\n\n')
+    body = (
+      <div className="space-y-3 text-sm text-ink-secondary">
+        <p className="text-base text-ink">Your report was not sent.</p>
+        <p>Feedback has been turned off on this server since the page opened. Here is what you wrote, to keep:</p>
+        <textarea
+          readOnly
+          value={kept}
+          aria-label="What you wrote"
+          rows={6}
+          onFocus={(event) => event.currentTarget.select()}
+          className={inputClass}
+        />
+      </div>
+    )
+    footer = (
+      <button ref={doneRef} type="button" className={primaryClass} onClick={close}>
+        Close
+      </button>
+    )
+  } else if (outcome.kind === 'filed') {
     body = (
       <div className="space-y-3 text-sm text-ink-secondary">
         <p className="text-base text-ink">Thank you. Your report is issue #{outcome.number}.</p>

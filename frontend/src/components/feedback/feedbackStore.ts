@@ -45,6 +45,12 @@ interface FeedbackState {
   /** Whether feedback is offered here (built in, and not turned off by the server); set by FeedbackHost. */
   available: boolean
   setAvailable: (available: boolean) => void
+  /**
+   * Asks the server again, as feedback opens: false when it now says feedback
+   * is off. Set by FeedbackHost; a tab open across the switch learns it here.
+   */
+  confirmAvailable: () => Promise<boolean>
+  setConfirmAvailable: (confirm: () => Promise<boolean>) => void
   openFeedback: () => Promise<void>
   closeFeedback: () => void
   updateDraft: (patch: Partial<FeedbackDraft>) => void
@@ -79,6 +85,8 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
   openCount: 0,
   available: false,
   setAvailable: (available) => set({ available }),
+  confirmAvailable: async () => true,
+  setConfirmAvailable: (confirmAvailable) => set({ confirmAvailable }),
 
   openFeedback: async () => {
     // Turned off on this install (or not known yet): every way in leads here, so it stops here.
@@ -88,10 +96,12 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
     // Made before waiting for paint, so Escape in those frames cancels it too.
     const controller = new AbortController()
     capturing = controller
-    await afterPaint()
-    // Cancelled while waiting: draw nothing, so the page is never shifted.
-    if (controller.signal.aborted || get().openCount !== opening) {
+    // The server is asked again while the opener closes and the page paints.
+    const [stillOn] = await Promise.all([get().confirmAvailable().catch(() => true), afterPaint()])
+    // Cancelled while waiting, or turned off since: draw nothing, so the page is never shifted.
+    if (controller.signal.aborted || get().openCount !== opening || !stillOn) {
       if (capturing === controller) capturing = null
+      if (!stillOn && get().openCount === opening) set({ phase: 'closed' })
       return
     }
     // The state first: it is what the reporter saw, before anything else changes.

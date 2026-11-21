@@ -14,7 +14,7 @@ switches:
 | Switch | Where | Effect |
 | --- | --- | --- |
 | `FEEDBACK_ENABLED=false` | The API's environment (compose passes it through from `.env`) | No rebuild. `GET /api/feedback/config` answers `enabled: false`, so the app offers no button, More entry, Help link or Shift+I, and `POST /api/feedback` answers `404` (`FEEDBACK_DISABLED`), whatever token is set. |
-| `VITE_FEEDBACK_ENABLED=false` | A build argument of the SPA (`docker compose build web`) | The app never offers feedback and never asks the server, and does not record recent errors for reports. |
+| `VITE_FEEDBACK_ENABLED=false` | A build argument of the SPA (`docker compose build web`) | The app never offers feedback and never asks the server: no button, no shortcut listener, no error recorder. The code still ships in the bundle; it is switched off, not removed. |
 
 Both read their value the same way: unset, `true`, `1`, `yes` or `on` is on;
 `false`, `0`, `no`, `off`, or anything that is not clearly a yes, is off. The
@@ -27,8 +27,13 @@ even for a moment. A failed answer (a `502` while the API restarts after
 operator's choice, so the app offers nothing, and asks again with its usual
 retries. Only a `404`, from a server older than this feature, makes the app
 offer feedback without an answer, through GitHub's form, which needs no server.
-A tab that was open when feedback was turned off learns it from its next
-report (`404 FEEDBACK_DISABLED`): the dialog closes and the button goes.
+A tab that was open when feedback was turned off learns it the next time
+feedback is opened: the app asks the server again as it opens, and stops (the
+button goes) if the answer is now off. It also asks again when the window
+regains focus after five minutes. If the server cannot be asked at that
+moment, the answer it gave before stands. A report that still reaches a
+server that turned feedback off is refused (`404 FEEDBACK_DISABLED`). The
+dialog then says it was not sent and shows the text, so nothing is lost.
 
 ## How a report reaches GitHub
 

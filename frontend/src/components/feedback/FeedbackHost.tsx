@@ -1,4 +1,7 @@
 import { useEffect } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { apiClient } from '@/services/api'
+import { DEMO_MODE } from '@/demo/flag'
 import { useActiveGraph } from '@/hooks/useGraphs'
 import { useFeedbackStore } from './feedbackStore'
 import { FeedbackDialog } from './FeedbackDialog'
@@ -54,6 +57,28 @@ export function FeedbackHost() {
   const available = feedbackAvailable(useFeedbackConfig())
   const setAvailable = useFeedbackStore((state) => state.setAvailable)
   useEffect(() => setAvailable(available), [available, setAvailable])
+
+  // As feedback opens, ask the server again: a tab open since before the
+  // operator turned it off learns it now. Only a clear "off" stops it; if the
+  // server cannot answer, the answer it gave before stands.
+  const queryClient = useQueryClient()
+  const setConfirmAvailable = useFeedbackStore((state) => state.setConfirmAvailable)
+  useEffect(() => {
+    setConfirmAvailable(async () => {
+      if (DEMO_MODE) return true
+      try {
+        const config = await queryClient.fetchQuery({
+          queryKey: ['feedback-config'],
+          queryFn: () => apiClient.feedback.getConfig(),
+          staleTime: 0,
+          retry: false,
+        })
+        return config.enabled !== false
+      } catch {
+        return true
+      }
+    })
+  }, [queryClient, setConfirmAvailable])
   const { data: graph } = useActiveGraph()
   const setExtras = useFeedbackStore((state) => state.setExtras)
 

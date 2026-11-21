@@ -15,7 +15,9 @@ export function useFeedbackConfig() {
     queryKey: ['feedback-config'],
     queryFn: () => apiClient.feedback.getConfig(),
     enabled: FEEDBACK_BUILT_IN && !DEMO_MODE,
-    staleTime: Infinity,
+    // Asked again on focus after a while, so a long-open tab follows the
+    // operator's switch; opening feedback asks again too (FeedbackHost).
+    staleTime: 5 * 60_000,
     // The app's usual retries: one failed call must not decide it.
   })
 }
