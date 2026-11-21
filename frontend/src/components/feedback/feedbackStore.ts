@@ -26,6 +26,9 @@ const EMPTY_DRAFT: FeedbackDraft = {
  */
 const CAPTURE_TIMEOUT_MS = 8000
 
+/** How long, after the capture, the dialog waits for the server's fresh answer. */
+const RECHECK_MS = 1500
+
 /** The capture in progress, so closing (Escape) can cancel it and put the page back. */
 let capturing: AbortController | null = null
 
@@ -51,6 +54,9 @@ interface FeedbackState {
    */
   confirmAvailable: () => Promise<boolean>
   setConfirmAvailable: (confirm: () => Promise<boolean>) => void
+  /** A word for the reporter when feedback could not open (it was turned off); FeedbackHost shows it. */
+  notice: string | null
+  clearNotice: () => void
   openFeedback: () => Promise<void>
   closeFeedback: () => void
   updateDraft: (patch: Partial<FeedbackDraft>) => void
@@ -87,6 +93,8 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
   setAvailable: (available) => set({ available }),
   confirmAvailable: async () => true,
   setConfirmAvailable: (confirmAvailable) => set({ confirmAvailable }),
+  notice: null,
+  clearNotice: () => set({ notice: null }),
 
   openFeedback: async () => {
     // Turned off on this install (or not known yet): every way in leads here, so it stops here.
@@ -96,12 +104,14 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
     // Made before waiting for paint, so Escape in those frames cancels it too.
     const controller = new AbortController()
     capturing = controller
-    // The server is asked again while the opener closes and the page paints.
-    const [stillOn] = await Promise.all([get().confirmAvailable().catch(() => true), afterPaint()])
-    // Cancelled while waiting, or turned off since: draw nothing, so the page is never shifted.
-    if (controller.signal.aborted || get().openCount !== opening || !stillOn) {
+    // The server is asked again alongside the capture, never in front of it:
+    // what is captured is the page as it was asked for. A slow answer gets
+    // RECHECK_MS after the capture; then the answer it gave before stands.
+    const recheck = get().confirmAvailable().catch(() => true)
+    await afterPaint()
+    // Cancelled while waiting: draw nothing, so the page is never shifted.
+    if (controller.signal.aborted || get().openCount !== opening) {
       if (capturing === controller) capturing = null
-      if (!stillOn && get().openCount === opening) set({ phase: 'closed' })
       return
     }
     // The state first: it is what the reporter saw, before anything else changes.
@@ -120,6 +130,13 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
     // Cancelled while capturing (Escape, handled by FeedbackHost): stay closed. And
     // if it was cancelled and opened again, this capture is not the new one's.
     if (get().phase !== 'capturing' || get().openCount !== opening) return
+    const stillOn = await Promise.race([recheck, new Promise<boolean>((resolve) => setTimeout(() => resolve(true), RECHECK_MS))])
+    if (get().phase !== 'capturing' || get().openCount !== opening) return
+    if (!stillOn) {
+      // Turned off since this tab asked: say so, rather than vanish.
+      set({ phase: 'closed', notice: 'Feedback has been turned off on this server.' })
+      return
+    }
     set({ phase: 'open', context, screenshot, screenshotError })
   },
 

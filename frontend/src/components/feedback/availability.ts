@@ -30,9 +30,17 @@ export function useFeedbackConfig() {
  * form needs no server). A 5xx while the API restarts, a network error, or a
  * proxy's 403 says nothing about the operator's choice, so it offers nothing.
  */
-export function feedbackAvailable(config: Pick<ReturnType<typeof useFeedbackConfig>, 'data' | 'error'>): boolean {
+export function feedbackAvailable(
+  config: Pick<ReturnType<typeof useFeedbackConfig>, 'data' | 'error'>,
+  /** Whether the server has ever answered 404 here: a later failed refetch does not make it newer. */
+  sawNotFound = false
+): boolean {
   if (!FEEDBACK_BUILT_IN) return false
   if (DEMO_MODE) return true
   if (config.data) return config.data.enabled !== false
-  return config.error instanceof APIError && config.error.status === 404
+  return sawNotFound || isNotFound(config.error)
+}
+
+export function isNotFound(error: unknown): boolean {
+  return error instanceof APIError && error.status === 404
 }

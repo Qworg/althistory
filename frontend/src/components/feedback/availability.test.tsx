@@ -174,3 +174,54 @@ describe('turning feedback off', () => {
     expect(readSwitch(value)).toBe(on)
   })
 })
+
+describe('the recheck, after the sixth review', () => {
+  beforeEach(() => {
+    useFeedbackStore.setState({ phase: 'closed', available: false, notice: null })
+    api.getConfig.mockReset()
+  })
+
+  it('captures the page as it was asked for, not after a slow answer', async () => {
+    api.getConfig.mockResolvedValueOnce({ enabled: true, serverFiling: false, repo: 'o/r' })
+    renderWithProviders(<App />)
+    await waitFor(() => expect(useFeedbackStore.getState().available).toBe(true))
+    // The recheck never answers.
+    api.getConfig.mockReturnValue(new Promise(() => undefined))
+    window.history.pushState({}, '', '/timeline')
+    const opening = useFeedbackStore.getState().openFeedback()
+    await waitFor(() => expect(useFeedbackStore.getState().phase).toBe('capturing'))
+    // The reporter moves on while the server is slow.
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 60)))
+    window.history.pushState({}, '', '/causal-graph')
+    await act(async () => {
+      await opening
+    })
+    expect(useFeedbackStore.getState().phase).toBe('open')
+    expect(useFeedbackStore.getState().context?.page.route).toBe('/timeline')
+    window.history.pushState({}, '', '/')
+  })
+
+  it('a failed recheck does not undo a 404 that offered feedback', async () => {
+    api.getConfig.mockRejectedValueOnce(new APIError('Not found', 404, 'NOT_FOUND'))
+    renderWithProviders(<App />)
+    await waitFor(() => expect(useFeedbackStore.getState().available).toBe(true))
+    api.getConfig.mockRejectedValue(new APIError('Bad Gateway', 502))
+    await act(async () => {
+      await useFeedbackStore.getState().openFeedback()
+    })
+    expect(useFeedbackStore.getState().phase).toBe('open')
+    expect(useFeedbackStore.getState().available).toBe(true)
+  })
+
+  it('says so when the recheck finds feedback turned off', async () => {
+    api.getConfig.mockResolvedValueOnce({ enabled: true, serverFiling: false, repo: 'o/r' })
+    renderWithProviders(<App />)
+    await waitFor(() => expect(useFeedbackStore.getState().available).toBe(true))
+    api.getConfig.mockResolvedValue({ enabled: false, serverFiling: false, repo: null })
+    await act(async () => {
+      await useFeedbackStore.getState().openFeedback()
+    })
+    expect(useFeedbackStore.getState().phase).toBe('closed')
+    expect(await screen.findByText('Feedback has been turned off on this server.')).toBeInTheDocument()
+  })
+})

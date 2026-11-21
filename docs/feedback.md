@@ -28,10 +28,13 @@ operator's choice, so the app offers nothing, and asks again with its usual
 retries. Only a `404`, from a server older than this feature, makes the app
 offer feedback without an answer, through GitHub's form, which needs no server.
 A tab that was open when feedback was turned off learns it the next time
-feedback is opened: the app asks the server again as it opens, and stops (the
-button goes) if the answer is now off. It also asks again when the window
-regains focus after five minutes. If the server cannot be asked at that
-moment, the answer it gave before stands. A report that still reaches a
+feedback is opened. The app asks the server again alongside the capture (never
+in front of it, so the picture and state are the page as it was asked for). If
+the answer is now off, it says "Feedback has been turned off on this server"
+and the button goes. It also asks again when the window regains focus after
+five minutes. An answer slower than a second and a half after the capture, or
+a failed one, leaves the earlier answer standing. That includes a `404`: a
+server older than feedback stays older. A report that still reaches a
 server that turned feedback off is refused (`404 FEEDBACK_DISABLED`). The
 dialog then says it was not sent and shows the text, so nothing is lost.
 

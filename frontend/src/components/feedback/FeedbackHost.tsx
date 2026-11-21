@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/services/api'
 import { DEMO_MODE } from '@/demo/flag'
@@ -6,7 +6,33 @@ import { useActiveGraph } from '@/hooks/useGraphs'
 import { useFeedbackStore } from './feedbackStore'
 import { FeedbackDialog } from './FeedbackDialog'
 import { useFeedbackShortcut } from './useFeedbackShortcut'
-import { feedbackAvailable, useFeedbackConfig } from './availability'
+import { feedbackAvailable, isNotFound, useFeedbackConfig } from './availability'
+
+/**
+ * A word when feedback could not open (turned off since this tab asked). It
+ * clears itself; focus, which was on the button now gone, goes to the view.
+ */
+function FeedbackNotice() {
+  const notice = useFeedbackStore((state) => state.notice)
+  const clearNotice = useFeedbackStore((state) => state.clearNotice)
+  useEffect(() => {
+    if (!notice) return
+    if (document.activeElement === document.body || !document.activeElement?.isConnected) {
+      document.getElementById('main-view')?.focus()
+    }
+    const timer = setTimeout(clearNotice, 5000)
+    return () => clearTimeout(timer)
+  }, [notice, clearNotice])
+  return (
+    <div role="status" aria-live="polite" className="pointer-events-none fixed left-1/2 top-3 z-[70] -translate-x-1/2">
+      {notice && (
+        <p className="rounded-full border border-line bg-card px-3 py-1.5 text-xs font-medium text-ink-secondary shadow-md">
+          {notice}
+        </p>
+      )}
+    </div>
+  )
+}
 
 /** Says the screen is being captured. Left out of the picture itself (`data-feedback-ignore`). */
 function CapturingNotice() {
@@ -54,25 +80,46 @@ export function FeedbackHost() {
   useFeedbackShortcut()
   useCaptureKeys()
   const openCount = useFeedbackStore((state) => state.openCount)
-  const available = feedbackAvailable(useFeedbackConfig())
+  const config = useFeedbackConfig()
+  // A server older than feedback stays older: once it has answered 404, a later
+  // refetch that fails (a 502 while it restarts) does not take feedback away.
+  const sawNotFound = useRef(false)
+  if (isNotFound(config.error)) sawNotFound.current = true
+  const available = feedbackAvailable(config, sawNotFound.current)
   const setAvailable = useFeedbackStore((state) => state.setAvailable)
   useEffect(() => setAvailable(available), [available, setAvailable])
 
   // As feedback opens, ask the server again: a tab open since before the
   // operator turned it off learns it now. Only a clear "off" stops it; if the
   // server cannot answer, the answer it gave before stands.
+  // Closing returns focus to what opened feedback; if that was the button and
+  // it has gone (feedback was turned off meanwhile), the view takes it instead.
+  const phase = useFeedbackStore((state) => state.phase)
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    // Only on a close: not on load, when the phase starts closed.
+    if (phase !== 'closed') {
+      wasOpen.current = true
+      return
+    }
+    if (!wasOpen.current) return
+    wasOpen.current = false
+    const frame = requestAnimationFrame(() => {
+      if (document.activeElement === document.body) document.getElementById('main-view')?.focus()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [phase])
+
   const queryClient = useQueryClient()
   const setConfirmAvailable = useFeedbackStore((state) => state.setConfirmAvailable)
   useEffect(() => {
     setConfirmAvailable(async () => {
       if (DEMO_MODE) return true
       try {
-        const config = await queryClient.fetchQuery({
-          queryKey: ['feedback-config'],
-          queryFn: () => apiClient.feedback.getConfig(),
-          staleTime: 0,
-          retry: false,
-        })
+        // Asked directly, and stored only when it answers: a failed recheck
+        // must not replace what the query knew (a 404 that offered feedback).
+        const config = await apiClient.feedback.getConfig()
+        queryClient.setQueryData(['feedback-config'], config)
         return config.enabled !== false
       } catch {
         return true
@@ -92,6 +139,7 @@ export function FeedbackHost() {
   return (
     <>
       <CapturingNotice />
+      <FeedbackNotice />
       <FeedbackDialog key={openCount} />
     </>
   )
