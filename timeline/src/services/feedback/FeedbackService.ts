@@ -92,6 +92,11 @@ export interface FiledIssue {
 }
 
 const REPO_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+/** `.` and `..` match the pattern but would walk the API path (`x/..` is `/repos`). */
+const isRepoName = (value: string): boolean =>
+  REPO_PATTERN.test(value) && value.split('/').every((part) => part !== '.' && part !== '..');
+/** A token goes in a header: anything else (a line break, a space) would put it in an error message. */
+const TOKEN_PATTERN = /^[\x21-\x7e]+$/;
 const BRANCH_PATTERN = /^(?!\/)(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9._/-]+(?<![/.])$/;
 
 function positiveInt(raw: string | undefined, fallback: number): number {
@@ -118,11 +123,16 @@ export function readFeedbackConfig(env: NodeJS.ProcessEnv = process.env): Feedba
   const rawRepo = env.FEEDBACK_GITHUB_REPO?.trim() || '';
   let repo: string | null = null;
   if (rawRepo) {
-    if (REPO_PATTERN.test(rawRepo)) repo = rawRepo;
+    if (isRepoName(rawRepo)) repo = rawRepo;
     else problems.push(`FEEDBACK_GITHUB_REPO must be "owner/name", not "${rawRepo}"`);
   }
 
   let token = env.FEEDBACK_GITHUB_TOKEN?.trim() || null;
+  if (token && !TOKEN_PATTERN.test(token)) {
+    // Never echo it: the message is logged.
+    problems.push('FEEDBACK_GITHUB_TOKEN contains spaces or control characters, so the server will not file reports');
+    token = null;
+  }
   if (token && !repo) {
     problems.push('FEEDBACK_GITHUB_TOKEN is set but FEEDBACK_GITHUB_REPO is not, so the server will not file reports');
     token = null;
@@ -157,17 +167,28 @@ export function readFeedbackConfig(env: NodeJS.ProcessEnv = process.env): Feedba
 const ZWSP = '\u200B';
 
 /**
+ * Character references GitHub decodes to `@` or `#` (`&#64;`, `&#x40;`,
+ * `&commat;`, `&#35;`, `&num;`, ...), with or without the semicolon an HTML
+ * block may leave off. They are decoded first, so the rule below sees them.
+ */
+const AT_REFERENCE = /&(?:commat;|#0*64;?|#x0*40;?)/gi;
+const HASH_REFERENCE = /&(?:num;|#0*35;?|#x0*23;?)/gi;
+
+/**
  * Make text inert on GitHub: no `@mention` notifies anyone and no `#123`,
  * `owner/repo#123`, `GH-123` or issue URL cross-references an issue. A
  * zero-width space after the `@` or `#` (or before the number) is what
  * Dependabot and Renovate do; the text still reads the same.
  *
  * An email address is left alone: GitHub does not mention from one, because
- * its `@` follows a word character.
+ * its `@` follows a word character. A backtick does not protect a mention: after
+ * a closed code span, `` `x`@user `` mentions. The rule is idempotent.
  */
 export function neutralizeGitHubReferences(text: string): string {
   return text
-    .replace(/(^|[^A-Za-z0-9_`])@(?=[A-Za-z0-9_-])/g, `$1@${ZWSP}`)
+    .replace(AT_REFERENCE, '@')
+    .replace(HASH_REFERENCE, '#')
+    .replace(/(^|[^A-Za-z0-9_])@(?=[A-Za-z0-9_-])/g, `$1@${ZWSP}`)
     .replace(/#(?=\d)/g, `#${ZWSP}`)
     .replace(/\bGH-(?=\d)/gi, (match) => `${match}${ZWSP}`)
     .replace(/\/(issues|pull|pulls|discussions)\/(?=\d)/gi, `/$1/${ZWSP}`);
@@ -224,15 +245,17 @@ export function readFeedbackReport(raw: unknown): FeedbackReport {
   }
 
   if (typeof input.title !== 'string') throw new ValidationError('title is required', 'title');
-  // A title is one line: GitHub would show a newline as a space anyway.
-  const title = input.title.replace(/\s+/g, ' ').trim();
+  // A title is one line: GitHub would show a newline as a space anyway. It is
+  // measured as it will be filed, after neutralising (which adds characters).
+  const title = neutralizeGitHubReferences(input.title.replace(/\s+/g, ' ').trim());
   if (title.length === 0) throw new ValidationError('title is required', 'title');
   if (title.length > FEEDBACK_LIMITS.titleChars) {
     throw new ValidationError(`title is longer than ${FEEDBACK_LIMITS.titleChars} characters`, 'title');
   }
 
-  const body = input.body ?? '';
-  if (typeof body !== 'string') throw new ValidationError('body must be text', 'body');
+  const rawBody = input.body ?? '';
+  if (typeof rawBody !== 'string') throw new ValidationError('body must be text', 'body');
+  const body = neutralizeGitHubReferences(rawBody);
   if (body.length > FEEDBACK_LIMITS.bodyChars) {
     throw new ValidationError(`body is longer than ${FEEDBACK_LIMITS.bodyChars} characters`, 'body');
   }
@@ -282,13 +305,31 @@ export class FeedbackRateLimiter {
   }
 }
 
+/**
+ * GitHub may have filed the issue and the server cannot tell: the call timed
+ * out, failed in flight, or GitHub answered 5xx or an unreadable 201. The app
+ * says so, so the reporter checks before sending again.
+ */
+export class FeedbackMaybeFiledError extends UpstreamServiceError {
+  constructor(message: string, upstreamStatus: number, cause?: Error) {
+    super(message, 502, 'github', upstreamStatus, undefined, cause);
+  }
+}
+
 type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 
 /** One GitHub call's own deadline, so a hung connection cannot hold a request forever. */
 const GITHUB_CALL_TIMEOUT_MS = 10_000;
+/**
+ * All of a report's calls together, so the answer comes inside the route's
+ * 45 s budget and the app's 60 s timeout, however many calls it took.
+ */
+export const FEEDBACK_FILE_BUDGET_MS = 35_000;
 
 export class FeedbackService {
   readonly limiter: FeedbackRateLimiter;
+  /** The repository's default branch, asked once; forgotten if asking failed. */
+  private defaultBranch: Promise<string> | null = null;
 
   constructor(
     readonly config: FeedbackConfig = readFeedbackConfig(),
@@ -315,11 +356,12 @@ export class FeedbackService {
       throw new UpstreamServiceError('This server does not file feedback; use the GitHub form', 503, 'github', 0);
     }
 
+    const deadline = Date.now() + FEEDBACK_FILE_BUDGET_MS;
     let screenshotUrl: string | null = null;
     let screenshotStored = true;
     if (report.screenshot) {
       try {
-        screenshotUrl = await this.storeScreenshot(report.screenshot);
+        screenshotUrl = await this.storeScreenshot(report.screenshot, deadline);
       } catch (error) {
         screenshotStored = false;
         console.warn('[feedback] could not store the screenshot:', error instanceof Error ? error.message : error);
@@ -341,65 +383,114 @@ export class FeedbackService {
         'account, so a reply here may not reach them._'
     );
 
-    const response = await this.github('POST', `/repos/${this.config.repo}/issues`, {
-      title: neutralizeGitHubReferences(report.title),
-      body: sections.filter((s) => s.length > 0).join('\n\n'),
-      labels,
-    });
+    let response: Response;
+    try {
+      response = await this.github(
+        'POST',
+        `/repos/${this.config.repo}/issues`,
+        {
+          title: neutralizeGitHubReferences(report.title),
+          body: sections.filter((s) => s.length > 0).join('\n\n'),
+          labels,
+        },
+        // The issue gets at least one full call's time, even after a slow screenshot.
+        Math.max(deadline, Date.now() + GITHUB_CALL_TIMEOUT_MS)
+      );
+    } catch (error) {
+      throw new FeedbackMaybeFiledError(
+        'GitHub did not answer in time, so the issue may or may not have been filed',
+        0,
+        error instanceof Error ? error : undefined
+      );
+    }
+    if (response.status >= 500) {
+      throw new FeedbackMaybeFiledError(`GitHub failed (${response.status}) while filing the issue, which may have been filed`, response.status);
+    }
     if (!response.ok) throw await this.upstreamError('create the issue', response);
-    const issue = (await response.json()) as { number?: unknown; html_url?: unknown };
+    let issue: { number?: unknown; html_url?: unknown };
+    try {
+      issue = (await response.json()) as { number?: unknown; html_url?: unknown };
+    } catch (error) {
+      throw new FeedbackMaybeFiledError('GitHub filed the issue but its answer could not be read', response.status, error instanceof Error ? error : undefined);
+    }
     if (typeof issue.number !== 'number' || typeof issue.html_url !== 'string') {
-      throw new UpstreamServiceError('GitHub answered the new issue without its number or link', 502, 'github', response.status);
+      throw new FeedbackMaybeFiledError('GitHub answered the new issue without its number or link', response.status);
     }
     return { number: issue.number, url: issue.html_url, screenshotStored };
   }
 
-  private async storeScreenshot(screenshot: NonNullable<FeedbackReport['screenshot']>): Promise<string> {
+  private async storeScreenshot(screenshot: NonNullable<FeedbackReport['screenshot']>, deadline: number): Promise<string> {
     const { repo, screenshotBranch: branch } = this.config;
+    // Anonymous reports must never commit to the branch everyone builds from.
+    const defaultBranch = await this.readDefaultBranch(deadline);
+    if (branch === defaultBranch) {
+      throw new Error(`FEEDBACK_SCREENSHOT_BRANCH is the default branch (${branch}); screenshots are not stored there`);
+    }
+
     const month = new Date().toISOString().slice(0, 7);
     const extension = screenshot.type === 'jpeg' ? 'jpg' : screenshot.type;
     const path = `feedback/${month}/${randomUUID()}.${extension}`;
 
     const put = () =>
-      this.github('PUT', `/repos/${repo}/contents/${path}`, {
-        message: 'feedback: add a screenshot',
-        content: screenshot.bytes.toString('base64'),
-        branch,
-      });
+      this.github(
+        'PUT',
+        `/repos/${repo}/contents/${path}`,
+        { message: 'feedback: add a screenshot', content: screenshot.bytes.toString('base64'), branch },
+        deadline
+      );
 
     let response = await put();
     // A missing branch is a 404 (or, on some GitHub versions, a 422 naming the branch).
     if (response.status === 404 || response.status === 422) {
-      await this.ensureBranch();
+      await this.ensureBranch(defaultBranch, deadline);
       response = await put();
     }
+    // 409: another report moved the branch's head between our read and write.
+    if (response.status === 409) response = await put();
     if (!response.ok) throw await this.upstreamError('store the screenshot', response);
 
+    // GitHub says where the file is, which is right on GitHub Enterprise too.
+    const stored = (await response.json().catch(() => ({}))) as { content?: { html_url?: unknown } };
+    const htmlUrl = stored.content?.html_url;
+    if (typeof htmlUrl === 'string' && /^https:\/\//.test(htmlUrl)) return `${htmlUrl}?raw=true`;
     return `https://github.com/${repo}/blob/${encodeURIComponent(branch).replace(/%2F/g, '/')}/${path}?raw=true`;
   }
 
+  private readDefaultBranch(deadline: number): Promise<string> {
+    if (!this.defaultBranch) {
+      this.defaultBranch = (async () => {
+        const repository = await this.github('GET', `/repos/${this.config.repo}`, undefined, deadline);
+        if (!repository.ok) throw await this.upstreamError('read the repository', repository);
+        const name = ((await repository.json()) as { default_branch?: unknown }).default_branch;
+        if (typeof name !== 'string') throw new Error('GitHub did not say which branch is the default');
+        return name;
+      })();
+      this.defaultBranch.catch(() => {
+        this.defaultBranch = null;
+      });
+    }
+    return this.defaultBranch;
+  }
+
   /** Create the screenshot branch from the default branch's head, unless it exists. */
-  private async ensureBranch(): Promise<void> {
+  private async ensureBranch(defaultBranch: string, deadline: number): Promise<void> {
     const { repo, screenshotBranch: branch } = this.config;
-    const existing = await this.github('GET', `/repos/${repo}/git/ref/heads/${branch}`);
+    const existing = await this.github('GET', `/repos/${repo}/git/ref/heads/${branch}`, undefined, deadline);
     if (existing.ok) return;
 
-    const repository = await this.github('GET', `/repos/${repo}`);
-    if (!repository.ok) throw await this.upstreamError('read the repository', repository);
-    const defaultBranch = ((await repository.json()) as { default_branch?: unknown }).default_branch;
-    if (typeof defaultBranch !== 'string') throw new Error('GitHub did not say which branch is the default');
-
-    const head = await this.github('GET', `/repos/${repo}/git/ref/heads/${defaultBranch}`);
+    const head = await this.github('GET', `/repos/${repo}/git/ref/heads/${defaultBranch}`, undefined, deadline);
     if (!head.ok) throw await this.upstreamError('read the default branch', head);
     const sha = ((await head.json()) as { object?: { sha?: unknown } }).object?.sha;
     if (typeof sha !== 'string') throw new Error('GitHub did not give the default branch a commit');
 
-    const created = await this.github('POST', `/repos/${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha });
+    const created = await this.github('POST', `/repos/${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha }, deadline);
     // 422: another report created it first.
     if (!created.ok && created.status !== 422) throw await this.upstreamError('create the screenshot branch', created);
   }
 
-  private github(method: string, path: string, body?: unknown): Promise<Response> {
+  private github(method: string, path: string, body: unknown, deadline: number): Promise<Response> {
+    const left = Math.min(GITHUB_CALL_TIMEOUT_MS, deadline - Date.now());
+    if (left <= 0) return Promise.reject(new Error('Out of time for GitHub'));
     return this.fetchImpl(`${this.config.apiBase}${path}`, {
       method,
       headers: {
@@ -410,7 +501,7 @@ export class FeedbackService {
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      signal: AbortSignal.timeout(GITHUB_CALL_TIMEOUT_MS),
+      signal: AbortSignal.timeout(left),
     });
   }
 

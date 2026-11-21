@@ -23,11 +23,16 @@ import {
 import { entityRoutesRequireApiKey } from '@/api/entityAuth';
 import { getContainer } from '@/container';
 import { commitSection } from '@/utils/requestBudget';
-import { FeedbackService, readFeedbackReport } from '@/services/feedback/FeedbackService';
+import { UpstreamServiceError } from '@/utils/errors';
+import { FeedbackMaybeFiledError, FeedbackService, readFeedbackReport } from '@/services/feedback/FeedbackService';
 
-/** Who a report counts against: the key when there is one, else the address. */
-function clientOf(req: AuthenticatedRequest): string {
-  if (req.apiKey?.id) return `key:${req.apiKey.id}`;
+/**
+ * Who a report counts against: the address. Not the key: the bundled app sends
+ * one key for every visitor (VITE_API_KEY), so a per-key bucket would let one
+ * person use up everyone's reports. Behind a proxy, TRUST_PROXY makes this the
+ * real client's address.
+ */
+export function clientOf(req: Pick<AuthenticatedRequest, 'ip' | 'socket'>): string {
   return `ip:${req.ip ?? req.socket.remoteAddress ?? 'unknown'}`;
 }
 
@@ -84,8 +89,23 @@ export function createFeedbackRouter(resolve: () => FeedbackService = () => getC
       // Once GitHub is asked to write, the report may exist: a 408 would say it
       // does not, and a retry would file it twice. So the request is committed
       // here and answers with its real result, however late.
-      const issue = await commitSection(() => service.file(report));
-      res.status(201).json({ success: true, data: issue, requestId: req.requestId });
+      try {
+        const issue = await commitSection(() => service.file(report));
+        res.status(201).json({ success: true, data: issue, requestId: req.requestId });
+      } catch (error) {
+        if (error instanceof FeedbackMaybeFiledError) {
+          // Said apart from a refusal, so the app asks the reporter to look before sending again.
+          res.status(502).json({
+            success: false,
+            error: { code: 'FEEDBACK_MAYBE_FILED', message: error.message, requestId: req.requestId },
+          });
+          return;
+        }
+        if (error instanceof UpstreamServiceError && error.retryAfterSeconds) {
+          res.setHeader('Retry-After', String(error.retryAfterSeconds));
+        }
+        throw error;
+      }
     })
   );
 

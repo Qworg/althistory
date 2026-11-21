@@ -84,8 +84,11 @@ body exactly as it will be filed.
 | `FEEDBACK_RATE_GLOBAL` | `30` | Reports per hour from all clients together |
 | `FEEDBACK_GITHUB_API` | `https://api.github.com` | For GitHub Enterprise |
 
-A misconfiguration, such as a repository not in `owner/name` form or a token
-without a repository, turns server filing off and is logged once at start.
+A misconfiguration turns server filing off, and is logged the first time
+feedback is asked for. Examples: a repository not in `owner/name` form, a token
+without a repository, or a token with spaces or control characters in it. A
+screenshot branch that turns out to be the default branch is refused: the
+issue is filed without the picture.
 
 ### What the server checks
 
@@ -94,19 +97,28 @@ token, so the server does not trust what it is sent:
 
 - **Mentions and references** in the title and body are neutralised. A
   zero-width space follows each `@` or `#`, as Dependabot does, so a report
-  cannot notify anyone or cross-reference another repository's issues. The
-  text reads the same.
-- **Sizes.** A title is one line of at most 200 characters; a body at most
-  60,000; a screenshot at most 2 MB, and its bytes must be the PNG, JPEG or
-  WebP its data URL claims.
-- **Limits.** Reports are limited per client and across all clients, as
-  above (`429` with `Retry-After`). When the entity routes need an API key
+  cannot notify anyone or cross-reference another repository's issues. Character
+  references that GitHub would decode to `@` or `#` (`&#64;`, `&#x40;`,
+  `&commat;`, `&num;`, ...) are decoded first. The text reads the same.
+- **Sizes.** A title is one line of at most 200 characters, and a body at
+  most 60,000, both measured after neutralising. A screenshot is at most 2 MB,
+  and must start with the signature of the PNG, JPEG or WebP its data URL
+  claims. That is a signature check, not a decoder.
+- **Limits.** Reports are limited per address and across all addresses, as
+  above (`429` with `Retry-After`). They are counted per address, not per key,
+  because the bundled app sends one key for every visitor. Behind a proxy,
+  set `TRUST_PROXY` so the address is the visitor's. When the entity routes need an API key
   (`API_AUTH_REQUIRED`), so does filing.
 - **Failure.** If the screenshot cannot be stored, the issue is still filed
-  and says so. If GitHub refuses the issue, the app gets `502` (`503` when
-  GitHub is limiting the token), and the dialog offers the form.
-- **Timeouts.** `/api/feedback` has a 45-second budget, and each GitHub call
-  10 seconds. Once the server starts writing to GitHub the request is past its
+  and says so. If GitHub refuses the issue, the app gets `502`, or `503` with
+  `Retry-After` when GitHub is limiting the token, and the dialog offers the
+  form. If GitHub may have filed it but the server cannot tell, the answer is
+  `502` with the code `FEEDBACK_MAYBE_FILED`: a timeout, a 5xx, or a reply it
+  cannot read. The dialog then asks the reporter to check the repository before
+  sending again.
+- **Timeouts.** `/api/feedback` has a 45-second budget. A report's GitHub calls
+  share 35 seconds, at most 10 each, and the issue always gets a full call's
+  time. Once the server starts writing to GitHub the request is past its
   point of no return (see "A `408` means nothing was saved" in
   [api-integration.md](api-integration.md)). It answers with the real result
   rather than a `408`, so a retry never files the report twice.
@@ -117,8 +129,10 @@ GitHub account, so a reply on the issue may not reach them.
 ### Privacy
 
 In a public repository the issue and its screenshot are public. The dialog
-says so beside the screenshot. Committed screenshots stay in the branch's
-history; to remove one, rewrite or delete the branch (it holds nothing else).
+says so beside the screenshot. The screenshot branch starts from the default
+branch's head, so it holds a copy of that tree, and its own commits are the
+screenshots. To remove a screenshot, rewrite or delete the branch. The server
+creates it again on the next report.
 
 ## Code
 

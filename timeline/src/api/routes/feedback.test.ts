@@ -23,6 +23,7 @@ async function freshModules() {
 function makeService(env: Record<string, string> = { FEEDBACK_GITHUB_REPO: 'owner/repo', FEEDBACK_GITHUB_TOKEN: 'tok' }) {
   const fetchImpl = vi.fn(async (url: string) => {
     if (url.includes('/contents/')) return new Response('{}', { status: 201 });
+    if (url.endsWith('/repos/owner/repo')) return new Response(JSON.stringify({ default_branch: 'main' }), { status: 200 });
     return new Response(JSON.stringify({ number: 7, html_url: 'https://github.com/owner/repo/issues/7' }), { status: 201 });
   });
   return { service: new FeedbackServiceClass(readFeedbackConfig(env), fetchImpl), fetchImpl };
@@ -59,7 +60,7 @@ describe('/api/feedback', () => {
       .send({ kind: 'bug', title: 'Broken', body: 'It broke', screenshot: `data:image/png;base64,${PNG.toString('base64')}` });
     expect(res.status).toBe(201);
     expect(res.body.data).toEqual({ number: 7, url: 'https://github.com/owner/repo/issues/7', screenshotStored: true });
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
   it('answers 400 for a malformed report without counting it or calling GitHub', async () => {
@@ -108,5 +109,40 @@ describe('/api/feedback', () => {
     const res = await request(app).post('/api/feedback').send({ kind: 'bug', title: 'x' });
     expect(res.status).toBe(401);
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe('/api/feedback, after the first review', () => {
+  beforeEach(async () => {
+    authRequired.value = false;
+    await freshModules();
+  });
+
+  it('counts reports per address, not per key, because the app shares one key', async () => {
+    const { clientOf } = await import('./feedback');
+    const visitor = (ip: string) => ({ ip, socket: {}, apiKey: { id: 'the-app-key' } }) as never;
+    expect(clientOf(visitor('203.0.113.1'))).toBe('ip:203.0.113.1');
+    expect(clientOf(visitor('203.0.113.2'))).not.toBe(clientOf(visitor('203.0.113.1')));
+  });
+
+  it('answers FEEDBACK_MAYBE_FILED when GitHub may have filed it', async () => {
+    const service = new FeedbackServiceClass(
+      readFeedbackConfig({ FEEDBACK_GITHUB_REPO: 'o/r', FEEDBACK_GITHUB_TOKEN: 't' }),
+      async () => new Response('{}', { status: 504 })
+    );
+    const res = await request(await makeApp(service)).post('/api/feedback').send({ kind: 'bug', title: 'x' });
+    expect(res.status).toBe(502);
+    expect(res.body.error.code).toBe('FEEDBACK_MAYBE_FILED');
+  });
+
+  it('sends Retry-After when GitHub is limiting the token', async () => {
+    const service = new FeedbackServiceClass(
+      readFeedbackConfig({ FEEDBACK_GITHUB_REPO: 'o/r', FEEDBACK_GITHUB_TOKEN: 't' }),
+      async () =>
+        new Response(JSON.stringify({ message: 'limit' }), { status: 429, headers: { 'retry-after': '30' } })
+    );
+    const res = await request(await makeApp(service)).post('/api/feedback').send({ kind: 'bug', title: 'x' });
+    expect(res.status).toBe(503);
+    expect(res.headers['retry-after']).toBe('30');
   });
 });

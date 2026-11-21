@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
+  FeedbackMaybeFiledError,
   FeedbackRateLimiter,
   FeedbackService,
   neutralizeGitHubReferences,
@@ -211,6 +212,7 @@ describe('FeedbackRateLimiter', () => {
 
 describe('FeedbackService.file', () => {
   const issueCreated = () => ({ status: 201, json: { number: 50, html_url: 'https://github.com/owner/repo/issues/50' } });
+  const defaultBranchMain = () => ({ status: 200, json: { default_branch: 'main' } });
 
   it('files the issue with the kind label, the configured labels and a neutralised body', async () => {
     const github = fakeGitHub({ 'POST /repos/owner/repo/issues': issueCreated });
@@ -238,6 +240,7 @@ describe('FeedbackService.file', () => {
 
   it('commits the screenshot to its branch and links it from the issue', async () => {
     const github = fakeGitHub({
+      'GET /repos/owner/repo': defaultBranchMain,
       'PUT /repos/owner/repo/contents/*': () => ({ status: 201, json: {} }),
       'POST /repos/owner/repo/issues': issueCreated,
     });
@@ -245,12 +248,12 @@ describe('FeedbackService.file', () => {
 
     await service.file({ kind: 'bug', title: 'x', body: 'b', screenshot: { bytes: PNG, type: 'png' } });
 
-    const put = github.calls[0]!;
+    const put = github.calls.find((c) => c.method === 'PUT')!;
     expect(put.method).toBe('PUT');
     expect(put.path).toMatch(/^\/repos\/owner\/repo\/contents\/feedback\/\d{4}-\d{2}\/[0-9a-f-]{36}\.png$/);
     expect(put.body).toMatchObject({ branch: 'feedback-screenshots', content: PNG.toString('base64') });
     const file = put.path.replace('/repos/owner/repo/contents/', '');
-    expect(github.calls[1]!.body.body).toContain(
+    expect(github.calls.at(-1)!.body.body).toContain(
       `![Screenshot of the app when the report was opened](https://github.com/owner/repo/blob/feedback-screenshots/${file}?raw=true)`
     );
   });
@@ -283,6 +286,7 @@ describe('FeedbackService.file', () => {
   it('still files the issue when the screenshot cannot be stored, and says so', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const github = fakeGitHub({
+      'GET /repos/owner/repo': defaultBranchMain,
       'PUT /repos/owner/repo/contents/*': () => ({ status: 403, json: { message: 'Resource not accessible' } }),
       'POST /repos/owner/repo/issues': issueCreated,
     });
@@ -328,5 +332,135 @@ describe('FeedbackService.file', () => {
     const service = new FeedbackService(readFeedbackConfig({ FEEDBACK_GITHUB_REPO: 'a/b' }), fetchImpl);
     await expect(service.file({ kind: 'bug', title: 'x', body: '' })).rejects.toThrow(/does not file/);
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe('first review: what got through', () => {
+  const issueCreated = () => ({ status: 201, json: { number: 50, html_url: 'https://github.com/owner/repo/issues/50' } });
+
+  it.each([
+    ['a mention right after a code span', '`x`@octocat', `\`x\`@${ZWSP}octocat`],
+    ['&commat;', '&commat;octocat', `@${ZWSP}octocat`],
+    ['&#64;', '&#64;octocat', `@${ZWSP}octocat`],
+    ['&#x40; (any case, no semicolon)', '&#X40octocat', `@${ZWSP}octocat`],
+    ['&#x23; as a cross-repository reference', 'octocat/Hello-World&#x23;1', `octocat/Hello-World#${ZWSP}1`],
+    ['&num;', 'see &num;1', `see #${ZWSP}1`],
+    ['&#0035; with leading zeros', '&#0035;1', `#${ZWSP}1`],
+  ])('neutralises %s', (_name, input, expected) => {
+    expect(neutralizeGitHubReferences(input)).toBe(expected);
+  });
+
+  it('is idempotent, so neutralising twice changes nothing', () => {
+    const once = neutralizeGitHubReferences('@a #1 &#64;b GH-2 x/y/issues/3');
+    expect(neutralizeGitHubReferences(once)).toBe(once);
+  });
+
+  it('measures the title and body as they will be filed', () => {
+    expect(() => readFeedbackReport({ kind: 'bug', title: '#1'.repeat(80) })).toThrow(/title is longer/);
+    expect(() => readFeedbackReport({ kind: 'bug', title: 'x', body: '#1'.repeat(25_000) })).toThrow(/body is longer/);
+    expect(readFeedbackReport({ kind: 'bug', title: 'see #1', body: '@a' })).toMatchObject({
+      title: `see #${ZWSP}1`,
+      body: `@${ZWSP}a`,
+    });
+  });
+
+  it.each(['../..', 'x/..', './x'])('refuses the repository %s', (repo) => {
+    const cfg = readFeedbackConfig({ FEEDBACK_GITHUB_REPO: repo, FEEDBACK_GITHUB_TOKEN: 't' });
+    expect(cfg.repo).toBeNull();
+    expect(cfg.token).toBeNull();
+  });
+
+  it('refuses a token with a line break or space, without repeating it', () => {
+    const cfg = readFeedbackConfig({ FEEDBACK_GITHUB_REPO: 'a/b', FEEDBACK_GITHUB_TOKEN: 'ghp_SECRET\nX-Evil: 1' });
+    expect(cfg.token).toBeNull();
+    expect(cfg.problem).toMatch(/control characters/);
+    expect(cfg.problem).not.toContain('SECRET');
+  });
+
+  it('never commits a screenshot to the default branch, but still files the issue', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const github = fakeGitHub({
+      'GET /repos/owner/repo': () => ({ status: 200, json: { default_branch: 'main' } }),
+      'POST /repos/owner/repo/issues': issueCreated,
+    });
+    const service = new FeedbackService(config({ screenshotBranch: 'main' }), github.fetchImpl);
+    const issue = await service.file({ kind: 'bug', title: 'x', body: '', screenshot: { bytes: PNG, type: 'png' } });
+    expect(issue.screenshotStored).toBe(false);
+    expect(github.calls.some((c) => c.method === 'PUT')).toBe(false);
+    warn.mockRestore();
+  });
+
+  it('links the screenshot where GitHub says it is (GitHub Enterprise too), and asks the default branch once', async () => {
+    const github = fakeGitHub({
+      'GET /repos/owner/repo': () => ({ status: 200, json: { default_branch: 'main' } }),
+      'PUT /repos/owner/repo/contents/*': () => ({
+        status: 201,
+        json: { content: { html_url: 'https://ghe.example/owner/repo/blob/feedback-screenshots/feedback/a.png' } },
+      }),
+      'POST /repos/owner/repo/issues': issueCreated,
+    });
+    const service = new FeedbackService(config({ apiBase: 'https://api.github.com' }), github.fetchImpl);
+    await service.file({ kind: 'bug', title: 'x', body: '', screenshot: { bytes: PNG, type: 'png' } });
+    await service.file({ kind: 'bug', title: 'y', body: '', screenshot: { bytes: PNG, type: 'png' } });
+    expect(github.calls.at(-1)!.body.body).toContain('(https://ghe.example/owner/repo/blob/feedback-screenshots/feedback/a.png?raw=true)');
+    expect(github.calls.filter((c) => c.path === '/repos/owner/repo')).toHaveLength(1);
+  });
+
+  it('retries a screenshot once when another report moved the branch (409)', async () => {
+    let puts = 0;
+    const github = fakeGitHub({
+      'GET /repos/owner/repo': () => ({ status: 200, json: { default_branch: 'main' } }),
+      'PUT /repos/owner/repo/contents/*': () => (++puts === 1 ? { status: 409, json: { message: 'conflict' } } : { status: 201, json: {} }),
+      'POST /repos/owner/repo/issues': issueCreated,
+    });
+    const issue = await new FeedbackService(config(), github.fetchImpl).file({
+      kind: 'bug',
+      title: 'x',
+      body: '',
+      screenshot: { bytes: PNG, type: 'png' },
+    });
+    expect(issue.screenshotStored).toBe(true);
+    expect(puts).toBe(2);
+  });
+
+  it.each([
+    ['times out', async () => Promise.reject(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))],
+    ['answers 502', async () => new Response('{}', { status: 502 })],
+    ['answers 201 with no readable body', async () => new Response('not json', { status: 201 })],
+    ['answers 201 without the issue', async () => new Response('{}', { status: 201 })],
+  ])('says the issue may have been filed when GitHub %s', async (_name, answer) => {
+    const service = new FeedbackService(config(), answer as unknown as (url: string, init: RequestInit) => Promise<Response>);
+    const error = await service.file({ kind: 'bug', title: 'x', body: '' }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(FeedbackMaybeFiledError);
+  });
+
+  it('keeps every call inside the report’s budget, giving the issue at least one call’s time', async () => {
+    vi.useFakeTimers();
+    try {
+      const timeouts: number[] = [];
+      const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
+        timeouts.push(ms);
+        return new AbortController().signal;
+      });
+      const github = fakeGitHub({
+        'GET /repos/owner/repo': () => {
+          vi.advanceTimersByTime(30_000);
+          return { status: 200, json: { default_branch: 'main' } };
+        },
+        'PUT /repos/owner/repo/contents/*': () => ({ status: 201, json: {} }),
+        'POST /repos/owner/repo/issues': issueCreated,
+      });
+      await new FeedbackService(config(), github.fetchImpl).file({
+        kind: 'bug',
+        title: 'x',
+        body: '',
+        screenshot: { bytes: PNG, type: 'png' },
+      });
+      // 35 s in all: the repository read had 10, the PUT the 5 left; the issue still gets 10.
+      expect(timeouts).toEqual([10_000, 5_000, 10_000]);
+      timeout.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
