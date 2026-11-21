@@ -32,9 +32,12 @@ feedback is opened. The app asks the server again alongside the capture (never
 in front of it, so the picture and state are the page as it was asked for). If
 the answer is now off, it says "Feedback has been turned off on this server"
 and the button goes. It also asks again when the window regains focus after
-five minutes. An answer slower than a second and a half after the capture, or
-a failed one, leaves the earlier answer standing. That includes a `404`: a
-server older than feedback stays older. A report that still reaches a
+five minutes. If the answer comes more than a second and a half after the
+capture, the dialog opens anyway. When that late answer is "off", the button
+goes behind the open dialog: on the server route the report is refused and
+the dialog says so; on GitHub's form it can still be sent. A failed answer
+leaves the earlier one standing, including a `404`: a server older than
+feedback stays older. A report that still reaches a
 server that turned feedback off is refused (`404 FEEDBACK_DISABLED`). The
 dialog then says it was not sent and shows the text, so nothing is lost.
 

@@ -130,7 +130,14 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
     // Cancelled while capturing (Escape, handled by FeedbackHost): stay closed. And
     // if it was cancelled and opened again, this capture is not the new one's.
     if (get().phase !== 'capturing' || get().openCount !== opening) return
-    const stillOn = await Promise.race([recheck, new Promise<boolean>((resolve) => setTimeout(() => resolve(true), RECHECK_MS))])
+    let waited: ReturnType<typeof setTimeout> | undefined
+    const stillOn = await Promise.race([
+      recheck,
+      new Promise<boolean>((resolve) => {
+        waited = setTimeout(() => resolve(true), RECHECK_MS)
+      }),
+    ])
+    clearTimeout(waited)
     if (get().phase !== 'capturing' || get().openCount !== opening) return
     if (!stillOn) {
       // Turned off since this tab asked: say so, rather than vanish.

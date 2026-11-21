@@ -19,6 +19,7 @@ import { useHelpStore } from '@/components/help/helpStore'
 function App() {
   return (
     <>
+      <main id="main-view" tabIndex={-1} />
       <FeedbackHost />
       <FeedbackButton />
       <HelpDialog />
@@ -223,5 +224,49 @@ describe('the recheck, after the sixth review', () => {
     })
     expect(useFeedbackStore.getState().phase).toBe('closed')
     expect(await screen.findByText('Feedback has been turned off on this server.')).toBeInTheDocument()
+  })
+})
+
+describe('after the seventh review', () => {
+  beforeEach(() => {
+    useFeedbackStore.setState({ phase: 'closed', available: false, notice: null })
+    api.getConfig.mockReset()
+  })
+
+  it('a refetch that fails after a 404 keeps feedback offered (the server stays older)', async () => {
+    const { focusManager } = await import('@tanstack/react-query')
+    api.getConfig.mockRejectedValueOnce(new APIError('Not found', 404, 'NOT_FOUND'))
+    renderWithProviders(<App />)
+    await waitFor(() => expect(useFeedbackStore.getState().available).toBe(true))
+    api.getConfig.mockRejectedValue(new APIError('Bad Gateway', 502))
+    act(() => {
+      focusManager.setFocused(false)
+      focusManager.setFocused(true)
+    })
+    await waitFor(() => expect(api.getConfig).toHaveBeenCalledTimes(2))
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)))
+    expect(useFeedbackStore.getState().available).toBe(true)
+    act(() => focusManager.setFocused(undefined))
+  })
+
+  it('moves focus to the view when the button it was on goes because feedback was turned off', async () => {
+    api.getConfig.mockResolvedValueOnce({ enabled: true, serverFiling: false, repo: 'o/r' })
+    renderWithProviders(<App />)
+    const button = await screen.findByRole('button', { name: /Send feedback/ })
+    button.focus()
+    api.getConfig.mockResolvedValue({ enabled: false, serverFiling: false, repo: null })
+    await act(async () => {
+      await useFeedbackStore.getState().openFeedback()
+    })
+    await screen.findByText('Feedback has been turned off on this server.')
+    await waitFor(() => expect(document.activeElement?.id).toBe('main-view'))
+  })
+
+  it('does not move focus on load', async () => {
+    api.getConfig.mockResolvedValue({ enabled: true, serverFiling: false, repo: 'o/r' })
+    renderWithProviders(<App />)
+    await screen.findByRole('button', { name: /Send feedback/ })
+    await act(async () => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined))))
+    expect(document.activeElement).toBe(document.body)
   })
 })
